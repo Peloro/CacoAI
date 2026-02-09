@@ -222,29 +222,36 @@ def resposta_local(mensagem: str, contexto: dict | None = None) -> str | None:
 # Respostas para novas funcionalidades
 # ---------------------------------------------------------------------------
 
-def gerar_resposta_listar_movimentacoes(movimentacoes: list[dict], tipo: str | None = None) -> str:
+def gerar_resposta_listar_movimentacoes(
+    movimentacoes: list[dict],
+    tipo: str | None = None,
+    label_mes: str = "este mês",
+) -> str:
     """
     Gera resposta amigável listando as movimentações recentes.
 
     Parâmetros:
       - movimentacoes: lista de dicts com id, tipo, valor, categoria, descricao, data_ref
       - tipo: 'entrada', 'saida' ou None (todas)
+      - label_mes: nome amigável do mês ('este mês', 'janeiro/2026', etc.)
     """
+    sufixo = f" em *{label_mes}*" if label_mes != "este mês" else ""
+
     if not movimentacoes:
         if tipo == "entrada":
-            return "Você ainda não registrou nenhuma entrada. 🤔"
+            return f"Você ainda não registrou nenhuma entrada{sufixo}. 🤔"
         elif tipo == "saida":
-            return "Você ainda não registrou nenhum gasto. 🤔"
+            return f"Você ainda não registrou nenhum gasto{sufixo}. 🤔"
         else:
-            return "Você ainda não tem movimentações registradas. 🤔"
+            return f"Você ainda não tem movimentações registradas{sufixo}. 🤔"
 
     # Cabeçalho
     if tipo == "entrada":
-        cabecalho = f"💚 *Suas últimas {len(movimentacoes)} entradas:*\n\n"
+        cabecalho = f"💚 *Suas últimas {len(movimentacoes)} entradas{sufixo}:*\n\n"
     elif tipo == "saida":
-        cabecalho = f"💸 *Seus últimos {len(movimentacoes)} gastos:*\n\n"
+        cabecalho = f"💸 *Seus últimos {len(movimentacoes)} gastos{sufixo}:*\n\n"
     else:
-        cabecalho = f"📋 *Suas últimas {len(movimentacoes)} movimentações:*\n\n"
+        cabecalho = f"📋 *Suas últimas {len(movimentacoes)} movimentações{sufixo}:*\n\n"
 
     # Lista as movimentações
     linhas = []
@@ -272,12 +279,16 @@ def gerar_resposta_listar_movimentacoes(movimentacoes: list[dict], tipo: str | N
     return resposta
 
 
-def gerar_resposta_consultar_categoria(dados_categoria: dict) -> str:
+def gerar_resposta_consultar_categoria(
+    dados_categoria: dict,
+    label_mes: str = "este mês",
+) -> str:
     """
     Gera resposta amigável com os detalhes de uma categoria.
 
     Parâmetros:
       - dados_categoria: dict com categoria, ano_mes, total, quantidade, movimentacoes
+      - label_mes: nome amigável do mês ('este mês', 'janeiro/2026', etc.)
     """
     categoria = dados_categoria["categoria"]
     total = dados_categoria["total"]
@@ -301,10 +312,12 @@ def gerar_resposta_consultar_categoria(dados_categoria: dict) -> str:
     emoji = emojis.get(categoria, "📌")
 
     if quantidade == 0:
-        return f"{emoji} Você não tem gastos em *{categoria}* este mês."
+        sufixo = f" em *{label_mes}*" if label_mes != "este mês" else " este mês"
+        return f"{emoji} Você não tem gastos em *{categoria}*{sufixo}."
 
     # Cabeçalho
-    resposta = f"{emoji} *Gastos em {categoria.upper()}*\n\n"
+    titulo_mes = f" ({label_mes})" if label_mes != "este mês" else ""
+    resposta = f"{emoji} *Gastos em {categoria.upper()}*{titulo_mes}\n\n"
     resposta += f"💰 *Total:* {formatar_real(total)}\n"
     resposta += f"📊 *Quantidade:* {quantidade} {'gasto' if quantidade == 1 else 'gastos'}\n\n"
 

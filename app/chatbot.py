@@ -22,7 +22,7 @@ Modo híbrido:
 A IA NUNCA recebe ou gera valores financeiros.
 """
 import random
-from datetime import date
+from datetime import date, datetime
 from app.database import (
     get_or_create_user,
     registrar_movimentacao,
@@ -73,8 +73,51 @@ _senha_temporaria: dict[int, str] = {}
 _pendente_desambiguacao: dict[int, list[dict]] = {}
 
 # Armazena confirmação pendente de limpeza de movimentações
-# Chave: usuario_id, valor: tipo_limpar ('entrada', 'saida' ou None para tudo)
-_pendente_confirmacao_limpar: dict[int, str | None] = {}
+# Chave: usuario_id, valor: tupla (tipo_limpar, mes_ref) onde tipo é 'entrada', 'saida' ou None
+_pendente_confirmacao_limpar: dict[int, tuple[str | None, str | None]] = {}
+
+# Nomes de meses para respostas amigáveis
+_NOMES_MES = {
+    1: "janeiro", 2: "fevereiro", 3: "março", 4: "abril",
+    5: "maio", 6: "junho", 7: "julho", 8: "agosto",
+    9: "setembro", 10: "outubro", 11: "novembro", 12: "dezembro",
+}
+
+
+def _nome_mes(ano_mes: str | None) -> str:
+    """Retorna nome amigável do mês. Ex: '2026-01' → 'janeiro/2026'."""
+    if not ano_mes:
+        ano_mes = date.today().strftime("%Y-%m")
+    try:
+        partes = ano_mes.split("-")
+        ano = int(partes[0])
+        mes = int(partes[1])
+        nome = _NOMES_MES.get(mes, str(mes))
+        # Se é o mês atual, retorna "este mês"
+        hoje = date.today()
+        if ano == hoje.year and mes == hoje.month:
+            return "este mês"
+        return f"{nome}/{ano}"
+    except (ValueError, IndexError):
+        return "este mês"
+
+
+def _formatar_data_amigavel(data_iso: str) -> str:
+    """Formata YYYY-MM-DD em formato amigável. Ex: '2026-02-08' → '08/02 (ontem)'."""
+    try:
+        dt = datetime.strptime(data_iso, "%Y-%m-%d").date()
+        hoje = date.today()
+        data_fmt = dt.strftime("%d/%m")
+        diff = (hoje - dt).days
+        if diff == 0:
+            return f"{data_fmt} (hoje)"
+        elif diff == 1:
+            return f"{data_fmt} (ontem)"
+        elif diff == 2:
+            return f"{data_fmt} (anteontem)"
+        return data_fmt
+    except (ValueError, TypeError):
+        return data_iso or ""
 
 
 # ---------------------------------------------------------------------------
@@ -305,10 +348,15 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     valor = parsed["valor"]
     descricao = parsed["descricao"]
     data_ref = parsed["data"] or date.today().isoformat()
+    mes_ref = parsed.get("mes_referencia")  # YYYY-MM ou None (mês atual)
 
     # 3. Categorização: só resolve quando realmente precisa (registro)
     #    NÃO chama LLM pra resumo, saldo, saudação, etc.
     categoria_regra = parsed["categoria_regra"]
+
+    # Helper: label do mês para mensagens
+    label_mes = _nome_mes(mes_ref)
+    sufixo_mes = f" em *{label_mes}*" if mes_ref else ""
 
     # 4. Executa ação no banco e monta resposta com dados reais
     #    TODAS as respostas financeiras são montadas por código.
@@ -325,7 +373,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             descricao=descricao,
             data_ref=data_ref,
         )
-        return _montar_resposta_registro("entrada", valor, descricao, categoria, usuario_id)
+        return _montar_resposta_registro("entrada", valor, descricao, categoria, usuario_id, data_ref=data_ref)
 
     elif intencao == "registrar_saida" and valor and valor > 0:
         categoria = _resolver_categoria(categoria_regra, descricao)
@@ -339,19 +387,19 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             data_ref=data_ref,
         )
         alerta = detectar_gasto_fora_do_padrao(usuario_id, categoria, valor)
-        return _montar_resposta_registro("saida", valor, descricao, categoria, usuario_id, alerta)
+        return _montar_resposta_registro("saida", valor, descricao, categoria, usuario_id, alerta, data_ref=data_ref)
 
     elif intencao == "consultar_resumo":
-        resumo = resumo_mes(usuario_id)
-        return _montar_resumo(resumo)
+        resumo = resumo_mes(usuario_id, ano_mes=mes_ref)
+        return _montar_resumo(resumo, label_mes=label_mes)
 
     elif intencao == "consultar_saldo":
-        resumo = resumo_mes(usuario_id)
+        resumo = resumo_mes(usuario_id, ano_mes=mes_ref)
         saldo = resumo["saldo"]
         if saldo >= 0:
-            return f"Até agora sobram {formatar_real(saldo)} no mês. 👍"
+            return f"Até agora sobram {formatar_real(saldo)}{sufixo_mes or ' no mês'}. 👍"
         else:
-            return f"Tá faltando {formatar_real(abs(saldo))} pra fechar o mês. 😬"
+            return f"Tá faltando {formatar_real(abs(saldo))} pra fechar{sufixo_mes or ' o mês'}. 😬"
 
     elif intencao == "posso_gastar" and valor and valor > 0:
         avaliacao = avaliar_gasto(usuario_id, valor)
@@ -368,10 +416,22 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
                 return f"🤷 Não encontrei uma movimentação com o ID #{id_mov}. Confere se tá certo!"
             return gerar_resposta_apagar_com_id(mov)
         
+        # Se a descrição é apenas referência genérica ("última", "esse", "essa"),
+        # não é uma busca real — vai direto pro apagar última
+        import re as _re
+        _desc_generica = _re.fullmatch(
+            r'(?:remov[aei]r?|apag[aeu]r?|exclu[aií]r?|delet[aei]r?|tir[aei]r?)?\s*'
+            r'(?:ess[ea]s?|est[ea]s?|aquel[ea]s?|[oa]s?)?\s*'
+            r'(?:últim[oa]s?|ultim[oa]s?|mais\s+recente|primeir[oa])?\s*'
+            r'(?:entrada|saída|saida|gasto|despesa|movimentação|movimentacao|pagamento|compra)?\s*',
+            (descricao or '').lower().strip(),
+        )
+        descricao_real = descricao if (descricao and not _desc_generica) else None
+        
         # Tenta buscar por descrição/categoria mencionada na mensagem
-        if descricao:
+        if descricao_real:
             matches = buscar_movimentacoes_por_descricao(
-                usuario_id, descricao, tipo=tipo_apagar
+                usuario_id, descricao_real, tipo=tipo_apagar
             )
             
             if len(matches) == 1:
@@ -383,66 +443,67 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             elif len(matches) > 1:
                 # Múltiplos matches → pede pra escolher
                 _pendente_desambiguacao[usuario_id] = matches
-                return gerar_resposta_desambiguacao_apagar(matches, descricao)
+                return gerar_resposta_desambiguacao_apagar(matches, descricao_real)
             
             # Nenhum match por descrição → avisa o usuário
-            if descricao:
-                return (
-                    f"🤷 Não encontrei nenhuma movimentação com \"{descricao}\" neste mês.\n"
-                    "Confere se escreveu certinho ou manda *listar gastos* pra ver suas movimentações!"
-                )
+            return (
+                f"🤷 Não encontrei nenhuma movimentação com \"{descricao_real}\" neste mês.\n"
+                "Confere se escreveu certinho ou manda *listar gastos* pra ver suas movimentações!"
+            )
         
-        # Sem descrição e sem ID → apaga última movimentação (comportamento original)
+        # Sem descrição real e sem ID → apaga última movimentação
         mov = apagar_ultima_movimentacao(usuario_id, tipo_apagar)
         return _montar_resposta_apagar(mov, tipo_apagar)
 
     elif intencao == "listar_movimentacoes":
         tipo_listar = parsed.get("tipo_listar")  # 'entrada', 'saida' ou None
-        movimentacoes = listar_movimentacoes_recentes(usuario_id, limite=10, tipo=tipo_listar)
-        return gerar_resposta_listar_movimentacoes(movimentacoes, tipo_listar)
+        movimentacoes = listar_movimentacoes_recentes(
+            usuario_id, limite=10, tipo=tipo_listar, ano_mes=mes_ref
+        )
+        return gerar_resposta_listar_movimentacoes(movimentacoes, tipo_listar, label_mes=label_mes)
 
     elif intencao == "consultar_categoria":
         categoria_consulta = parsed.get("categoria_consulta")
         if not categoria_consulta:
             return "🤔 Qual categoria você quer consultar? Ex: \"Quanto gastei em transporte\""
         
-        dados_cat = consultar_categoria(usuario_id, categoria_consulta)
-        return gerar_resposta_consultar_categoria(dados_cat)
+        dados_cat = consultar_categoria(usuario_id, categoria_consulta, ano_mes=mes_ref)
+        return gerar_resposta_consultar_categoria(dados_cat, label_mes=label_mes)
 
     elif intencao == "limpar_movimentacoes":
         tipo_limpar = parsed.get("tipo_limpar")  # 'entrada', 'saida' ou None (tudo)
-        totais = totais_mes(usuario_id)
+        totais = totais_mes(usuario_id, ano_mes=mes_ref)
 
         if tipo_limpar == "saida":
             qtd = totais["qtd_saidas"]
             if qtd == 0:
-                return "🤷 Você não tem nenhum gasto registrado neste mês."
-            _pendente_confirmacao_limpar[usuario_id] = "saida"
+                return f"🤷 Você não tem nenhum gasto registrado{sufixo_mes or ' neste mês'}."
+            _pendente_confirmacao_limpar[usuario_id] = ("saida", mes_ref)
             return (
                 f"⚠️ *Tem certeza?*\n\n"
                 f"Isso vai apagar *{qtd} gasto{'s' if qtd > 1 else ''}* "
-                f"({formatar_real(totais['total_saidas'])}) deste mês.\n\n"
+                f"({formatar_real(totais['total_saidas'])}){sufixo_mes or ' deste mês'}.\n\n"
                 f"Manda *sim* pra confirmar ou *não* pra cancelar."
             )
         elif tipo_limpar == "entrada":
             qtd = totais["qtd_entradas"]
             if qtd == 0:
-                return "🤷 Você não tem nenhuma entrada registrada neste mês."
-            _pendente_confirmacao_limpar[usuario_id] = "entrada"
+                return f"🤷 Você não tem nenhuma entrada registrada{sufixo_mes or ' neste mês'}."
+            _pendente_confirmacao_limpar[usuario_id] = ("entrada", mes_ref)
             return (
                 f"⚠️ *Tem certeza?*\n\n"
                 f"Isso vai apagar *{qtd} entrada{'s' if qtd > 1 else ''}* "
-                f"({formatar_real(totais['total_entradas'])}) deste mês.\n\n"
+                f"({formatar_real(totais['total_entradas'])}){sufixo_mes or ' deste mês'}.\n\n"
                 f"Manda *sim* pra confirmar ou *não* pra cancelar."
             )
         else:
             qtd_total = totais["qtd_entradas"] + totais["qtd_saidas"]
             if qtd_total == 0:
-                return "🤷 Você não tem nenhuma movimentação registrada neste mês."
-            _pendente_confirmacao_limpar[usuario_id] = None
+                return f"🤷 Você não tem nenhuma movimentação registrada{sufixo_mes or ' neste mês'}."
+            _pendente_confirmacao_limpar[usuario_id] = (None, mes_ref)
             return (
                 f"⚠️ *Tem certeza?*\n\n"
-                f"Isso vai apagar *TODAS* as movimentações deste mês:\n"
+                f"Isso vai apagar *TODAS* as movimentações{sufixo_mes or ' deste mês'}:\n"
                 f"  💚 {totais['qtd_entradas']} entrada{'s' if totais['qtd_entradas'] != 1 else ''} "
                 f"({formatar_real(totais['total_entradas'])})\n"
                 f"  💸 {totais['qtd_saidas']} gasto{'s' if totais['qtd_saidas'] != 1 else ''} "
@@ -452,24 +513,24 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
 
     elif intencao == "consultar_total":
         tipo_total = parsed.get("tipo_total")  # 'entrada' ou 'saida'
-        totais = totais_mes(usuario_id)
+        totais = totais_mes(usuario_id, ano_mes=mes_ref)
 
         if tipo_total == "entrada":
             total = totais["total_entradas"]
             qtd = totais["qtd_entradas"]
             if qtd == 0:
-                return "Você ainda não registrou nenhuma entrada este mês. 🤔"
+                return f"Você ainda não registrou nenhuma entrada{sufixo_mes or ' este mês'}. 🤔"
             return (
-                f"💚 *Total de ganhos no mês:* {formatar_real(total)}\n"
+                f"💚 *Total de ganhos{sufixo_mes or ' no mês'}:* {formatar_real(total)}\n"
                 f"📊 {qtd} entrada{'s' if qtd > 1 else ''} registrada{'s' if qtd > 1 else ''}."
             )
         else:
             total = totais["total_saidas"]
             qtd = totais["qtd_saidas"]
             if qtd == 0:
-                return "Você ainda não registrou nenhum gasto este mês. 🤔"
+                return f"Você ainda não registrou nenhum gasto{sufixo_mes or ' este mês'}. 🤔"
             return (
-                f"💸 *Total de gastos no mês:* {formatar_real(total)}\n"
+                f"💸 *Total de gastos{sufixo_mes or ' no mês'}:* {formatar_real(total)}\n"
                 f"📊 {qtd} gasto{'s' if qtd > 1 else ''} registrado{'s' if qtd > 1 else ''}."
             )
 
@@ -564,26 +625,29 @@ def _processar_confirmacao_limpar(usuario_id: int, mensagem: str) -> str:
     # Confirmar
     if texto in ("sim", "s", "confirmar", "confirma", "pode", "vai", "manda",
                  "bora", "isso", "confirmo", "yes", "ok", "beleza"):
-        tipo_limpar = _pendente_confirmacao_limpar.pop(usuario_id, "NENHUM")
-        if tipo_limpar == "NENHUM":
+        pendente = _pendente_confirmacao_limpar.pop(usuario_id, None)
+        if pendente is None:
             return "Ops, perdi o contexto. 😅 Me diz de novo o que quer limpar!"
 
-        apagados = limpar_movimentacoes(usuario_id, tipo=tipo_limpar)
+        tipo_limpar, mes_limpar = pendente
+        apagados = limpar_movimentacoes(usuario_id, tipo=tipo_limpar, ano_mes=mes_limpar)
+        label = _nome_mes(mes_limpar)
+        sufixo = f" de *{label}*" if mes_limpar else " deste mês"
 
         if tipo_limpar == "saida":
             return (
-                f"🗑️ Pronto! Apaguei *{apagados} gasto{'s' if apagados > 1 else ''}* deste mês.\n"
+                f"🗑️ Pronto! Apaguei *{apagados} gasto{'s' if apagados > 1 else ''}*{sufixo}.\n"
                 f"✅ Seu saldo foi atualizado."
             )
         elif tipo_limpar == "entrada":
             return (
-                f"🗑️ Pronto! Apaguei *{apagados} entrada{'s' if apagados > 1 else ''}* deste mês.\n"
+                f"🗑️ Pronto! Apaguei *{apagados} entrada{'s' if apagados > 1 else ''}*{sufixo}.\n"
                 f"✅ Seu saldo foi atualizado."
             )
         else:
             return (
-                f"🗑️ Pronto! Apaguei *{apagados} movimentação{'ões' if apagados > 1 else ''}* deste mês.\n"
-                f"🔄 Seu mês está zerado. Bora recomeçar!"
+                f"🗑️ Pronto! Apaguei *{apagados} movimentação{'ões' if apagados > 1 else ''}*{sufixo}.\n"
+                f"🔄 Tudo zerado. Bora recomeçar!"
             )
 
     # Cancelar
@@ -607,6 +671,7 @@ def _montar_resposta_registro(
     categoria: str,
     usuario_id: int,
     alerta: dict | None = None,
+    data_ref: str | None = None,
 ) -> str:
     """Monta resposta de confirmação de registro com saldo atualizado do banco."""
     # Puxa saldo atualizado DIRETO do banco
@@ -624,6 +689,10 @@ def _montar_resposta_registro(
     texto = f"✅ {label} registrado! {emoji_tipo}\n"
     texto += f"📝 {desc_txt} — {formatar_real(valor)} ({categoria})\n"
 
+    # Mostra data se não for hoje
+    if data_ref and data_ref != date.today().isoformat():
+        texto += f"📅 Data: {_formatar_data_amigavel(data_ref)}\n"
+
     # Saldo atualizado do banco
     if saldo >= 0:
         texto += f"💰 Saldo do mês: {formatar_real(saldo)}"
@@ -637,14 +706,15 @@ def _montar_resposta_registro(
     return texto
 
 
-def _montar_resumo(resumo: dict) -> str:
+def _montar_resumo(resumo: dict, label_mes: str = "este mês") -> str:
     """Monta texto de resumo do mês com dados reais do banco."""
     entradas = resumo["entradas"]
     saidas = resumo["saidas"]
     saldo = resumo["saldo"]
     cats = resumo["categorias"]
 
-    texto = f"📊 *Resumo do mês*\n\n"
+    titulo_mes = label_mes.capitalize() if label_mes != "este mês" else "do mês"
+    texto = f"📊 *Resumo {titulo_mes}*\n\n"
     texto += f"💰 Entrou: {formatar_real(entradas)}\n"
     texto += f"💸 Saiu: {formatar_real(saidas)}\n"
 
@@ -663,7 +733,12 @@ def _montar_resumo(resumo: dict) -> str:
         texto += "\n🕐 *Últimas movimentações:*\n"
         for mov in ultimas:
             emoji = "🟢" if mov["tipo"] == "entrada" else "🔴"
-            texto += f"  {emoji} {formatar_real(mov['valor'])} — {mov.get('descricao') or mov.get('categoria', '')}\n"
+            data_fmt = _formatar_data_amigavel(mov.get("data_ref", ""))
+            desc = mov.get('descricao') or mov.get('categoria', '')
+            texto += f"  {emoji} {formatar_real(mov['valor'])} — {desc}"
+            if data_fmt:
+                texto += f" _({data_fmt})_"
+            texto += "\n"
 
     return texto
 

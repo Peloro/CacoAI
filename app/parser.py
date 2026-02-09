@@ -144,11 +144,35 @@ def extrair_valor(texto: str) -> Optional[float]:
 # Extração de data
 # ---------------------------------------------------------------------------
 
+# Mapeamento de nomes de mês → número
+_MESES_NOME = {
+    "janeiro": 1, "fevereiro": 2, "março": 3, "marco": 3,
+    "abril": 4, "maio": 5, "junho": 6,
+    "julho": 7, "agosto": 8, "setembro": 9,
+    "outubro": 10, "novembro": 11, "dezembro": 12,
+    # abreviações
+    "jan": 1, "fev": 2, "mar": 3, "abr": 4,
+    "mai": 5, "jun": 6, "jul": 7, "ago": 8,
+    "set": 9, "out": 10, "nov": 11, "dez": 12,
+}
+
+# Dias da semana → offset para calcular a data passada
+_DIAS_SEMANA = {
+    "segunda": 0, "segunda-feira": 0, "segunda feira": 0,
+    "terça": 1, "terca": 1, "terça-feira": 1, "terca-feira": 1,
+    "quarta": 2, "quarta-feira": 2, "quarta feira": 2,
+    "quinta": 3, "quinta-feira": 3, "quinta feira": 3,
+    "sexta": 4, "sexta-feira": 4, "sexta feira": 4,
+    "sábado": 5, "sabado": 5,
+    "domingo": 6,
+}
+
+
 def extrair_data(texto: str) -> Optional[str]:
     """
     Tenta extrair uma data do texto. Retorna no formato YYYY-MM-DD.
     Entende: 'ontem', 'anteontem', 'hoje', 'semana passada',
-             'dia 15', '15/01', '15/01/2026', etc.
+             'dia 15', '15/01', '15/01/2026', dias da semana, etc.
     """
     texto_lower = texto.lower()
     hoje = date.today()
@@ -164,6 +188,21 @@ def extrair_data(texto: str) -> Optional[str]:
 
     if "semana passada" in texto_lower:
         return (hoje - timedelta(days=7)).isoformat()
+
+    # Dia da semana: "na segunda", "sexta passada", "na terça"
+    for nome_dia, weekday_alvo in _DIAS_SEMANA.items():
+        pattern = r'(?:na\s+|n[ao]\s+)?' + re.escape(nome_dia) + r'(?:\s+passad[ao])?'
+        if re.search(pattern, texto_lower):
+            # Calcula quantos dias atrás foi esse dia da semana
+            dia_atual = hoje.weekday()  # 0=segunda
+            dias_atras = (dia_atual - weekday_alvo) % 7
+            if dias_atras == 0:
+                dias_atras = 7  # se cai no mesmo dia, assume semana passada
+            return (hoje - timedelta(days=dias_atras)).isoformat()
+
+    # "começo do mês" / "início do mês"
+    if re.search(r'(?:come[cç]o|in[ií]cio)\s+do\s+m[eê]s', texto_lower):
+        return hoje.replace(day=1).isoformat()
 
     # "dia 15" ou "no dia 15"
     dia_match = re.search(r'(?:no\s+)?dia\s+(\d{1,2})\b', texto_lower)
@@ -192,6 +231,52 @@ def extrair_data(texto: str) -> Optional[str]:
             pass
 
     return None  # Sem data explícita → usa data de hoje (no chatbot)
+
+
+def extrair_mes_referencia(texto: str) -> Optional[str]:
+    """
+    Tenta extrair uma referência de mês do texto.
+    Retorna no formato YYYY-MM ou None.
+
+    Entende:
+      - Nomes de mês: "janeiro", "fevereiro", "em março", "de dezembro"
+      - Relativos: "mês passado", "mês anterior", "mês retrasado"
+      - "este mês", "esse mês", "neste mês"
+    """
+    texto_lower = texto.lower()
+    hoje = date.today()
+
+    # "mês passado" / "mês anterior"
+    if re.search(r'm[eê]s\s+(?:passado|anterior)', texto_lower):
+        if hoje.month == 1:
+            return f"{hoje.year - 1}-12"
+        return f"{hoje.year}-{hoje.month - 1:02d}"
+
+    # "mês retrasado" / "2 meses atrás"
+    if re.search(r'm[eê]s\s+retrasado|2\s+meses\s+atr[aá]s', texto_lower):
+        mes = hoje.month - 2
+        ano = hoje.year
+        if mes <= 0:
+            mes += 12
+            ano -= 1
+        return f"{ano}-{mes:02d}"
+
+    # "este mês", "esse mês", "neste mês" → retorna None (usa padrão = mês atual)
+    if re.search(r'(?:est[ea]|ess[ea]|nest[ea])\s+m[eê]s', texto_lower):
+        return None  # mês atual é o padrão
+
+    # Nome de mês: "em janeiro", "de fevereiro", "março", "no mês de abril"
+    for nome_mes, num_mes in _MESES_NOME.items():
+        # Checa com word boundary para evitar falsos positivos
+        pattern = r'(?:^|[\s,;.!?\-])(?:(?:em|de|no m[eê]s de|d[eo])\s+)?' + re.escape(nome_mes) + r'(?:$|[\s,;.!?\-])'
+        if re.search(pattern, texto_lower):
+            # Se o mês mencionado é futuro no ano atual, assume ano passado
+            ano = hoje.year
+            if num_mes > hoje.month:
+                ano -= 1
+            return f"{ano}-{num_mes:02d}"
+
+    return None  # Sem referência de mês → usa mês atual (padrão)
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +410,8 @@ def extrair_descricao(texto: str) -> str:
         r'^(tenho que |preciso |vou |quero |fui |tive que |tive de |'
         r'deveria |devo |seria bom )?'
         r'(pagar|gastar|comprar|gastei|paguei|comprei|torrei|recebi|ganhei|'
-        r'entrou|depositaram|saiu|faturei|vendi|custou|custa|deu|foi)\s+',
+        r'entrou|depositaram|saiu|faturei|vendi|custou|custa|deu|foi|'
+        r'remov[aei]r?|apag[aeu]r?|exclu[aií]r?|delet[aei]r?|tir[aei]r?)\s+',
         '', t, flags=re.IGNORECASE)
 
     # Remove valores monetários (R$ 1.050,00 / 1050 / etc.)
@@ -347,6 +433,13 @@ def extrair_descricao(texto: str) -> str:
     t = re.sub(r'\b(hoje|ontem|anteontem|semana passada)\b', '', t, flags=re.IGNORECASE)
     t = re.sub(r'(?:no\s+)?dia\s+\d{1,2}', '', t, flags=re.IGNORECASE)
     t = re.sub(r'\d{1,2}/\d{1,2}(?:/\d{2,4})?', '', t)
+
+    # Remove referências de mês (nomes de mês, "mês passado", etc.)
+    t = re.sub(r'\b(?:em|de|no m[eê]s de|d[eo])\s+(?:janeiro|fevereiro|março|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\b', '', t, flags=re.IGNORECASE)
+    t = re.sub(r'\b(?:janeiro|fevereiro|março|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b', '', t, flags=re.IGNORECASE)
+    t = re.sub(r'\b(?:m[eê]s\s+(?:passado|anterior|retrasado)|est[ea]\s+m[eê]s|ess[ea]\s+m[eê]s|nest[ea]\s+m[eê]s)\b', '', t, flags=re.IGNORECASE)
+    # Remove dias da semana
+    t = re.sub(r'\b(?:na\s+|n[ao]\s+)?(?:segunda(?:-feira)?|terça(?:-feira)?|terca(?:-feira)?|quarta(?:-feira)?|quinta(?:-feira)?|sexta(?:-feira)?|s[aá]bado|domingo)(?:\s+passad[ao])?\b', '', t, flags=re.IGNORECASE)
 
     # Limpa espaços extras
     t = re.sub(r'\s+', ' ', t).strip()
@@ -403,12 +496,14 @@ def detectar_intencao(texto: str) -> dict:
       - descricao: str
       - data: str | None (YYYY-MM-DD)
       - categoria_regra: str | None (se conseguiu categorizar por regras)
+      - mes_referencia: str | None (YYYY-MM, mês mencionado na msg)
     """
     texto_lower = texto.lower().strip()
 
     valor = extrair_valor(texto)
     descricao = extrair_descricao(texto)
     data_ref = extrair_data(texto)
+    mes_referencia = extrair_mes_referencia(texto)
     categoria_regra, keyword_encontrada = categorizar_por_regras(texto_lower)
 
     # Se achou a keyword da categoria, usa ela como descrição limpa
@@ -423,6 +518,7 @@ def detectar_intencao(texto: str) -> dict:
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
             "tipo_limpar": "saida",
         }
     if _texto_contem(texto_lower, PALAVRAS_LIMPAR_GANHOS):
@@ -432,6 +528,7 @@ def detectar_intencao(texto: str) -> dict:
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
             "tipo_limpar": "entrada",
         }
     if _texto_contem(texto_lower, PALAVRAS_LIMPAR_TUDO):
@@ -441,6 +538,7 @@ def detectar_intencao(texto: str) -> dict:
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
             "tipo_limpar": None,
         }
 
@@ -454,6 +552,7 @@ def detectar_intencao(texto: str) -> dict:
                 "descricao": descricao,
                 "data": data_ref,
                 "categoria_regra": categoria_regra,
+                "mes_referencia": mes_referencia,
                 "tipo_limpar": "saida",
             }
         if _RE_TODOS_GANHOS.search(texto_lower):
@@ -463,6 +562,7 @@ def detectar_intencao(texto: str) -> dict:
                 "descricao": descricao,
                 "data": data_ref,
                 "categoria_regra": categoria_regra,
+                "mes_referencia": mes_referencia,
                 "tipo_limpar": "entrada",
             }
         if _RE_TODOS_MOVS.search(texto_lower):
@@ -472,6 +572,7 @@ def detectar_intencao(texto: str) -> dict:
                 "descricao": descricao,
                 "data": data_ref,
                 "categoria_regra": categoria_regra,
+                "mes_referencia": mes_referencia,
                 "tipo_limpar": None,
             }
 
@@ -483,6 +584,7 @@ def detectar_intencao(texto: str) -> dict:
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
             "tipo_total": "entrada",
         }
     if _texto_contem(texto_lower, PALAVRAS_QUANTO_GASTEI):
@@ -492,6 +594,7 @@ def detectar_intencao(texto: str) -> dict:
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
             "tipo_total": "saida",
         }
 
@@ -511,6 +614,7 @@ def detectar_intencao(texto: str) -> dict:
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
         }
 
     # 2. Apagar movimentação
@@ -531,6 +635,7 @@ def detectar_intencao(texto: str) -> dict:
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
             "tipo_apagar": tipo_apagar,
             "id_movimentacao": id_mov,
         }
@@ -550,6 +655,7 @@ def detectar_intencao(texto: str) -> dict:
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
             "tipo_listar": tipo_listar,
         }
 
@@ -565,6 +671,7 @@ def detectar_intencao(texto: str) -> dict:
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
             "categoria_consulta": categoria_mencionada,
         }
     # Se mencionou uma categoria válida sem valor e sem outra intenção clara,
@@ -583,6 +690,7 @@ def detectar_intencao(texto: str) -> dict:
                 "descricao": descricao,
                 "data": data_ref,
                 "categoria_regra": categoria_regra,
+                "mes_referencia": mes_referencia,
                 "categoria_consulta": categoria_mencionada,
             }
 
@@ -594,6 +702,7 @@ def detectar_intencao(texto: str) -> dict:
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
         }
 
     # 6. Consulta de saldo
@@ -604,6 +713,7 @@ def detectar_intencao(texto: str) -> dict:
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
         }
 
     # 7. Registrar entrada
@@ -614,6 +724,7 @@ def detectar_intencao(texto: str) -> dict:
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
         }
 
     # 8. Registrar saída
@@ -624,6 +735,7 @@ def detectar_intencao(texto: str) -> dict:
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
         }
 
     # 9. Se tem valor mas não identificou direção, assume saída
@@ -635,6 +747,7 @@ def detectar_intencao(texto: str) -> dict:
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
         }
 
     # 10. Conversa geral — nenhuma regra bateu
@@ -644,4 +757,5 @@ def detectar_intencao(texto: str) -> dict:
         "descricao": descricao,
         "data": data_ref,
         "categoria_regra": categoria_regra,
+        "mes_referencia": mes_referencia,
     }

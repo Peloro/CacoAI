@@ -366,20 +366,37 @@ def totais_mes(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
     return resultado
 
 
-def listar_movimentacoes_recentes(usuario_id: int, limite: int = 10, tipo: Optional[str] = None) -> list[dict]:
+def listar_movimentacoes_recentes(
+    usuario_id: int,
+    limite: int = 10,
+    tipo: Optional[str] = None,
+    ano_mes: Optional[str] = None,
+) -> list[dict]:
     """
     Lista as últimas movimentações do usuário.
 
     Parâmetros:
       - limite: quantidade de movimentações a retornar (padrão: 10)
       - tipo: 'entrada', 'saida' ou None (qualquer)
+      - ano_mes: formato 'YYYY-MM' ou None para todas (sem filtro de mês)
 
     Retorna lista de dicts com id, tipo, valor, categoria, descricao, data_ref
     """
     conn = get_connection()
     cur = conn.cursor()
 
-    if tipo:
+    if tipo and ano_mes:
+        cur.execute(
+            """
+            SELECT id, tipo, valor, categoria, descricao, data_ref
+            FROM movimentacoes
+            WHERE usuario_id = ? AND tipo = ? AND data_ref LIKE ?
+            ORDER BY data_ref DESC, id DESC
+            LIMIT ?
+            """,
+            (usuario_id, tipo, f"{ano_mes}%", limite),
+        )
+    elif tipo:
         cur.execute(
             """
             SELECT id, tipo, valor, categoria, descricao, data_ref
@@ -389,6 +406,17 @@ def listar_movimentacoes_recentes(usuario_id: int, limite: int = 10, tipo: Optio
             LIMIT ?
             """,
             (usuario_id, tipo, limite),
+        )
+    elif ano_mes:
+        cur.execute(
+            """
+            SELECT id, tipo, valor, categoria, descricao, data_ref
+            FROM movimentacoes
+            WHERE usuario_id = ? AND data_ref LIKE ?
+            ORDER BY data_ref DESC, id DESC
+            LIMIT ?
+            """,
+            (usuario_id, f"{ano_mes}%", limite),
         )
     else:
         cur.execute(
