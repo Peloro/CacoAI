@@ -1,8 +1,17 @@
 # 🤖 Caco — Assistente Financeiro Pessoal via WhatsApp
 
-> "Aquele amigo responsável que te ajuda a controlar as continhas."
+> **C**ontrole **A**migo de **CO**ntinhas — aquele amigo responsável que te ajuda com a grana.
 
 MVP de um chatbot financeiro que conversa pelo WhatsApp em português brasileiro, de forma simples e sem termos técnicos.
+
+---
+
+## ✨ Destaques
+
+- **Modo híbrido** — 90%+ das mensagens são processadas 100% local (grátis e instantâneo). O Google Gemini só é usado como fallback para categorização e conversa livre.
+- **Funciona 100% offline** — se o Gemini estiver fora, o Caco continua operando normalmente.
+- **Autenticação por senha** — cadastro conversacional com sessão de 1h.
+- **Zero termos técnicos** — linguagem informal brasileira, como conversa com um amigo.
 
 ---
 
@@ -12,21 +21,31 @@ MVP de um chatbot financeiro que conversa pelo WhatsApp em português brasileiro
 IA Financeira/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py            # FastAPI — ponto de entrada
-│   ├── config.py           # Variáveis de ambiente
-│   ├── database.py         # SQLite — modelos e queries
-│   ├── chatbot.py          # Orquestrador principal
-│   ├── llm_service.py      # Integração OpenAI
-│   ├── financeiro.py       # Regras financeiras (sem LLM)
-│   ├── prompts.py          # Prompts do sistema
-│   ├── webhook.py          # Webhook Twilio/WhatsApp
-│   └── routes.py           # API REST para testes
+│   ├── main.py              # FastAPI — ponto de entrada
+│   ├── config.py             # Variáveis de ambiente (.env)
+│   ├── database.py           # SQLite — modelos, auth e sessões
+│   ├── chatbot.py            # Orquestrador principal (pipeline híbrido)
+│   ├── parser.py             # Extração de intenção, valor, data e descrição (regex)
+│   ├── responder.py          # Respostas locais por template (saudação, ajuda, dica…)
+│   ├── financeiro.py         # Regras financeiras (avaliação, alertas, formatação)
+│   ├── llm_service.py        # Google Gemini — fallback de categorização e chat
+│   ├── prompts.py            # Prompts do sistema para o LLM
+│   ├── categorias.json       # Palavras-chave de categorias (alimentação, moradia…)
+│   ├── palavras_chave.json   # Palavras-chave de intenções (entrada, saída, resumo…)
+│   ├── webhook.py            # Webhook Twilio/WhatsApp
+│   └── routes.py             # API REST para testes diretos
 ├── tests/
-│   └── test_chatbot.py     # Testes automatizados
-├── .env.example            # Template de configuração
+│   ├── __init__.py
+│   ├── test_chatbot.py       # Testes de banco, financeiro e integração API
+│   ├── test_parser.py        # Testes de extração (valor, data, intenção)
+│   └── test_responder.py     # Testes do responder local e modo híbrido
+├── .env.example              # Template de configuração
 ├── .gitignore
 ├── requirements.txt
-├── run.py                  # Script de entrada
+├── run.py                    # Script de entrada (uvicorn)
+├── check_config.py           # Checklist de configuração
+├── testa_mvp.py              # Teste interativo rápido via API
+├── SETUP.md                  # Guia de configuração passo a passo
 └── README.md
 ```
 
@@ -34,7 +53,7 @@ IA Financeira/
 
 ## 🚀 Como rodar
 
-### 1. Clone e crie o ambiente virtual
+### 1. Crie o ambiente virtual
 
 ```bash
 cd "IA Financeira"
@@ -57,25 +76,53 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edite o .env com suas chaves:
-#   - OPENAI_API_KEY (obrigatório)
-#   - TWILIO_ACCOUNT_SID (para WhatsApp)
-#   - TWILIO_AUTH_TOKEN (para WhatsApp)
 ```
 
-### 4. Rode o servidor
+Edite o `.env` com suas chaves:
+
+```env
+# Google Gemini (opcional — o bot funciona 100% sem)
+GEMINI_API_KEY=sua-chave-aqui
+GEMINI_MODEL=gemini-2.5-flash-lite
+
+# Twilio (opcional — só para WhatsApp)
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_WHATSAPP_NUMBER=
+
+# Banco e servidor
+DATABASE_PATH=financeiro.db
+APP_HOST=0.0.0.0
+APP_PORT=8000
+DEBUG=true
+```
+
+### 4. Verifique a configuração
+
+```bash
+python check_config.py
+```
+
+### 5. Rode o servidor
 
 ```bash
 python run.py
 ```
 
-O servidor sobe em `http://localhost:8000`.
+O servidor sobe em `http://localhost:8000`. Acesse `http://localhost:8000/docs` para a documentação interativa.
 
 ---
 
-## 🧪 Testando sem WhatsApp
+## 🧪 Testando
 
-Você pode testar direto pela API REST:
+### Via script automático
+
+```bash
+# Inicie o servidor primeiro, depois em outro terminal:
+python testa_mvp.py
+```
+
+### Via API REST (curl)
 
 ```bash
 # Registrar um gasto
@@ -93,18 +140,17 @@ curl -X POST http://localhost:8000/api/mensagem \
   -H "Content-Type: application/json" \
   -d '{"telefone": "+5511999999999", "mensagem": "Posso gastar 200 hoje?"}'
 
-# Ver resumo
+# Ver resumo do mês
 curl -X POST http://localhost:8000/api/mensagem \
   -H "Content-Type: application/json" \
   -d '{"telefone": "+5511999999999", "mensagem": "resumo"}'
-
-# Ver saldo
-curl -X POST http://localhost:8000/api/mensagem \
-  -H "Content-Type: application/json" \
-  -d '{"telefone": "+5511999999999", "mensagem": "saldo"}'
 ```
 
-Ou acesse a **documentação interativa**: `http://localhost:8000/docs`
+### Via testes unitários
+
+```bash
+python -m pytest tests/ -v
+```
 
 ---
 
@@ -122,7 +168,7 @@ Ou acesse a **documentação interativa**: `http://localhost:8000/docs`
    ```
 2. No Twilio Console, configure a URL do webhook:
    ```
-   https://SEU-NGROK.ngrok.io/webhook/whatsapp
+   https://SEU-NGROK.ngrok-free.app/webhook/whatsapp
    ```
    Método: **POST**
 
@@ -135,28 +181,46 @@ Mande uma mensagem pro número do sandbox no WhatsApp!
 
 | Você manda | Caco responde |
 |---|---|
-| "Ganhei 2000 esse mês" | "Anotado! 📝 R$ 2.000,00 de entrada." |
-| "Paguei 450 de aluguel" | "Anotado! 📝 R$ 450,00 de moradia." |
-| "Gastei 38 no ifood" | "Anotado! 📝 R$ 38,00 em alimentação." |
-| "Posso gastar 100 hoje?" | "Dá pra gastar sim, mas fica de olho..." |
-| "resumo" | "📊 Entrou R$ 2.000 / Saiu R$ 488 / Sobra R$ 1.512" |
-| "saldo" | "Até agora sobram R$ 1.512,00 no mês. 👍" |
+| `Oi` | `Fala! 😄 Sou o Caco, seu assistente financeiro...` |
+| `Recebi 3000 de salário` | `✅ Entrada registrado! 💚 Salário — R$ 3.000,00 (salario)` |
+| `Paguei 450 de aluguel` | `✅ Gasto registrado! 💸 Aluguel — R$ 450,00 (moradia)` |
+| `Gastei 38 no ifood ontem` | `✅ Gasto registrado! 💸 Ifood — R$ 38,00 (alimentacao)` |
+| `Posso gastar 200 hoje?` | `Pode gastar R$ 200,00 sim! 👍 Sobram R$ 2.312,00...` |
+| `resumo` | `📊 Resumo do mês — Entrou / Saiu / Sobra + categorias` |
+| `saldo` | `Até agora sobram R$ 2.312,00 no mês. 👍` |
+| `apaga o último gasto` | `🗑️ Gasto apagado! ✅ Seu saldo foi atualizado.` |
+| `como funciona?` | Explicação dos comandos disponíveis |
+| `sair` | `🔒 Sessão encerrada. Seus dados estão protegidos.` |
 
 ---
 
-## 🏗️ Arquitetura
+## 🏗️ Arquitetura (Modo Híbrido)
 
 ```
 WhatsApp → Twilio → Webhook (FastAPI) → Chatbot Core
-                                           ├── LLM (OpenAI) → Interpreta intenção + extrai dados
-                                           ├── Financeiro   → Cálculos e regras
-                                           └── Database      → SQLite (usuários + movimentações)
+                                           │
+                                           ├── Parser (regex)      → Intenção, valor, data, descrição
+                                           ├── Responder (local)   → Saudação, ajuda, dica, despedida
+                                           ├── Financeiro (código)  → Cálculos, avaliações, alertas
+                                           ├── Database (SQLite)    → Usuários, movimentações, sessões
+                                           └── Gemini (fallback)    → Categorização + conversa livre
 ```
 
-**Princípios:**
-- **LLM para interpretar**, não para calcular (cálculos são com código)
-- **Respostas humanas** geradas pelo LLM, mas dados reais do banco
-- **Fallback simples** — se o LLM falhar, respostas padrão funcionam
+### Pipeline de cada mensagem
+
+1. **Parser** (código) detecta intenção, extrai valor, descrição e data via regex
+2. **Categorização por regras** (keywords JSON) tenta classificar a transação
+3. Se não categorizou → **Gemini categoriza** (fallback opcional)
+4. **Código** executa a ação no banco (registrar, consultar, apagar)
+5. **Código** monta a resposta com dados reais do banco
+6. Para conversa pura: **responder local** → **Gemini** → **resposta genérica**
+
+### Princípios
+
+- **LLM nunca vê nem gera valores financeiros** — toda lógica é código
+- **90%+ das mensagens resolvidas localmente** — grátis e instantâneo
+- **Três camadas de fallback** — o usuário nunca recebe erro
+- **Autenticação com sessão de 1h** — cadastro e login conversacionais
 
 ---
 
@@ -164,13 +228,28 @@ WhatsApp → Twilio → Webhook (FastAPI) → Chatbot Core
 
 | Variável | Obrigatório | Descrição |
 |---|---|---|
-| `OPENAI_API_KEY` | ✅ | Chave da API da OpenAI |
-| `OPENAI_MODEL` | ❌ | Modelo (default: `gpt-4o-mini`) |
+| `GEMINI_API_KEY` | ❌ | Chave da API do Google Gemini (funciona sem) |
+| `GEMINI_MODEL` | ❌ | Modelo (default: `gemini-2.5-flash-lite`) |
 | `TWILIO_ACCOUNT_SID` | Para WhatsApp | SID da conta Twilio |
 | `TWILIO_AUTH_TOKEN` | Para WhatsApp | Token da conta Twilio |
 | `TWILIO_WHATSAPP_NUMBER` | Para WhatsApp | Número Twilio (`whatsapp:+...`) |
 | `DATABASE_PATH` | ❌ | Caminho do SQLite (default: `financeiro.db`) |
+| `APP_HOST` | ❌ | Host do servidor (default: `0.0.0.0`) |
+| `APP_PORT` | ❌ | Porta do servidor (default: `8000`) |
 | `DEBUG` | ❌ | `true` para modo dev (default: `true`) |
+
+---
+
+## 🧰 Tecnologias
+
+| Componente | Tecnologia |
+|---|---|
+| Framework web | FastAPI + Uvicorn |
+| LLM (fallback) | Google Gemini (`google-genai`) |
+| Banco de dados | SQLite3 |
+| WhatsApp | Twilio |
+| NLP local | Regex + keywords JSON |
+| Testes | Pytest |
 
 ---
 
