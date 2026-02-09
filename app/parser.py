@@ -51,6 +51,14 @@ PALAVRAS_LIMPAR_GANHOS: list[str] = _PALAVRAS.get("limpar_ganhos", [])
 PALAVRAS_QUANTO_GANHEI: list[str] = _PALAVRAS.get("quanto_ganhei", [])
 PALAVRAS_QUANTO_GASTEI: list[str] = _PALAVRAS.get("quanto_gastei", [])
 
+# Padrões para detectar "todos/todas + tipo" (fallback para limpar)
+_RE_TODOS_GASTOS = re.compile(
+    r'\btod[oa]s?\b.*?\b(?:gastos?|despesas?|saídas?|saidas?)\b', re.IGNORECASE)
+_RE_TODOS_GANHOS = re.compile(
+    r'\btod[oa]s?\b.*?\b(?:ganhos?|entradas?|receitas?)\b', re.IGNORECASE)
+_RE_TODOS_MOVS = re.compile(
+    r'\btod[oa]s?\b.*?\b(?:movimentações|movimentacoes|movimentação|movimentacao)\b', re.IGNORECASE)
+
 # Padrões de pergunta no final da mensagem (indica dúvida, não ação)
 _PERGUNTA_POSSO = re.compile(
     r'(?:eu\s+)?(?:posso|consigo|dá|da|rola|tá tranquilo|ta tranquilo)\s*\??\s*$',
@@ -435,6 +443,37 @@ def detectar_intencao(texto: str) -> dict:
             "categoria_regra": categoria_regra,
             "tipo_limpar": None,
         }
+
+    # 0a-extra: fallback regex — qualquer verbo de apagar + "todas/todos" + tipo
+    # Captura frases como "remova todas as movimentações", "exclua todos os gastos"
+    if _texto_contem(texto_lower, PALAVRAS_APAGAR):
+        if _RE_TODOS_GASTOS.search(texto_lower):
+            return {
+                "intencao": "limpar_movimentacoes",
+                "valor": valor,
+                "descricao": descricao,
+                "data": data_ref,
+                "categoria_regra": categoria_regra,
+                "tipo_limpar": "saida",
+            }
+        if _RE_TODOS_GANHOS.search(texto_lower):
+            return {
+                "intencao": "limpar_movimentacoes",
+                "valor": valor,
+                "descricao": descricao,
+                "data": data_ref,
+                "categoria_regra": categoria_regra,
+                "tipo_limpar": "entrada",
+            }
+        if _RE_TODOS_MOVS.search(texto_lower):
+            return {
+                "intencao": "limpar_movimentacoes",
+                "valor": valor,
+                "descricao": descricao,
+                "data": data_ref,
+                "categoria_regra": categoria_regra,
+                "tipo_limpar": None,
+            }
 
     # 0b. Quanto ganhei / quanto gastei (consulta de totais)
     if _texto_contem(texto_lower, PALAVRAS_QUANTO_GANHEI):
