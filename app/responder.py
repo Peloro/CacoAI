@@ -216,3 +216,173 @@ def resposta_local(mensagem: str, contexto: dict | None = None) -> str | None:
 
     # Não reconheceu — retorna None para o Gemini tentar
     return None
+
+
+# ---------------------------------------------------------------------------
+# Respostas para novas funcionalidades
+# ---------------------------------------------------------------------------
+
+def gerar_resposta_listar_movimentacoes(movimentacoes: list[dict], tipo: str | None = None) -> str:
+    """
+    Gera resposta amigável listando as movimentações recentes.
+
+    Parâmetros:
+      - movimentacoes: lista de dicts com id, tipo, valor, categoria, descricao, data_ref
+      - tipo: 'entrada', 'saida' ou None (todas)
+    """
+    if not movimentacoes:
+        if tipo == "entrada":
+            return "Você ainda não registrou nenhuma entrada. 🤔"
+        elif tipo == "saida":
+            return "Você ainda não registrou nenhum gasto. 🤔"
+        else:
+            return "Você ainda não tem movimentações registradas. 🤔"
+
+    # Cabeçalho
+    if tipo == "entrada":
+        cabecalho = f"💚 *Suas últimas {len(movimentacoes)} entradas:*\n\n"
+    elif tipo == "saida":
+        cabecalho = f"💸 *Seus últimos {len(movimentacoes)} gastos:*\n\n"
+    else:
+        cabecalho = f"📋 *Suas últimas {len(movimentacoes)} movimentações:*\n\n"
+
+    # Lista as movimentações
+    linhas = []
+    for mov in movimentacoes:
+        emoji = "💚" if mov["tipo"] == "entrada" else "🔴"
+        descricao = mov["descricao"] or mov["categoria"]
+        data = mov["data_ref"]
+        valor_fmt = formatar_real(mov["valor"])
+        id_mov = mov["id"]
+        
+        # Formata data de forma amigável
+        try:
+            from datetime import datetime
+            data_obj = datetime.strptime(data, "%Y-%m-%d")
+            data_fmt = data_obj.strftime("%d/%m")
+        except:
+            data_fmt = data
+        
+        linha = f"{emoji} {descricao} — {valor_fmt} _(#{id_mov} - {data_fmt})_"
+        linhas.append(linha)
+
+    resposta = cabecalho + "\n".join(linhas)
+    resposta += "\n\n💡 _Dica: pra remover algum, manda \"apagar #ID\"_"
+    
+    return resposta
+
+
+def gerar_resposta_consultar_categoria(dados_categoria: dict) -> str:
+    """
+    Gera resposta amigável com os detalhes de uma categoria.
+
+    Parâmetros:
+      - dados_categoria: dict com categoria, ano_mes, total, quantidade, movimentacoes
+    """
+    categoria = dados_categoria["categoria"]
+    total = dados_categoria["total"]
+    quantidade = dados_categoria["quantidade"]
+    movimentacoes = dados_categoria["movimentacoes"]
+
+    # Emoji por categoria
+    emojis = {
+        "alimentacao": "🍽️",
+        "transporte": "🚗",
+        "moradia": "🏠",
+        "lazer": "🎬",
+        "saude": "💊",
+        "educacao": "📚",
+        "compras": "🛒",
+        "servicos": "✂️",
+        "freelas": "💼",
+        "salario": "💰",
+        "outros": "📌",
+    }
+    emoji = emojis.get(categoria, "📌")
+
+    if quantidade == 0:
+        return f"{emoji} Você não tem gastos em *{categoria}* este mês."
+
+    # Cabeçalho
+    resposta = f"{emoji} *Gastos em {categoria.upper()}*\n\n"
+    resposta += f"💰 *Total:* {formatar_real(total)}\n"
+    resposta += f"📊 *Quantidade:* {quantidade} {'gasto' if quantidade == 1 else 'gastos'}\n\n"
+
+    # Lista as movimentações
+    if movimentacoes:
+        resposta += "*Detalhes:*\n"
+        for mov in movimentacoes[:10]:  # Limita a 10 para não ficar muito longo
+            descricao = mov["descricao"] or categoria
+            valor_fmt = formatar_real(mov["valor"])
+            data = mov["data_ref"]
+            id_mov = mov["id"]
+            
+            # Formata data
+            try:
+                from datetime import datetime
+                data_obj = datetime.strptime(data, "%Y-%m-%d")
+                data_fmt = data_obj.strftime("%d/%m")
+            except:
+                data_fmt = data
+            
+            resposta += f"• {descricao} — {valor_fmt} _(#{id_mov} - {data_fmt})_\n"
+        
+        if len(movimentacoes) > 10:
+            resposta += f"\n_...e mais {len(movimentacoes) - 10} gastos_\n"
+
+    resposta += "\n💡 _Dica: pra ver todas as categorias, manda \"resumo\"_"
+    
+    return resposta
+
+
+def gerar_resposta_apagar_com_id(movimentacao: dict) -> str:
+    """
+    Gera resposta confirmando a remoção de uma movimentação específica.
+
+    Parâmetros:
+      - movimentacao: dict com tipo, valor, categoria, descricao, data_ref
+    """
+    tipo = movimentacao["tipo"]
+    valor = formatar_real(movimentacao["valor"])
+    descricao = movimentacao["descricao"] or movimentacao["categoria"]
+    
+    emoji = "💚" if tipo == "entrada" else "🔴"
+    tipo_nome = "entrada" if tipo == "entrada" else "gasto"
+    
+    return (
+        f"🗑️ Gasto apagado!\n"
+        f"{emoji} {descricao.capitalize()} — {formatar_real(movimentacao['valor'])} ({movimentacao['categoria']})\n"
+        f"✅ Seu saldo foi atualizado."
+    )
+
+
+def gerar_resposta_desambiguacao_apagar(movimentacoes: list[dict], descricao: str) -> str:
+    """
+    Gera resposta pedindo ao usuário para escolher qual movimentação apagar
+    quando há múltiplas com a mesma descrição.
+
+    Parâmetros:
+      - movimentacoes: lista de dicts com id, tipo, valor, categoria, descricao, data_ref
+      - descricao: o que o usuário pediu pra apagar (ex: "uber")
+    """
+    resposta = f"🤔 Encontrei *{len(movimentacoes)}* movimentações com \"{descricao}\".\n"
+    resposta += "Qual você quer apagar?\n\n"
+
+    for i, mov in enumerate(movimentacoes, 1):
+        emoji = "💚" if mov["tipo"] == "entrada" else "🔴"
+        desc = mov.get("descricao") or mov.get("categoria", "")
+        valor_fmt = formatar_real(mov["valor"])
+
+        # Formata data amigável
+        try:
+            from datetime import datetime
+            data_obj = datetime.strptime(mov["data_ref"], "%Y-%m-%d")
+            data_fmt = data_obj.strftime("%d/%m")
+        except Exception:
+            data_fmt = mov["data_ref"]
+
+        resposta += f"*{i}.* {emoji} {desc} — {valor_fmt} _(#{mov['id']} - {data_fmt})_\n"
+
+    resposta += "\nManda o *número* da opção ou *cancelar* pra desistir."
+    return resposta
+

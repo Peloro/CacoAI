@@ -42,7 +42,14 @@ PALAVRAS_APAGAR: list[str] = _PALAVRAS.get("apagar", [])
 PALAVRAS_APAGAR_ENTRADA: list[str] = _PALAVRAS.get("apagar_entrada", [])
 PALAVRAS_APAGAR_SAIDA: list[str] = _PALAVRAS.get("apagar_saida", [])
 PALAVRAS_POSSO_GASTAR: list[str] = _PALAVRAS.get("posso_gastar", [])
+PALAVRAS_LISTAR: list[str] = _PALAVRAS.get("listar_movimentacoes", [])
+PALAVRAS_CONSULTAR_CAT: list[str] = _PALAVRAS.get("consultar_categoria", [])
 _PALAVRAS_DUVIDA: list[str] = _PALAVRAS.get("pergunta_duvida", [])
+PALAVRAS_LIMPAR_TUDO: list[str] = _PALAVRAS.get("limpar_tudo", [])
+PALAVRAS_LIMPAR_GASTOS: list[str] = _PALAVRAS.get("limpar_gastos", [])
+PALAVRAS_LIMPAR_GANHOS: list[str] = _PALAVRAS.get("limpar_ganhos", [])
+PALAVRAS_QUANTO_GANHEI: list[str] = _PALAVRAS.get("quanto_ganhei", [])
+PALAVRAS_QUANTO_GASTEI: list[str] = _PALAVRAS.get("quanto_gastei", [])
 
 # Padrões de pergunta no final da mensagem (indica dúvida, não ação)
 _PERGUNTA_POSSO = re.compile(
@@ -180,6 +187,120 @@ def extrair_data(texto: str) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# Extração de categoria mencionada
+# ---------------------------------------------------------------------------
+
+# Todas as categorias válidas do sistema (para detecção direta)
+_CATEGORIAS_VALIDAS = [
+    "moradia", "alimentacao", "transporte", "lazer", "saude",
+    "educacao", "compras", "servicos", "freelas", "salario", "outros",
+]
+
+# Mapeamento de variações/sinônimos para nomes canônicos de categoria
+_NORMALIZACOES_CATEGORIA = {
+    # alimentacao
+    "alimentação": "alimentacao", "alimentaçao": "alimentacao",
+    "comida": "alimentacao", "mercado": "alimentacao",
+    "restaurante": "alimentacao", "ifood": "alimentacao",
+    "delivery": "alimentacao", "supermercado": "alimentacao",
+    # saude
+    "saúde": "saude", "saude": "saude",
+    "remédio": "saude", "remedio": "saude",
+    "farmácia": "saude", "farmacia": "saude",
+    "médico": "saude", "medico": "saude",
+    "academia": "saude",
+    # educacao
+    "educação": "educacao", "educaçao": "educacao",
+    "escola": "educacao", "curso": "educacao", "faculdade": "educacao",
+    # transporte
+    "uber": "transporte", "ônibus": "transporte", "onibus": "transporte",
+    "gasolina": "transporte", "combustível": "transporte",
+    "combustivel": "transporte",
+    # moradia
+    "aluguel": "moradia", "condomínio": "moradia", "condominio": "moradia",
+    "conta de luz": "moradia", "conta de água": "moradia",
+    "conta de agua": "moradia",
+    # lazer
+    "streaming": "lazer", "cinema": "lazer", "bar": "lazer",
+    "balada": "lazer", "netflix": "lazer", "entretenimento": "lazer",
+    # servicos
+    "barbeiro": "servicos", "cabelo": "servicos",
+    "salão": "servicos", "salao": "servicos",
+    "serviços": "servicos", "servico": "servicos",
+    # freelas
+    "freela": "freelas", "freelance": "freelas", "bico": "freelas",
+    # salario
+    "salário": "salario", "salario": "salario",
+    # compras
+    "roupa": "compras", "roupas": "compras", "eletrônicos": "compras",
+    "eletronicos": "compras", "presentes": "compras", "presente": "compras",
+    # outros
+    "outro": "outros", "outras": "outros", "outra": "outros",
+}
+
+
+def extrair_categoria_mencionada(texto: str) -> Optional[str]:
+    """
+    Extrai o nome de uma categoria mencionada na mensagem.
+    Ex: "quanto gastei em transporte" → "transporte"
+         "me diz mais sobre esse outros" → "outros"
+    """
+    texto_lower = texto.lower()
+
+    # 1. Verifica nomes canônicos de categorias direto no texto
+    #    (checando com word boundary para evitar falsos positivos)
+    for cat in _CATEGORIAS_VALIDAS:
+        # Usa regex para evitar match parcial (ex: "sal" dentro de "salario")
+        pattern = r'(?:^|[\s,;.!?\-])' + re.escape(cat) + r'(?:$|[\s,;.!?\-])'
+        if re.search(pattern, texto_lower):
+            return cat
+
+    # 2. Verifica chaves do categorias.json (pode ter nomes extras)
+    for categoria_base in CATEGORIAS_KEYWORDS.keys():
+        if categoria_base not in _CATEGORIAS_VALIDAS:  # evita checar de novo
+            pattern = r'(?:^|[\s,;.!?\-])' + re.escape(categoria_base) + r'(?:$|[\s,;.!?\-])'
+            if re.search(pattern, texto_lower):
+                return categoria_base
+
+    # 3. Verifica variações / sinônimos normalizados
+    for palavra, categoria in _NORMALIZACOES_CATEGORIA.items():
+        if palavra in texto_lower:
+            return categoria
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Extração de ID de movimentação
+# ---------------------------------------------------------------------------
+
+def extrair_id_movimentacao(texto: str) -> Optional[int]:
+    """
+    Extrai um ID de movimentação mencionado na mensagem.
+    Ex: "apagar gasto 123" → 123
+        "remover #45" → 45
+    """
+    # Procura por padrões como "ID 123", "#123", "numero 123"
+    patterns = [
+        r'#(\d+)',
+        r'id\s*(\d+)',
+        r'número\s*(\d+)',
+        r'numero\s*(\d+)',
+        r'gasto\s+(\d+)',
+        r'entrada\s+(\d+)',
+        r'movimentação\s+(\d+)',
+        r'movimentacao\s+(\d+)',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, texto.lower())
+        if match:
+            return int(match.group(1))
+    
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Extração de descrição
 # ---------------------------------------------------------------------------
 
@@ -286,6 +407,55 @@ def detectar_intencao(texto: str) -> dict:
     if keyword_encontrada:
         descricao = keyword_encontrada.capitalize()
 
+    # 0a. Limpar movimentações (prioridade máxima — é destrutivo)
+    if _texto_contem(texto_lower, PALAVRAS_LIMPAR_GASTOS):
+        return {
+            "intencao": "limpar_movimentacoes",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "tipo_limpar": "saida",
+        }
+    if _texto_contem(texto_lower, PALAVRAS_LIMPAR_GANHOS):
+        return {
+            "intencao": "limpar_movimentacoes",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "tipo_limpar": "entrada",
+        }
+    if _texto_contem(texto_lower, PALAVRAS_LIMPAR_TUDO):
+        return {
+            "intencao": "limpar_movimentacoes",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "tipo_limpar": None,
+        }
+
+    # 0b. Quanto ganhei / quanto gastei (consulta de totais)
+    if _texto_contem(texto_lower, PALAVRAS_QUANTO_GANHEI):
+        return {
+            "intencao": "consultar_total",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "tipo_total": "entrada",
+        }
+    if _texto_contem(texto_lower, PALAVRAS_QUANTO_GASTEI):
+        return {
+            "intencao": "consultar_total",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "tipo_total": "saida",
+        }
+
     # 1. "Posso gastar" — prioridade alta (contém valor e pergunta)
     #    Detecta: "posso gastar 200", "quero gastar 200, eu posso?",
     #    "deveria gastar 200 em uber hoje?", qualquer frase com valor + "?"
@@ -312,6 +482,10 @@ def detectar_intencao(texto: str) -> dict:
             tipo_apagar = "entrada"
         elif _texto_contem(texto_lower, PALAVRAS_APAGAR_SAIDA):
             tipo_apagar = "saida"
+        
+        # Tenta extrair ID específico
+        id_mov = extrair_id_movimentacao(texto)
+        
         return {
             "intencao": "apagar_movimentacao",
             "valor": valor,
@@ -319,9 +493,61 @@ def detectar_intencao(texto: str) -> dict:
             "data": data_ref,
             "categoria_regra": categoria_regra,
             "tipo_apagar": tipo_apagar,
+            "id_movimentacao": id_mov,
         }
 
-    # 3. Consulta de resumo
+    # 3. Listar movimentações recentes
+    if _texto_contem(texto_lower, PALAVRAS_LISTAR):
+        # Detecta se é entrada ou saída específica
+        tipo_listar = None
+        if any(p in texto_lower for p in ["entradas", "entrada", "recebi", "ganhei", "receitas"]):
+            tipo_listar = "entrada"
+        elif any(p in texto_lower for p in ["gastos", "gasto", "saídas", "saidas", "despesas", "despesa"]):
+            tipo_listar = "saida"
+        
+        return {
+            "intencao": "listar_movimentacoes",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "tipo_listar": tipo_listar,
+        }
+
+    # 4. Consultar categoria específica
+    #    Detecta de duas formas:
+    #    a) Keyword de consulta + categoria mencionada ("quanto gastei em transporte")
+    #    b) Categoria mencionada + contexto de consulta ("me diz mais sobre outros")
+    categoria_mencionada = extrair_categoria_mencionada(texto)
+    if _texto_contem(texto_lower, PALAVRAS_CONSULTAR_CAT) and categoria_mencionada:
+        return {
+            "intencao": "consultar_categoria",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "categoria_consulta": categoria_mencionada,
+        }
+    # Se mencionou uma categoria válida sem valor e sem outra intenção clara,
+    # assume que quer consultar (ex: "me fala sobre transporte")
+    if categoria_mencionada and not valor:
+        # Verifica se tem alguma palavra de "quero saber mais" / contexto conversacional
+        _PALAVRAS_CONTEXTO_CONSULTA = [
+            "sobre", "detalh", "fala", "diz", "conta", "explica",
+            "quero saber", "quero ver", "como tá", "como ta",
+            "como está", "como anda",
+        ]
+        if any(p in texto_lower for p in _PALAVRAS_CONTEXTO_CONSULTA):
+            return {
+                "intencao": "consultar_categoria",
+                "valor": valor,
+                "descricao": descricao,
+                "data": data_ref,
+                "categoria_regra": categoria_regra,
+                "categoria_consulta": categoria_mencionada,
+            }
+
+    # 5. Consulta de resumo
     if _texto_contem(texto_lower, PALAVRAS_RESUMO):
         return {
             "intencao": "consultar_resumo",
@@ -331,7 +557,7 @@ def detectar_intencao(texto: str) -> dict:
             "categoria_regra": categoria_regra,
         }
 
-    # 3. Consulta de saldo
+    # 6. Consulta de saldo
     if _texto_contem(texto_lower, PALAVRAS_SALDO):
         return {
             "intencao": "consultar_saldo",
@@ -341,7 +567,7 @@ def detectar_intencao(texto: str) -> dict:
             "categoria_regra": categoria_regra,
         }
 
-    # 4. Registrar entrada
+    # 7. Registrar entrada
     if _texto_contem(texto_lower, PALAVRAS_ENTRADA) and valor:
         return {
             "intencao": "registrar_entrada",
@@ -351,7 +577,7 @@ def detectar_intencao(texto: str) -> dict:
             "categoria_regra": categoria_regra,
         }
 
-    # 5. Registrar saída
+    # 8. Registrar saída
     if _texto_contem(texto_lower, PALAVRAS_SAIDA) and valor:
         return {
             "intencao": "registrar_saida",
@@ -361,7 +587,7 @@ def detectar_intencao(texto: str) -> dict:
             "categoria_regra": categoria_regra,
         }
 
-    # 6. Se tem valor mas não identificou direção, assume saída
+    # 9. Se tem valor mas não identificou direção, assume saída
     #    (maioria das mensagens com valor é gasto)
     if valor and descricao:
         return {
@@ -372,7 +598,7 @@ def detectar_intencao(texto: str) -> dict:
             "categoria_regra": categoria_regra,
         }
 
-    # 7. Conversa geral — nenhuma regra bateu
+    # 10. Conversa geral — nenhuma regra bateu
     return {
         "intencao": "conversa_geral",
         "valor": valor,

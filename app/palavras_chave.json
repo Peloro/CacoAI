@@ -173,5 +173,127 @@
     "recomenda", "aconselha", "sugere",
     "convém", "convem",
     "preciso mesmo", "preciso realmente"
+  ],
+
+  "listar_movimentacoes": [
+    "lista", "listar", "liste",
+    "mostrar", "mostra", "mostre",
+    "ver meus gastos", "ver minhas movimentações", "ver minhas movimentacoes",
+    "quais foram", "quais os gastos", "quais as entradas",
+    "ultimos gastos", "últimos gastos",
+    "ultimas entradas", "últimas entradas",
+    "ultimas movimentações", "últimas movimentações",
+    "ultimas movimentacoes", "últimas movimentacoes",
+    "meus ultimos gastos", "meus últimos gastos",
+    "tudo que gastei", "tudo que entrou",
+    "movimentações recentes", "movimentações recentes",
+    "movimentacoes recentes", "movimentacoes recentes",
+    "histórico de gastos", "historico de gastos",
+    "ver histórico", "ver historico",
+    "extrato recente", "extrato dos gastos",
+    "lista de gastos", "lista das entradas"
+  ],
+
+  "consultar_categoria": [
+    "quanto gastei em", "quanto gastei com", "quanto foi de",
+    "quanto foi em", "quanto foi com", "quanto saiu de",
+    "quanto saiu em", "quanto saiu com",
+    "gasto de", "gasto com", "gasto em",
+    "gastos de", "gastos com", "gastos em",
+    "despesa de", "despesa com", "despesa em",
+    "despesas de", "despesas com", "despesas em",
+    "total de", "total em", "total com",
+    "categoria de", "categoria", "por categoria",
+    "ver categoria", "mostra categoria", "mostrar categoria",
+    "quanto foi na categoria", "quanto foi de categoria",
+    "detalhe de", "detalhes de", "detalhe da categoria",
+    "quanto to gastando em", "quanto tô gastando em",
+    "quanto to gastando com", "quanto tô gastando com",
+    "quanto estou gastando em", "quanto estou gastando com",
+    "histórico de", "historico de",
+    "extrato de", "lista de",
+    "me mostra", "me mostre", "me dá", "me da",
+    "me diz mais sobre", "diz mais sobre", "mais sobre",
+    "fala mais sobre", "fala sobre",
+    "me fala sobre", "me fala mais sobre",
+    "conta mais sobre", "me conta sobre", "me conta mais sobre",
+    "sobre o que gastei", "sobre os gastos",
+    "detalha", "detalhar", "detalhes da", "detalhes do",
+    "quero saber sobre", "quero ver",
+    "me explica", "explica sobre",
+    "como tá o", "como ta o", "como está o",
+    "como anda o", "como andam os"
+  ],
+
+  "limpar_tudo": [
+    "limpar tudo", "limpa tudo", "limpe tudo",
+    "apagar tudo", "apaga tudo", "apague tudo",
+    "deletar tudo", "deleta tudo", "delete tudo",
+    "remover tudo", "remove tudo", "remova tudo",
+    "excluir tudo", "exclui tudo", "exclua tudo",
+    "zerar tudo", "zera tudo", "zere tudo",
+    "resetar", "reseta", "reset",
+    "limpar todas as movimentações", "limpar todas as movimentacoes",
+    "apagar todas as movimentações", "apagar todas as movimentacoes",
+    "recomeçar", "recomeça", "começar do zero", "comecar do zero",
+    "zerar conta", "zerar mês", "zerar mes",
+    "limpar histórico", "limpar historico",
+    "apagar histórico", "apagar historico"
+  ],
+
+  "limpar_gastos": [
+    "limpar todos os gastos", "limpa todos os gastos",
+    "limpar todos gastos", "limpa todos gastos",
+    "apagar todos os gastos", "apaga todos os gastos",
+    "apagar todos gastos", "apaga todos gastos",
+    "deletar todos os gastos", "deleta todos os gastos",
+    "remover todos os gastos", "remove todos os gastos",
+    "excluir todos os gastos", "exclui todos os gastos",
+    "zerar gastos", "zera os gastos", "zerar os gastos",
+    "limpar saídas", "limpar saidas", "limpa as saídas", "limpa as saidas",
+    "apagar todas as saídas", "apagar todas as saidas",
+    "limpar despesas", "limpa despesas",
+    "apagar todas as despesas", "apaga todas as despesas",
+    "zerar despesas", "zera as despesas"
+  ],
+
+  "limpar_ganhos": [
+    "limpar todos os ganhos", "limpa todos os ganhos",
+    "limpar todos ganhos", "limpa todos ganhos",
+    "apagar todos os ganhos", "apaga todos os ganhos",
+    "apagar todos ganhos", "apaga todos ganhos",
+    "deletar todos os ganhos", "deleta todos os ganhos",
+    "remover todos os ganhos", "remove todos os ganhos",
+    "excluir todos os ganhos", "exclui todos os ganhos",
+    "zerar ganhos", "zera os ganhos", "zerar os ganhos",
+    "limpar entradas", "limpa as entradas", "limpa entradas",
+    "apagar todas as entradas", "apaga todas as entradas",
+    "limpar receitas", "limpa receitas",
+    "apagar todas as receitas", "apaga todas as receitas",
+    "zerar entradas", "zera as entradas"
+  ],
+
+  "quanto_ganhei": [
+    "quanto eu ganhei", "quanto ganhei", "quanto recebi",
+    "quanto eu recebi", "total de entradas", "total entradas",
+    "total recebido", "quanto entrou", "quanto eu entrei",
+    "total de ganhos", "total ganhos",
+    "total que ganhei", "total que recebi",
+    "quanto foi de entrada", "quanto foi de ganho",
+    "valor total de entradas", "soma das entradas",
+    "soma dos ganhos", "soma das receitas"
+  ],
+
+  "quanto_gastei": [
+    "quanto eu gastei", "quanto gastei", "quanto eu paguei",
+    "quanto paguei", "total de gastos", "total gastos",
+    "total gasto", "total de saídas", "total de saidas",
+    "total saídas", "total saidas",
+    "quanto saiu", "quanto eu gastei no total",
+    "total de despesas", "total despesas",
+    "total que gastei", "total que paguei",
+    "quanto foi de gasto", "quanto foi de despesa",
+    "valor total de gastos", "soma dos gastos",
+    "soma das despesas", "soma das saídas", "soma das saidas"
   ]
 }

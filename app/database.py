@@ -283,6 +283,272 @@ def apagar_ultima_movimentacao(usuario_id: int, tipo: Optional[str] = None) -> d
     return mov
 
 
+def limpar_movimentacoes(usuario_id: int, tipo: Optional[str] = None, ano_mes: Optional[str] = None) -> int:
+    """
+    Apaga TODAS as movimentações do usuário, opcionalmente filtradas por tipo e mês.
+
+    Parâmetros:
+      - tipo: 'entrada', 'saida' ou None (todas)
+      - ano_mes: formato 'YYYY-MM' ou None para mês atual
+
+    Retorna a quantidade de movimentações apagadas.
+    """
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    if tipo:
+        cur.execute(
+            """
+            DELETE FROM movimentacoes
+            WHERE usuario_id = ? AND tipo = ? AND data_ref LIKE ?
+            """,
+            (usuario_id, tipo, f"{ano_mes}%"),
+        )
+    else:
+        cur.execute(
+            """
+            DELETE FROM movimentacoes
+            WHERE usuario_id = ? AND data_ref LIKE ?
+            """,
+            (usuario_id, f"{ano_mes}%"),
+        )
+
+    apagados = cur.rowcount
+    conn.commit()
+    conn.close()
+    return apagados
+
+
+def totais_mes(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
+    """
+    Retorna total de entradas e saídas do mês, separados.
+
+    Parâmetros:
+      - ano_mes: formato 'YYYY-MM' ou None para mês atual
+
+    Retorna dict com total_entradas, total_saidas, qtd_entradas, qtd_saidas.
+    """
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT tipo, COUNT(*) as qtd, SUM(valor) as total
+        FROM movimentacoes
+        WHERE usuario_id = ? AND data_ref LIKE ?
+        GROUP BY tipo
+        """,
+        (usuario_id, f"{ano_mes}%"),
+    )
+
+    resultado = {
+        "total_entradas": 0.0,
+        "total_saidas": 0.0,
+        "qtd_entradas": 0,
+        "qtd_saidas": 0,
+    }
+
+    for row in cur.fetchall():
+        if row["tipo"] == "entrada":
+            resultado["total_entradas"] = row["total"] or 0.0
+            resultado["qtd_entradas"] = row["qtd"]
+        elif row["tipo"] == "saida":
+            resultado["total_saidas"] = row["total"] or 0.0
+            resultado["qtd_saidas"] = row["qtd"]
+
+    conn.close()
+    return resultado
+
+
+def listar_movimentacoes_recentes(usuario_id: int, limite: int = 10, tipo: Optional[str] = None) -> list[dict]:
+    """
+    Lista as últimas movimentações do usuário.
+
+    Parâmetros:
+      - limite: quantidade de movimentações a retornar (padrão: 10)
+      - tipo: 'entrada', 'saida' ou None (qualquer)
+
+    Retorna lista de dicts com id, tipo, valor, categoria, descricao, data_ref
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+
+    if tipo:
+        cur.execute(
+            """
+            SELECT id, tipo, valor, categoria, descricao, data_ref
+            FROM movimentacoes
+            WHERE usuario_id = ? AND tipo = ?
+            ORDER BY data_ref DESC, id DESC
+            LIMIT ?
+            """,
+            (usuario_id, tipo, limite),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT id, tipo, valor, categoria, descricao, data_ref
+            FROM movimentacoes
+            WHERE usuario_id = ?
+            ORDER BY data_ref DESC, id DESC
+            LIMIT ?
+            """,
+            (usuario_id, limite),
+        )
+
+    resultado = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    return resultado
+
+
+def buscar_movimentacoes_por_descricao(
+    usuario_id: int,
+    descricao: str,
+    tipo: Optional[str] = None,
+    ano_mes: Optional[str] = None,
+) -> list[dict]:
+    """
+    Busca movimentações que contenham a descrição informada (case-insensitive).
+    Também busca por categoria correspondente.
+
+    Parâmetros:
+      - descricao: texto para buscar na descrição ou categoria
+      - tipo: 'entrada', 'saida' ou None (qualquer)
+      - ano_mes: formato 'YYYY-MM' ou None para mês atual
+
+    Retorna lista de dicts com id, tipo, valor, categoria, descricao, data_ref
+    """
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    desc_lower = descricao.lower().strip()
+
+    if tipo:
+        cur.execute(
+            """
+            SELECT id, tipo, valor, categoria, descricao, data_ref
+            FROM movimentacoes
+            WHERE usuario_id = ?
+              AND tipo = ?
+              AND data_ref LIKE ?
+              AND (LOWER(descricao) LIKE ? OR LOWER(categoria) LIKE ?)
+            ORDER BY data_ref DESC, id DESC
+            """,
+            (usuario_id, tipo, f"{ano_mes}%", f"%{desc_lower}%", f"%{desc_lower}%"),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT id, tipo, valor, categoria, descricao, data_ref
+            FROM movimentacoes
+            WHERE usuario_id = ?
+              AND data_ref LIKE ?
+              AND (LOWER(descricao) LIKE ? OR LOWER(categoria) LIKE ?)
+            ORDER BY data_ref DESC, id DESC
+            """,
+            (usuario_id, f"{ano_mes}%", f"%{desc_lower}%", f"%{desc_lower}%"),
+        )
+
+    resultado = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    return resultado
+
+
+def apagar_movimentacao_por_id(usuario_id: int, movimentacao_id: int) -> dict | None:
+    """
+    Apaga uma movimentação específica pelo ID.
+
+    Parâmetros:
+      - movimentacao_id: ID da movimentação a ser apagada
+
+    Retorna dict da movimentação apagada ou None se não encontrar.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Busca a movimentação (garante que pertence ao usuário)
+    cur.execute(
+        """
+        SELECT id, tipo, valor, categoria, descricao, data_ref
+        FROM movimentacoes
+        WHERE id = ? AND usuario_id = ?
+        """,
+        (movimentacao_id, usuario_id),
+    )
+
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return None
+
+    mov = dict(row)
+    cur.execute("DELETE FROM movimentacoes WHERE id = ?", (movimentacao_id,))
+    conn.commit()
+    conn.close()
+    return mov
+
+
+def consultar_categoria(usuario_id: int, categoria: str, ano_mes: Optional[str] = None) -> dict:
+    """
+    Consulta todos os gastos de uma categoria específica.
+
+    Parâmetros:
+      - categoria: nome da categoria (ex: 'alimentacao', 'transporte')
+      - ano_mes: formato 'YYYY-MM' ou None para mês atual
+
+    Retorna dict com total, quantidade e lista de movimentações
+    """
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Total e quantidade
+    cur.execute(
+        """
+        SELECT COUNT(*) as quantidade, SUM(valor) as total
+        FROM movimentacoes
+        WHERE usuario_id = ? AND tipo = 'saida' AND categoria = ? AND data_ref LIKE ?
+        """,
+        (usuario_id, categoria.lower(), f"{ano_mes}%"),
+    )
+    row = cur.fetchone()
+    quantidade = row["quantidade"] if row else 0
+    total = row["total"] if row and row["total"] else 0.0
+
+    # Lista de movimentações
+    cur.execute(
+        """
+        SELECT id, valor, descricao, data_ref
+        FROM movimentacoes
+        WHERE usuario_id = ? AND tipo = 'saida' AND categoria = ? AND data_ref LIKE ?
+        ORDER BY data_ref DESC, id DESC
+        """,
+        (usuario_id, categoria.lower(), f"{ano_mes}%"),
+    )
+    movimentacoes = [dict(row) for row in cur.fetchall()]
+
+    conn.close()
+
+    return {
+        "categoria": categoria.lower(),
+        "ano_mes": ano_mes,
+        "total": total,
+        "quantidade": quantidade,
+        "movimentacoes": movimentacoes,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Autenticação e Sessões
 # ---------------------------------------------------------------------------

@@ -28,6 +28,12 @@ from app.database import (
     registrar_movimentacao,
     resumo_mes,
     apagar_ultima_movimentacao,
+    listar_movimentacoes_recentes,
+    apagar_movimentacao_por_id,
+    buscar_movimentacoes_por_descricao,
+    consultar_categoria,
+    limpar_movimentacoes,
+    totais_mes,
     # Auth
     usuario_tem_cadastro,
     get_etapa_cadastro,
@@ -43,7 +49,14 @@ from app.database import (
     invalidar_sessao,
 )
 from app.parser import detectar_intencao
-from app.responder import resposta_local, RESPOSTAS_NAO_ENTENDI
+from app.responder import (
+    resposta_local,
+    RESPOSTAS_NAO_ENTENDI,
+    gerar_resposta_listar_movimentacoes,
+    gerar_resposta_consultar_categoria,
+    gerar_resposta_apagar_com_id,
+    gerar_resposta_desambiguacao_apagar,
+)
 from app.financeiro import (
     avaliar_gasto,
     formatar_real,
@@ -54,6 +67,14 @@ from app.financeiro import (
 # Armazena temporariamente a senha digitada no passo 1 (antes da confirmação)
 # Chave: usuario_id, valor: senha em texto
 _senha_temporaria: dict[int, str] = {}
+
+# Armazena movimentações pendentes de desambiguação para deleção
+# Chave: usuario_id, valor: lista de dicts das movimentações candidatas
+_pendente_desambiguacao: dict[int, list[dict]] = {}
+
+# Armazena confirmação pendente de limpeza de movimentações
+# Chave: usuario_id, valor: tipo_limpar ('entrada', 'saida' ou None para tudo)
+_pendente_confirmacao_limpar: dict[int, str | None] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -261,12 +282,22 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     msg_lower = mensagem.strip().lower()
     if msg_lower in ("sair", "logout", "bloquear", "trancar", "encerrar sessão",
                      "encerrar sessao", "travar"):
+        _pendente_desambiguacao.pop(usuario_id, None)
+        _pendente_confirmacao_limpar.pop(usuario_id, None)
         invalidar_sessao(usuario_id)
         nome = get_nome_usuario(usuario_id) or "amigo"
         return (
             f"🔒 Sessão encerrada, *{nome}*!\n"
             "Seus dados estão protegidos. Até a próxima! 👋"
         )
+
+    # --- Verifica se há desambiguação pendente (escolha de qual movimentação apagar) ---
+    if usuario_id in _pendente_desambiguacao:
+        return _processar_desambiguacao(usuario_id, mensagem)
+
+    # --- Verifica se há confirmação pendente de limpeza ---
+    if usuario_id in _pendente_confirmacao_limpar:
+        return _processar_confirmacao_limpar(usuario_id, mensagem)
 
     # 2. Parser interpreta a mensagem (100% código, sem LLM)
     parsed = detectar_intencao(mensagem)
@@ -328,8 +359,119 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
 
     elif intencao == "apagar_movimentacao":
         tipo_apagar = parsed.get("tipo_apagar")  # 'entrada', 'saida' ou None
+        id_mov = parsed.get("id_movimentacao")  # ID específico ou None
+        
+        if id_mov:
+            # Apaga movimentação específica por ID
+            mov = apagar_movimentacao_por_id(usuario_id, id_mov)
+            if not mov:
+                return f"🤷 Não encontrei uma movimentação com o ID #{id_mov}. Confere se tá certo!"
+            return gerar_resposta_apagar_com_id(mov)
+        
+        # Tenta buscar por descrição/categoria mencionada na mensagem
+        if descricao:
+            matches = buscar_movimentacoes_por_descricao(
+                usuario_id, descricao, tipo=tipo_apagar
+            )
+            
+            if len(matches) == 1:
+                # Apenas 1 match → apaga direto
+                mov = apagar_movimentacao_por_id(usuario_id, matches[0]["id"])
+                if mov:
+                    return gerar_resposta_apagar_com_id(mov)
+            
+            elif len(matches) > 1:
+                # Múltiplos matches → pede pra escolher
+                _pendente_desambiguacao[usuario_id] = matches
+                return gerar_resposta_desambiguacao_apagar(matches, descricao)
+            
+            # Nenhum match por descrição → avisa o usuário
+            if descricao:
+                return (
+                    f"🤷 Não encontrei nenhuma movimentação com \"{descricao}\" neste mês.\n"
+                    "Confere se escreveu certinho ou manda *listar gastos* pra ver suas movimentações!"
+                )
+        
+        # Sem descrição e sem ID → apaga última movimentação (comportamento original)
         mov = apagar_ultima_movimentacao(usuario_id, tipo_apagar)
         return _montar_resposta_apagar(mov, tipo_apagar)
+
+    elif intencao == "listar_movimentacoes":
+        tipo_listar = parsed.get("tipo_listar")  # 'entrada', 'saida' ou None
+        movimentacoes = listar_movimentacoes_recentes(usuario_id, limite=10, tipo=tipo_listar)
+        return gerar_resposta_listar_movimentacoes(movimentacoes, tipo_listar)
+
+    elif intencao == "consultar_categoria":
+        categoria_consulta = parsed.get("categoria_consulta")
+        if not categoria_consulta:
+            return "🤔 Qual categoria você quer consultar? Ex: \"Quanto gastei em transporte\""
+        
+        dados_cat = consultar_categoria(usuario_id, categoria_consulta)
+        return gerar_resposta_consultar_categoria(dados_cat)
+
+    elif intencao == "limpar_movimentacoes":
+        tipo_limpar = parsed.get("tipo_limpar")  # 'entrada', 'saida' ou None (tudo)
+        totais = totais_mes(usuario_id)
+
+        if tipo_limpar == "saida":
+            qtd = totais["qtd_saidas"]
+            if qtd == 0:
+                return "🤷 Você não tem nenhum gasto registrado neste mês."
+            _pendente_confirmacao_limpar[usuario_id] = "saida"
+            return (
+                f"⚠️ *Tem certeza?*\n\n"
+                f"Isso vai apagar *{qtd} gasto{'s' if qtd > 1 else ''}* "
+                f"({formatar_real(totais['total_saidas'])}) deste mês.\n\n"
+                f"Manda *sim* pra confirmar ou *não* pra cancelar."
+            )
+        elif tipo_limpar == "entrada":
+            qtd = totais["qtd_entradas"]
+            if qtd == 0:
+                return "🤷 Você não tem nenhuma entrada registrada neste mês."
+            _pendente_confirmacao_limpar[usuario_id] = "entrada"
+            return (
+                f"⚠️ *Tem certeza?*\n\n"
+                f"Isso vai apagar *{qtd} entrada{'s' if qtd > 1 else ''}* "
+                f"({formatar_real(totais['total_entradas'])}) deste mês.\n\n"
+                f"Manda *sim* pra confirmar ou *não* pra cancelar."
+            )
+        else:
+            qtd_total = totais["qtd_entradas"] + totais["qtd_saidas"]
+            if qtd_total == 0:
+                return "🤷 Você não tem nenhuma movimentação registrada neste mês."
+            _pendente_confirmacao_limpar[usuario_id] = None
+            return (
+                f"⚠️ *Tem certeza?*\n\n"
+                f"Isso vai apagar *TODAS* as movimentações deste mês:\n"
+                f"  💚 {totais['qtd_entradas']} entrada{'s' if totais['qtd_entradas'] != 1 else ''} "
+                f"({formatar_real(totais['total_entradas'])})\n"
+                f"  💸 {totais['qtd_saidas']} gasto{'s' if totais['qtd_saidas'] != 1 else ''} "
+                f"({formatar_real(totais['total_saidas'])})\n\n"
+                f"Manda *sim* pra confirmar ou *não* pra cancelar."
+            )
+
+    elif intencao == "consultar_total":
+        tipo_total = parsed.get("tipo_total")  # 'entrada' ou 'saida'
+        totais = totais_mes(usuario_id)
+
+        if tipo_total == "entrada":
+            total = totais["total_entradas"]
+            qtd = totais["qtd_entradas"]
+            if qtd == 0:
+                return "Você ainda não registrou nenhuma entrada este mês. 🤔"
+            return (
+                f"💚 *Total de ganhos no mês:* {formatar_real(total)}\n"
+                f"📊 {qtd} entrada{'s' if qtd > 1 else ''} registrada{'s' if qtd > 1 else ''}."
+            )
+        else:
+            total = totais["total_saidas"]
+            qtd = totais["qtd_saidas"]
+            if qtd == 0:
+                return "Você ainda não registrou nenhum gasto este mês. 🤔"
+            return (
+                f"💸 *Total de gastos no mês:* {formatar_real(total)}\n"
+                f"📊 {qtd} gasto{'s' if qtd > 1 else ''} registrado{'s' if qtd > 1 else ''}."
+            )
 
     # 5. Só chega aqui se não é ação financeira (saudação, conversa, etc.)
     #    Modo híbrido: local primeiro → LLM como fallback
@@ -339,6 +481,119 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     except Exception:
         contexto = None
     return _resposta_chat_com_fallback(mensagem, contexto)
+
+
+# ---------------------------------------------------------------------------
+# Desambiguação de deleção (múltiplas movimentações iguais)
+# ---------------------------------------------------------------------------
+
+def _processar_desambiguacao(usuario_id: int, mensagem: str) -> str:
+    """
+    Processa a resposta do usuário quando há múltiplas movimentações
+    candidatas a deleção. Aceita número da opção, ID ou 'cancelar'.
+    """
+    texto = mensagem.strip().lower()
+    candidatas = _pendente_desambiguacao.get(usuario_id, [])
+
+    if not candidatas:
+        _pendente_desambiguacao.pop(usuario_id, None)
+        return "Ops, perdi o contexto. 😅 Me diz de novo o que quer apagar!"
+
+    # Cancelar
+    if texto in ("cancelar", "cancela", "nao", "não", "deixa", "esquece",
+                 "nenhum", "nenhuma", "nada", "0"):
+        _pendente_desambiguacao.pop(usuario_id, None)
+        return "Ok, não apaguei nada! 👍"
+
+    # Tenta interpretar como número da opção (1, 2, 3...)
+    import re
+    num_match = re.search(r'^#?(\d+)$', texto)
+    if num_match:
+        num = int(num_match.group(1))
+
+        # Tenta como número da opção na lista (1-based)
+        if 1 <= num <= len(candidatas):
+            mov_escolhida = candidatas[num - 1]
+            _pendente_desambiguacao.pop(usuario_id, None)
+            mov = apagar_movimentacao_por_id(usuario_id, mov_escolhida["id"])
+            if mov:
+                return gerar_resposta_apagar_com_id(mov)
+            return "🤷 Não consegui apagar. Talvez já tenha sido removida."
+
+        # Tenta como ID direto da movimentação
+        for cand in candidatas:
+            if cand["id"] == num:
+                _pendente_desambiguacao.pop(usuario_id, None)
+                mov = apagar_movimentacao_por_id(usuario_id, num)
+                if mov:
+                    return gerar_resposta_apagar_com_id(mov)
+                return "🤷 Não consegui apagar. Talvez já tenha sido removida."
+
+    # Tenta "todos" / "todas"
+    if texto in ("todos", "todas", "tudo"):
+        _pendente_desambiguacao.pop(usuario_id, None)
+        apagados = 0
+        ultimo_mov = None
+        for cand in candidatas:
+            mov = apagar_movimentacao_por_id(usuario_id, cand["id"])
+            if mov:
+                apagados += 1
+                ultimo_mov = mov
+        if apagados > 0:
+            return f"🗑️ Pronto! Apaguei {apagados} movimentações.\n✅ Seu saldo foi atualizado."
+        return "🤷 Não consegui apagar nenhuma. Talvez já tenham sido removidas."
+
+    # Não entendeu a resposta
+    return (
+        "🤔 Não entendi. Manda o *número da opção* (1, 2, 3...) "
+        "ou *cancelar* pra desistir."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Confirmação de limpeza de movimentações
+# ---------------------------------------------------------------------------
+
+def _processar_confirmacao_limpar(usuario_id: int, mensagem: str) -> str:
+    """
+    Processa a resposta do usuário quando há confirmação pendente de limpeza.
+    Aceita 'sim' para confirmar ou 'não' para cancelar.
+    """
+    texto = mensagem.strip().lower()
+
+    # Confirmar
+    if texto in ("sim", "s", "confirmar", "confirma", "pode", "vai", "manda",
+                 "bora", "isso", "confirmo", "yes", "ok", "beleza"):
+        tipo_limpar = _pendente_confirmacao_limpar.pop(usuario_id, "NENHUM")
+        if tipo_limpar == "NENHUM":
+            return "Ops, perdi o contexto. 😅 Me diz de novo o que quer limpar!"
+
+        apagados = limpar_movimentacoes(usuario_id, tipo=tipo_limpar)
+
+        if tipo_limpar == "saida":
+            return (
+                f"🗑️ Pronto! Apaguei *{apagados} gasto{'s' if apagados > 1 else ''}* deste mês.\n"
+                f"✅ Seu saldo foi atualizado."
+            )
+        elif tipo_limpar == "entrada":
+            return (
+                f"🗑️ Pronto! Apaguei *{apagados} entrada{'s' if apagados > 1 else ''}* deste mês.\n"
+                f"✅ Seu saldo foi atualizado."
+            )
+        else:
+            return (
+                f"🗑️ Pronto! Apaguei *{apagados} movimentação{'ões' if apagados > 1 else ''}* deste mês.\n"
+                f"🔄 Seu mês está zerado. Bora recomeçar!"
+            )
+
+    # Cancelar
+    if texto in ("nao", "não", "n", "cancelar", "cancela", "deixa",
+                 "esquece", "nada", "não quero", "nao quero"):
+        _pendente_confirmacao_limpar.pop(usuario_id, None)
+        return "Ok, não apaguei nada! 👍"
+
+    # Não entendeu
+    return "🤔 Manda *sim* pra confirmar ou *não* pra cancelar."
 
 
 # ---------------------------------------------------------------------------
