@@ -12,7 +12,6 @@ env/
 *.egg-info/
 dist/
 build/
-testa_mvp.py
-SETUP.md
-run.py
-tests/
+*.log
+.DS_Store
+Thumbs.db

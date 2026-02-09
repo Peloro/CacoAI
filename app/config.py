@@ -21,5 +21,6 @@ DATABASE_PATH = os.getenv("DATABASE_PATH", "financeiro.db")
 
 # --- App ---
 APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
-APP_PORT = int(os.getenv("APP_PORT", "8000"))
-DEBUG = os.getenv("DEBUG", "true").lower() == "true"
+# Render e outros PaaS injetam a variável PORT automaticamente
+APP_PORT = int(os.getenv("PORT", os.getenv("APP_PORT", "8000")))
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"

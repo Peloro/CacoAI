@@ -17,7 +17,13 @@ def _validar_twilio(request: Request, form_data: dict) -> bool:
         return True  # Pula validação em dev
 
     validator = RequestValidator(TWILIO_AUTH_TOKEN)
-    url = str(request.url)
+
+    # Atrás de reverse proxy (Render, Heroku, etc), a URL interna é http://
+    # mas Twilio assina com https://. Precisamos reconstruir a URL correta.
+    proto = request.headers.get("X-Forwarded-Proto", "https")
+    host = request.headers.get("X-Forwarded-Host", request.headers.get("Host", ""))
+    url = f"{proto}://{host}{request.url.path}"
+
     signature = request.headers.get("X-Twilio-Signature", "")
     return validator.validate(url, form_data, signature)
 
