@@ -11,10 +11,12 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 
-# --- Twilio ---
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
-TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "")  # ex: whatsapp:+14155238886
+# --- Meta WhatsApp Cloud API ---
+# Obtenha em: https://developers.facebook.com → Seu App → WhatsApp → API Setup
+WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN", "")              # Token de acesso permanente
+WHATSAPP_PHONE_ID = os.getenv("WHATSAPP_PHONE_ID", "")        # ID do número de telefone
+WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "caco-verify-token-2026")  # Token de verificação do webhook
+WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")    # App Secret para validar assinatura
 
 # --- Banco de dados ---
 DATABASE_PATH = os.getenv("DATABASE_PATH", "financeiro.db")
