@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+financeiro.db
+*.db
+.venv/
+venv/
+env/
+.idea/
+.vscode/
+*.egg-info/
+dist/
+build/
+testa_mvp.py
+SETUP.md
+run.py
