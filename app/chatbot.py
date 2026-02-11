@@ -130,7 +130,7 @@ def _categorizar_com_fallback(descricao: str) -> str:
         from app.llm_service import categorizar_transacao
         return categorizar_transacao(descricao)
     except Exception as e:
-        print(f"[HYBRID] LLM categorização indisponível: {e}")
+        log.warning("LLM categorização indisponível: %s", e)
         return "outros"
 
 
@@ -154,7 +154,7 @@ def _resposta_chat_com_fallback(mensagem: str, contexto: dict | None = None) -> 
     # 1. Tenta resposta local
     resp = resposta_local(mensagem, contexto)
     if resp:
-        print(f"[HYBRID] Resposta LOCAL")
+        log.debug("Resposta LOCAL")
         return resp
 
     # 2. Tenta Gemini como fallback
@@ -162,13 +162,13 @@ def _resposta_chat_com_fallback(mensagem: str, contexto: dict | None = None) -> 
         from app.llm_service import gerar_resposta_chat
         resp_llm = gerar_resposta_chat(mensagem=mensagem)
         if resp_llm:
-            print(f"[HYBRID] Resposta via GEMINI")
+            log.debug("Resposta via GEMINI")
             return resp_llm
     except Exception as e:
-        print(f"[HYBRID] Gemini indisponível: {e}")
+        log.warning("Gemini indisponível: %s", e)
 
     # 3. Último recurso: resposta genérica local (nunca erro)
-    print(f"[HYBRID] Resposta genérica (fallback final)")
+    log.debug("Resposta genérica (fallback final)")
     return random.choice(RESPOSTAS_NAO_ENTENDI)
 
 
@@ -203,7 +203,7 @@ def processar_mensagem(telefone: str, mensagem: str) -> str:
         return _processar_mensagem_interna(usuario_id, mensagem)
 
     except Exception as e:
-        print(f"[ERRO FATAL] {e}")
+        log.exception("Erro fatal ao processar mensagem: %s", e)
         return "Opa, tive um problema aqui. 😅 Tenta de novo?"
 
 

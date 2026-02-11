@@ -9,9 +9,13 @@ usa respostas locais genéricas — nunca fica sem resposta.
 
 Todo o parsing (intenção, valor, data, descrição) é feito em parser.py.
 """
+import logging
 import re
+
 from app.config import GEMINI_API_KEY, GEMINI_MODEL
 from app.prompts import SYSTEM_PROMPT_CHAT, CHAT_PROMPT_CONVERSA, CATEGORIZATION_PROMPT
+
+log = logging.getLogger("caco.llm")
 
 # Categorias válidas (carregadas do JSON para manter consistência)
 try:
@@ -33,13 +37,13 @@ if GEMINI_API_KEY:
         from google.genai import types as _gentypes
         client = genai.Client(api_key=GEMINI_API_KEY)
         _gemini_disponivel = True
-        print("[LLM] Gemini configurado como fallback ✓")
+        log.info("Gemini configurado como fallback")
     except ImportError:
-        print("[LLM] google-genai não instalado — modo 100% local")
+        log.warning("google-genai não instalado — modo 100%% local")
     except Exception as e:
-        print(f"[LLM] Erro ao configurar Gemini: {e} — modo 100% local")
+        log.warning("Erro ao configurar Gemini: %s — modo 100%% local", e)
 else:
-    print("[LLM] Sem GEMINI_API_KEY — modo 100% local (sem custo!)")
+    log.info("Sem GEMINI_API_KEY — modo 100%% local (sem custo!)")
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +93,7 @@ def categorizar_transacao(descricao: str) -> str:
         return "outros"
 
     except Exception as e:
-        print(f"[ERRO GEMINI - categorização] {e}")
+        log.warning("Erro Gemini (categorização): %s", e)
         return "outros"
 
 
@@ -132,7 +136,7 @@ def gerar_resposta_chat(
         return resposta
 
     except Exception as e:
-        print(f"[ERRO GEMINI - chat] {e}")
+        log.warning("Erro Gemini (chat): %s", e)
         return _resposta_fallback()
 
 

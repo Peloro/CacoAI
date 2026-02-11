@@ -5,8 +5,11 @@ usando regras e regex. NÃO depende de LLM.
 O LLM só é chamado depois, para categorização e resposta conversacional.
 """
 import json
+import logging
 import os
 import re
+
+log = logging.getLogger("caco.parser")
 from datetime import date, timedelta
 from typing import Optional
 
@@ -26,7 +29,7 @@ def _carregar_json(caminho: str, label: str) -> dict[str, list[str]]:
         with open(caminho, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
-        print(f"[PARSER] Erro ao carregar {label}: {e}")
+        log.error("Erro ao carregar %s: %s", label, e)
         return {}
 
 
