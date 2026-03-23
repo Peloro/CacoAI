@@ -1,21 +1,57 @@
 """
-Serviço LLM — usa Google Gemini como FALLBACK para:
-  1. Categorizar transações (quando as regras não conseguem)
-  2. Gerar respostas conversacionais amigáveis
+Servico LLM — usa OpenRouter como FALLBACK para:
+    1. Categorizar transacoes (quando as regras nao conseguem)
+    2. Gerar respostas conversacionais amigaveis
 
-No modo híbrido, este módulo só é chamado quando o responder local
-não consegue resolver. Se falhar (quota, rede, etc.), o chatbot
-usa respostas locais genéricas — nunca fica sem resposta.
+No modo hibrido, este modulo so e chamado quando o responder local
+nao consegue resolver. Se falhar (quota, rede, etc.), o chatbot
+usa respostas locais genericas — nunca fica sem resposta.
 
-Todo o parsing (intenção, valor, data, descrição) é feito em parser.py.
+Todo o parsing (intencao, valor, data, descricao) e feito em parser.py.
 """
 import logging
 import re
+from json import JSONDecodeError
+from typing import Optional
+from urllib.parse import urlparse
 
-from app.config import GEMINI_API_KEY, GEMINI_MODEL
+import httpx
+
+from app.config import (
+        LLM_PROVIDER,
+        OPENROUTER_API_KEY,
+    OPENROUTER_BASE_URL,
+        OPENROUTER_MODEL,
+        OPENROUTER_SITE_URL,
+        OPENROUTER_APP_NAME,
+)
 from app.prompts import SYSTEM_PROMPT_CHAT, CHAT_PROMPT_CONVERSA, CATEGORIZATION_PROMPT
 
 log = logging.getLogger("caco.llm")
+
+
+def _normalizar_api_key_openrouter(raw_key: str) -> str:
+    valor = (raw_key or "").strip().strip('"').strip("'")
+    if valor.lower().startswith("bearer "):
+        valor = valor[7:].strip()
+    return valor
+
+
+def _api_key_openrouter_valida(api_key: str) -> bool:
+    if not api_key:
+        return False
+    # Erro comum: colar URL do modelo no lugar da chave.
+    if api_key.startswith("http://") or api_key.startswith("https://"):
+        return False
+    if "openrouter.ai/" in api_key:
+        return False
+    # Chaves reais tendem a ter tamanho razoavel.
+    if len(api_key) < 16:
+        return False
+    return True
+
+
+_OPENROUTER_API_KEY = _normalizar_api_key_openrouter(OPENROUTER_API_KEY)
 
 # Categorias válidas (carregadas do JSON para manter consistência)
 try:
@@ -27,23 +63,189 @@ except Exception:
         "educacao", "compras", "servicos", "freelas", "salario", "outros",
     }
 
-# Inicializa o cliente Gemini apenas se tiver API key configurada
-client = None
-_gemini_disponivel = False
+# Inicializa OpenRouter apenas se estiver configurado
+_openrouter_disponivel = False
 
-if GEMINI_API_KEY:
-    try:
-        from google import genai
-        from google.genai import types as _gentypes
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        _gemini_disponivel = True
-        log.info("Gemini configurado como fallback")
-    except ImportError:
-        log.warning("google-genai não instalado — modo 100%% local")
-    except Exception as e:
-        log.warning("Erro ao configurar Gemini: %s — modo 100%% local", e)
+if LLM_PROVIDER == "openrouter" and _api_key_openrouter_valida(_OPENROUTER_API_KEY):
+    _openrouter_disponivel = True
+    log.info("OpenRouter configurado como fallback (modelo: %s)", OPENROUTER_MODEL)
+elif LLM_PROVIDER == "openrouter" and OPENROUTER_API_KEY:
+    log.warning(
+        "OPENROUTER_API_KEY parece invalida (formato inesperado). "
+        "Use a chave da pagina https://openrouter.ai/keys"
+    )
+elif LLM_PROVIDER != "openrouter":
+    log.info("LLM_PROVIDER=%s — modo 100%% local", LLM_PROVIDER)
 else:
-    log.info("Sem GEMINI_API_KEY — modo 100%% local (sem custo!)")
+    log.info("Sem OPENROUTER_API_KEY — modo 100%% local (sem custo)")
+
+
+def _headers_openrouter() -> dict:
+    headers = {
+        "Authorization": f"Bearer {_OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    if OPENROUTER_SITE_URL:
+        headers["HTTP-Referer"] = OPENROUTER_SITE_URL
+    if OPENROUTER_APP_NAME:
+        headers["X-Title"] = OPENROUTER_APP_NAME
+    return headers
+
+
+def _normalizar_modelo_openrouter(modelo: str) -> str:
+    """
+    Aceita tanto ID do modelo (ex: minimax/minimax-m2.5:free)
+    quanto URL da página do modelo (ex: https://openrouter.ai/minimax/minimax-m2.5:free/api).
+    """
+    valor = (modelo or "").strip()
+    if not valor:
+        return "minimax/minimax-m2.5:free"
+
+    if valor.startswith("http://") or valor.startswith("https://"):
+        path = urlparse(valor).path.strip("/")
+        partes = [p for p in path.split("/") if p]
+        if len(partes) >= 3 and partes[-1].lower() == "api":
+            # /provider/model/api
+            return f"{partes[-3]}/{partes[-2]}"
+        if len(partes) >= 2:
+            # /provider/model
+            return f"{partes[-2]}/{partes[-1]}"
+
+    return valor
+
+
+def _endpoints_openrouter() -> list[str]:
+    base = OPENROUTER_BASE_URL.rstrip("/")
+    if base.endswith("/chat/completions"):
+        return [base]
+    if base.endswith("/completions"):
+        return [base]
+    return [
+        f"{base}/chat/completions",
+        f"{base}/completions",
+    ]
+
+
+def _montar_payload_por_endpoint(
+    endpoint: str,
+    *,
+    model: str,
+    messages: list[dict],
+    user_prompt: str,
+    temperature: float,
+    max_tokens: int,
+) -> dict:
+    if endpoint.endswith("/completions") and not endpoint.endswith("/chat/completions"):
+        # Endpoint de completions classico usa prompt simples, nao messages.
+        return {
+            "model": model,
+            "prompt": user_prompt,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
+    return {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+
+def _chat_openrouter(
+    user_prompt: str,
+    *,
+    system_prompt: Optional[str] = None,
+    temperature: float = 0.7,
+    max_tokens: int = 300,
+) -> str:
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": user_prompt})
+
+    model = _normalizar_modelo_openrouter(OPENROUTER_MODEL)
+
+    endpoints = _endpoints_openrouter()
+
+    ultimo_erro = None
+    data = None
+    with httpx.Client(timeout=30.0) as client:
+        for endpoint in endpoints:
+            try:
+                payload = _montar_payload_por_endpoint(
+                    endpoint,
+                    model=model,
+                    messages=messages,
+                    user_prompt=user_prompt,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                response = client.post(
+                    endpoint,
+                    headers=_headers_openrouter(),
+                    json=payload,
+                )
+                response.raise_for_status()
+                try:
+                    data = response.json()
+                except JSONDecodeError as e:
+                    content_type = response.headers.get("content-type", "")
+                    preview = response.text[:300].replace("\n", " ").strip()
+                    raise RuntimeError(
+                        "OpenRouter retornou resposta nao-JSON "
+                        f"(status={response.status_code}, content-type={content_type}, body={preview!r})"
+                    ) from e
+                break
+            except httpx.HTTPStatusError as e:
+                ultimo_erro = e
+                preview = e.response.text[:300].replace("\n", " ").strip()
+                resposta_json = {}
+                try:
+                    resposta_json = e.response.json()
+                except Exception:
+                    resposta_json = {}
+
+                mensagem_erro = ""
+                if isinstance(resposta_json, dict):
+                    erro = resposta_json.get("error", {})
+                    if isinstance(erro, dict):
+                        mensagem_erro = str(erro.get("message", ""))
+
+                if (
+                    e.response.status_code == 404
+                    and "No endpoints available matching your guardrail restrictions" in mensagem_erro
+                ):
+                    raise RuntimeError(
+                        "OpenRouter bloqueou a requisicao por guardrails/politica de dados da conta. "
+                        "Ajuste em https://openrouter.ai/settings/privacy"
+                    ) from e
+
+                # Se nao for 404, nao adianta testar rota alternativa.
+                if e.response.status_code != 404:
+                    raise RuntimeError(
+                        f"OpenRouter retornou HTTP {e.response.status_code} em {endpoint}: {preview!r}"
+                    ) from e
+                log.warning("Endpoint OpenRouter nao encontrado (%s): %s", e.response.status_code, endpoint)
+            except Exception as e:
+                ultimo_erro = e
+                raise
+
+    if data is None:
+        raise RuntimeError(f"Falha ao chamar OpenRouter nos endpoints {endpoints}: {ultimo_erro}")
+
+    conteudo = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    if not conteudo:
+        conteudo = data.get("choices", [{}])[0].get("text", "")
+    if isinstance(conteudo, list):
+        partes = [
+            item.get("text", "")
+            for item in conteudo
+            if isinstance(item, dict)
+        ]
+        conteudo = "".join(partes)
+
+    return str(conteudo).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -60,24 +262,17 @@ def categorizar_transacao(descricao: str) -> str:
     if not descricao or not descricao.strip():
         return "outros"
 
-    if not _gemini_disponivel:
+    if not _openrouter_disponivel:
         return "outros"
-
-    from google.genai import types
 
     prompt = CATEGORIZATION_PROMPT.format(descricao=descricao)
 
     try:
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.0,
-                max_output_tokens=50,
-            ),
-        )
-
-        categoria = response.text.strip().lower()
+        categoria = _chat_openrouter(
+            prompt,
+            temperature=0.0,
+            max_tokens=50,
+        ).lower()
         # Remove aspas, pontuação
         categoria = re.sub(r'["\'\.\!\?\,]', '', categoria).strip()
 
@@ -93,7 +288,7 @@ def categorizar_transacao(descricao: str) -> str:
         return "outros"
 
     except Exception as e:
-        log.warning("Erro Gemini (categorização): %s", e)
+        log.warning("Erro OpenRouter (categorizacao): %s", e)
         return "outros"
 
 
@@ -109,34 +304,27 @@ def gerar_resposta_chat(
     para mensagens que NÃO envolvem ações financeiras.
 
     NUNCA recebe ou gera valores financeiros.
-    Retorna str ou levanta exceção se Gemini indisponível.
+    Retorna str ou levanta excecao se OpenRouter indisponivel.
     """
-    if not _gemini_disponivel:
-        raise RuntimeError("Gemini não disponível")
-
-    from google.genai import types
+    if not _openrouter_disponivel:
+        raise RuntimeError("OpenRouter nao disponivel")
 
     prompt = CHAT_PROMPT_CONVERSA.format(mensagem=mensagem)
 
     try:
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT_CHAT,
-                temperature=0.7,
-                max_output_tokens=300,
-            ),
+        resposta = _chat_openrouter(
+            prompt,
+            system_prompt=SYSTEM_PROMPT_CHAT,
+            temperature=0.7,
+            max_tokens=300,
         )
-
-        resposta = response.text.strip()
         # Remove aspas envolvendo a resposta inteira
         if resposta.startswith('"') and resposta.endswith('"'):
             resposta = resposta[1:-1]
         return resposta
 
     except Exception as e:
-        log.warning("Erro Gemini (chat): %s", e)
+        log.warning("Erro OpenRouter (chat): %s", e)
         return _resposta_fallback()
 
 

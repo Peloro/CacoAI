@@ -22,6 +22,7 @@ Modo híbrido:
 A IA NUNCA recebe ou gera valores financeiros.
 """
 import random
+import logging
 from datetime import date, datetime
 from app.database import (
     get_or_create_user,
@@ -62,6 +63,9 @@ from app.financeiro import (
     formatar_real,
     detectar_gasto_fora_do_padrao,
 )
+
+
+log = logging.getLogger("caco.chatbot")
 
 
 # Armazena temporariamente a senha digitada no passo 1 (antes da confirmação)
@@ -147,8 +151,8 @@ def _resposta_chat_com_fallback(mensagem: str, contexto: dict | None = None) -> 
     """
     Modo híbrido para conversa:
       1. Tenta responder localmente (templates)
-      2. Se não conseguiu → tenta Gemini
-      3. Se Gemini falhar → resposta genérica local
+    2. Se não conseguiu → tenta OpenRouter
+    3. Se OpenRouter falhar → resposta genérica local
     Nunca retorna erro.
     """
     # 1. Tenta resposta local
@@ -157,15 +161,15 @@ def _resposta_chat_com_fallback(mensagem: str, contexto: dict | None = None) -> 
         log.debug("Resposta LOCAL")
         return resp
 
-    # 2. Tenta Gemini como fallback
+    # 2. Tenta OpenRouter como fallback
     try:
         from app.llm_service import gerar_resposta_chat
         resp_llm = gerar_resposta_chat(mensagem=mensagem)
         if resp_llm:
-            log.debug("Resposta via GEMINI")
+            log.debug("Resposta via OpenRouter")
             return resp_llm
     except Exception as e:
-        log.warning("Gemini indisponível: %s", e)
+        log.warning("OpenRouter indisponivel: %s", e)
 
     # 3. Último recurso: resposta genérica local (nunca erro)
     log.debug("Resposta genérica (fallback final)")

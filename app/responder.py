@@ -4,7 +4,7 @@ Usa templates + dados reais para montar respostas naturais.
 
 Usado como primeira opção no modo híbrido:
   - Se a intenção é clara → resposta local (instantânea e grátis)
-  - Se não → fallback para Gemini
+    - Se não → fallback para OpenRouter
 """
 import re
 import random
@@ -183,7 +183,7 @@ def resposta_local(mensagem: str, contexto: dict | None = None) -> str | None:
 
     Retorna:
       - str com a resposta se conseguiu responder
-      - None se não souber responder (→ Gemini assume)
+            - None se não souber responder (→ OpenRouter assume)
 
     Parâmetros:
       - mensagem: texto do usuário
@@ -214,7 +214,7 @@ def resposta_local(mensagem: str, contexto: dict | None = None) -> str | None:
     if _match_patterns(mensagem, DESPEDIDA_PATTERNS):
         return random.choice(RESPOSTAS_DESPEDIDA)
 
-    # Não reconheceu — retorna None para o Gemini tentar
+    # Não reconheceu — retorna None para o OpenRouter tentar
     return None
 
 

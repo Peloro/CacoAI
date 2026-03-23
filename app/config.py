@@ -4,9 +4,11 @@ Carrega variáveis de ambiente do .env
 """
 import os
 import logging
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(dotenv_path=_PROJECT_ROOT / ".env")
 
 # --- Logging ---
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -22,9 +24,15 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 logger = logging.getLogger("caco")
 
-# --- Google Gemini ---
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+# --- Provedor de IA ---
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openrouter").lower()
+
+# OpenRouter
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "minimax/minimax-m2.5:free")
+OPENROUTER_SITE_URL = os.getenv("OPENROUTER_SITE_URL", "")
+OPENROUTER_APP_NAME = os.getenv("OPENROUTER_APP_NAME", "CacoAI")
 
 # --- Meta WhatsApp Cloud API ---
 # Obtenha em: https://developers.facebook.com → Seu App → WhatsApp → API Setup

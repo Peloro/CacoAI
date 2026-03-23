@@ -8,8 +8,8 @@ MVP de um chatbot financeiro que conversa pelo WhatsApp em português brasileiro
 
 ## ✨ Destaques
 
-- **Modo híbrido** — 90%+ das mensagens são processadas 100% local (grátis e instantâneo). O Google Gemini só é usado como fallback para categorização e conversa livre.
-- **Funciona 100% offline** — se o Gemini estiver fora, o Caco continua operando normalmente.
+- **Modo híbrido** — 90%+ das mensagens são processadas 100% local (grátis e instantâneo). O OpenRouter só é usado como fallback para categorização e conversa livre.
+- **Funciona 100% offline** — se o OpenRouter estiver fora, o Caco continua operando normalmente.
 - **Autenticação por senha** — cadastro conversacional com sessão de 1h.
 - **Zero termos técnicos** — linguagem informal brasileira, como conversa com um amigo.
 
@@ -28,7 +28,7 @@ IA Financeira/
 │   ├── parser.py             # Extração de intenção, valor, data e descrição (regex)
 │   ├── responder.py          # Respostas locais por template (saudação, ajuda, dica…)
 │   ├── financeiro.py         # Regras financeiras (avaliação, alertas, formatação)
-│   ├── llm_service.py        # Google Gemini — fallback de categorização e chat
+│   ├── llm_service.py        # OpenRouter — fallback de categorização e chat
 │   ├── prompts.py            # Prompts do sistema para o LLM
 │   ├── categorias.json       # Palavras-chave de categorias (alimentação, moradia…)
 │   ├── palavras_chave.json   # Palavras-chave de intenções (entrada, saída, resumo…)
@@ -81,9 +81,11 @@ cp .env.example .env
 Edite o `.env` com suas chaves:
 
 ```env
-# Google Gemini (opcional — o bot funciona 100% sem)
-GEMINI_API_KEY=sua-chave-aqui
-GEMINI_MODEL=gemini-2.5-flash-lite
+# OpenRouter (opcional — o bot funciona 100% sem)
+OPENROUTER_API_KEY=sua-chave-aqui
+OPENROUTER_MODEL=minimax/minimax-m2.5:free
+OPENROUTER_SITE_URL=
+OPENROUTER_APP_NAME=CacoAI
 
 # Twilio (opcional — só para WhatsApp)
 TWILIO_ACCOUNT_SID=
@@ -114,6 +116,15 @@ O servidor sobe em `http://localhost:8000`. Acesse `http://localhost:8000/docs` 
 ---
 
 ## 🧪 Testando
+
+### Simulador de conversa no terminal
+
+```bash
+python simulador_terminal.py
+```
+
+O simulador usa o mesmo fluxo real do bot e permite testar cadastro, login,
+registro de entradas/saidas, resumo e respostas conversacionais direto no terminal.
 
 ### Via script automático
 
@@ -203,17 +214,17 @@ WhatsApp → Twilio → Webhook (FastAPI) → Chatbot Core
                                            ├── Responder (local)   → Saudação, ajuda, dica, despedida
                                            ├── Financeiro (código)  → Cálculos, avaliações, alertas
                                            ├── Database (SQLite)    → Usuários, movimentações, sessões
-                                           └── Gemini (fallback)    → Categorização + conversa livre
+                                           └── OpenRouter (fallback) → Categorização + conversa livre
 ```
 
 ### Pipeline de cada mensagem
 
 1. **Parser** (código) detecta intenção, extrai valor, descrição e data via regex
 2. **Categorização por regras** (keywords JSON) tenta classificar a transação
-3. Se não categorizou → **Gemini categoriza** (fallback opcional)
+3. Se não categorizou → **OpenRouter categoriza** (fallback opcional)
 4. **Código** executa a ação no banco (registrar, consultar, apagar)
 5. **Código** monta a resposta com dados reais do banco
-6. Para conversa pura: **responder local** → **Gemini** → **resposta genérica**
+6. Para conversa pura: **responder local** → **OpenRouter** → **resposta genérica**
 
 ### Princípios
 
@@ -228,8 +239,11 @@ WhatsApp → Twilio → Webhook (FastAPI) → Chatbot Core
 
 | Variável | Obrigatório | Descrição |
 |---|---|---|
-| `GEMINI_API_KEY` | ❌ | Chave da API do Google Gemini (funciona sem) |
-| `GEMINI_MODEL` | ❌ | Modelo (default: `gemini-2.5-flash-lite`) |
+| `LLM_PROVIDER` | ❌ | Provedor de IA (default: `openrouter`) |
+| `OPENROUTER_API_KEY` | ❌ | Chave da API do OpenRouter (funciona sem) |
+| `OPENROUTER_MODEL` | ❌ | Modelo (default: `minimax/minimax-m2.5:free`) |
+| `OPENROUTER_SITE_URL` | ❌ | URL do seu app para ranking no OpenRouter |
+| `OPENROUTER_APP_NAME` | ❌ | Nome do app enviado ao OpenRouter |
 | `TWILIO_ACCOUNT_SID` | Para WhatsApp | SID da conta Twilio |
 | `TWILIO_AUTH_TOKEN` | Para WhatsApp | Token da conta Twilio |
 | `TWILIO_WHATSAPP_NUMBER` | Para WhatsApp | Número Twilio (`whatsapp:+...`) |
@@ -245,7 +259,7 @@ WhatsApp → Twilio → Webhook (FastAPI) → Chatbot Core
 | Componente | Tecnologia |
 |---|---|
 | Framework web | FastAPI + Uvicorn |
-| LLM (fallback) | Google Gemini (`google-genai`) |
+| LLM (fallback) | OpenRouter (modelo default `minimax/minimax-m2.5:free`) |
 | Banco de dados | SQLite3 |
 | WhatsApp | Twilio |
 | NLP local | Regex + keywords JSON |
