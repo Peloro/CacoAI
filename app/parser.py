@@ -76,6 +76,13 @@ _RE_PEDIDO_LISTAGEM_EXPLICITA = re.compile(
     re.IGNORECASE,
 )
 
+_RE_COMANDO_EDITAR_VALOR = re.compile(
+    r'\b(?:editar|edita|edite|alterar|altera|altere|atualizar|atualiza|atualize|'
+    r'corrigir|corrige|corrija|mudar|muda|mude|trocar|troca|troque|'
+    r'ajustar|ajusta|ajuste)\b.*\bvalor\b',
+    re.IGNORECASE,
+)
+
 _RE_TIPO_LISTAR_DIVIDA = re.compile(
     r'\b(?:d[ií]vida|d[ií]vidas|divida|dividas|empr[eé]stimo|emprestimo|devo|devendo)\b',
     re.IGNORECASE,
@@ -855,7 +862,11 @@ def detectar_intencao(texto: str) -> dict:
         }
 
     # 2b. Editar valor de movimentação
-    if _texto_contem(texto_lower, PALAVRAS_EDITAR):
+    eh_comando_editar = _texto_contem(texto_lower, PALAVRAS_EDITAR)
+    if not eh_comando_editar and _RE_COMANDO_EDITAR_VALOR.search(texto_lower):
+        eh_comando_editar = True
+
+    if eh_comando_editar:
         id_mov = extrair_id_movimentacao(texto)
         novo_valor = extrair_novo_valor_edicao(texto, id_mov)
         return {
@@ -879,7 +890,9 @@ def detectar_intencao(texto: str) -> dict:
     elif _RE_TIPO_LISTAR_SAIDA.search(texto_lower):
         tipo_listar = "saida"
 
-    if pedido_listagem or tipo_listar is not None:
+    # Evita falso positivo: frases de registro como "gastei 50..." contêm
+    # palavras de tipo (gastei/paguei), mas não são pedidos de listagem.
+    if pedido_listagem:
         return {
             "intencao": "listar_movimentacoes",
             "valor": valor,

@@ -162,6 +162,143 @@ def _formatar_data_amigavel(data_iso: str) -> str:
         return data_iso or ""
 
 
+def _formatar_data_curta_iso(data_iso: str) -> str:
+    """Converte YYYY-MM-DD para DD/MM para facilitar desambiguação."""
+    try:
+        return datetime.strptime(data_iso, "%Y-%m-%d").strftime("%d/%m")
+    except Exception:
+        return data_iso or ""
+
+
+def _extrair_data_iso_selecao(texto: str) -> str | None:
+    """Extrai data no formato ISO quando o usuário informa data completa."""
+    t = (texto or "").strip()
+
+    m_iso = re.search(r'\b(\d{4})-(\d{2})-(\d{2})\b', t)
+    if m_iso:
+        try:
+            d = datetime(int(m_iso.group(1)), int(m_iso.group(2)), int(m_iso.group(3))).date()
+            return d.isoformat()
+        except ValueError:
+            return None
+
+    m_br = re.search(r'\b(\d{1,2})/(\d{1,2})/(\d{2,4})\b', t)
+    if m_br:
+        try:
+            ano = int(m_br.group(3))
+            if ano < 100:
+                ano += 2000
+            d = datetime(ano, int(m_br.group(2)), int(m_br.group(1))).date()
+            return d.isoformat()
+        except ValueError:
+            return None
+
+    return None
+
+
+def _extrair_dia_mes_selecao(texto: str) -> str | None:
+    """Extrai dia/mês (DD/MM) para filtrar candidatos no mesmo mês."""
+    t = (texto or "").strip()
+    m = re.search(r'\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b', t)
+    if not m:
+        return None
+
+    dia = int(m.group(1))
+    mes = int(m.group(2))
+    if not (1 <= dia <= 31 and 1 <= mes <= 12):
+        return None
+    return f"{dia:02d}/{mes:02d}"
+
+
+def _extrair_valor_selecao(texto: str) -> float | None:
+    """Extrai valor monetário de uma resposta de desambiguação."""
+    t = (texto or "").strip().lower()
+    m = re.search(r'(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)', t)
+    if not m:
+        return None
+
+    bruto = m.group(1)
+    try:
+        if "," in bruto:
+            normalizado = bruto.replace(".", "").replace(",", ".")
+        else:
+            normalizado = bruto
+        return float(normalizado)
+    except ValueError:
+        return None
+
+
+def _montar_linhas_candidatas(candidatas: list[dict]) -> str:
+    """Monta lista padronizada de candidatas para escolha do usuário."""
+    linhas: list[str] = []
+    for i, mov in enumerate(candidatas, 1):
+        if mov.get("_tipo_registro") == "divida":
+            emoji = "🧾"
+            desc = mov.get("descricao") or "dívida"
+            extra = f" (credor: {mov.get('credor') or 'não informado'})"
+        else:
+            emoji = "💚" if mov.get("tipo") == "entrada" else "🔴"
+            desc = mov.get("descricao") or mov.get("categoria", "")
+            extra = ""
+
+        data_curta = _formatar_data_curta_iso(mov.get("data_ref", ""))
+        linhas.append(
+            f"*{i}.* {emoji} {desc} — {formatar_real(float(mov.get('valor', 0.0) or 0.0))}{extra} "
+            f"_(#{mov['id']} - {data_curta})_"
+        )
+    return "\n".join(linhas)
+
+
+def _selecionar_candidata_desambiguacao(candidatas: list[dict], texto: str) -> tuple[dict | None, str | None]:
+    """Seleciona candidata por número da lista, ID, data ou valor."""
+    t = (texto or "").strip().lower()
+
+    num_match = re.search(r'^#?(\d+)$', t)
+    if num_match:
+        num = int(num_match.group(1))
+
+        if 1 <= num <= len(candidatas):
+            return candidatas[num - 1], None
+
+        for cand in candidatas:
+            if int(cand.get("id", -1)) == num:
+                return cand, None
+
+    data_iso = _extrair_data_iso_selecao(t)
+    dia_mes = _extrair_dia_mes_selecao(t)
+    valor = _extrair_valor_selecao(t)
+
+    if data_iso is None and dia_mes is None and valor is None:
+        return None, None
+
+    filtradas = candidatas
+    if data_iso:
+        filtradas = [c for c in filtradas if c.get("data_ref") == data_iso]
+    elif dia_mes:
+        filtradas = [c for c in filtradas if _formatar_data_curta_iso(c.get("data_ref", "")) == dia_mes]
+
+    if valor is not None:
+        filtradas = [
+            c for c in filtradas
+            if abs(float(c.get("valor", 0.0) or 0.0) - valor) < 0.01
+        ]
+
+    if len(filtradas) == 1:
+        return filtradas[0], None
+
+    if not filtradas:
+        return None, (
+            "🤷 Não encontrei opção com esse ID/data/valor.\n"
+            "Manda o *número*, *#ID*, *data* (ex: 24/03) ou *valor* (ex: 300)."
+        )
+
+    return None, (
+        "🤔 Ainda encontrei mais de uma opção com esse filtro.\n"
+        f"{_montar_linhas_candidatas(filtradas)}\n\n"
+        "Refina com *#ID* ou combine *data + valor* (ex: 24/03 300)."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helpers híbridos — local primeiro, LLM como fallback seguro
 # ---------------------------------------------------------------------------
@@ -1008,32 +1145,20 @@ def _processar_desambiguacao(usuario_id: int, mensagem: str) -> str:
         _pendente_desambiguacao.pop(usuario_id, None)
         return "Ok, não apaguei nada! 👍"
 
-    # Tenta interpretar como número da opção (1, 2, 3...)
-    import re
-    num_match = re.search(r'^#?(\d+)$', texto)
-    if num_match:
-        num = int(num_match.group(1))
+    mov_escolhida, erro = _selecionar_candidata_desambiguacao(candidatas, texto)
+    if mov_escolhida:
+        _pendente_desambiguacao.pop(usuario_id, None)
+        tipo_registro = mov_escolhida.get("_tipo_registro", "movimentacao")
+        _pendente_confirmacao_apagar[usuario_id] = {"movimentacao": mov_escolhida, "tipo_registro": tipo_registro}
+        return _montar_confirmacao_apagar(mov_escolhida, tipo_registro)
 
-        # Tenta como número da opção na lista (1-based)
-        if 1 <= num <= len(candidatas):
-            mov_escolhida = candidatas[num - 1]
-            _pendente_desambiguacao.pop(usuario_id, None)
-            tipo_registro = mov_escolhida.get("_tipo_registro", "movimentacao")
-            _pendente_confirmacao_apagar[usuario_id] = {"movimentacao": mov_escolhida, "tipo_registro": tipo_registro}
-            return _montar_confirmacao_apagar(mov_escolhida, tipo_registro)
-
-        # Tenta como ID direto da movimentação
-        for cand in candidatas:
-            if cand["id"] == num:
-                _pendente_desambiguacao.pop(usuario_id, None)
-                tipo_registro = cand.get("_tipo_registro", "movimentacao")
-                _pendente_confirmacao_apagar[usuario_id] = {"movimentacao": cand, "tipo_registro": tipo_registro}
-                return _montar_confirmacao_apagar(cand, tipo_registro)
+    if erro:
+        return erro
 
     # Não entendeu a resposta
     return (
-        "🤔 Não entendi. Manda o *número da opção* (1, 2, 3...) "
-        "ou *cancelar* pra desistir."
+        "🤔 Não entendi. Manda o *número*, *#ID*, *data* (24/03) "
+        "ou *valor* (300), ou *cancelar*."
     )
 
 
@@ -1079,32 +1204,20 @@ def _processar_desambiguacao_editar(usuario_id: int, mensagem: str) -> str:
         _pendente_desambiguacao_editar.pop(usuario_id, None)
         return "Ok, não editei nada! 👍"
 
-    import re
-    num_match = re.search(r'^#?(\d+)$', texto)
-    if num_match:
-        num = int(num_match.group(1))
+    mov, erro = _selecionar_candidata_desambiguacao(candidatas, texto)
+    if mov:
+        _pendente_desambiguacao_editar.pop(usuario_id, None)
+        _pendente_confirmacao_editar[usuario_id] = {
+            "movimentacao": mov,
+            "novo_valor": novo_valor,
+            "tipo_registro": mov.get("_tipo_registro", "movimentacao"),
+        }
+        return _montar_confirmacao_editar(mov, novo_valor, mov.get("_tipo_registro", "movimentacao"))
 
-        if 1 <= num <= len(candidatas):
-            mov = candidatas[num - 1]
-            _pendente_desambiguacao_editar.pop(usuario_id, None)
-            _pendente_confirmacao_editar[usuario_id] = {
-                "movimentacao": mov,
-                "novo_valor": novo_valor,
-                "tipo_registro": mov.get("_tipo_registro", "movimentacao"),
-            }
-            return _montar_confirmacao_editar(mov, novo_valor, mov.get("_tipo_registro", "movimentacao"))
+    if erro:
+        return erro
 
-        for cand in candidatas:
-            if cand["id"] == num:
-                _pendente_desambiguacao_editar.pop(usuario_id, None)
-                _pendente_confirmacao_editar[usuario_id] = {
-                    "movimentacao": cand,
-                    "novo_valor": novo_valor,
-                    "tipo_registro": cand.get("_tipo_registro", "movimentacao"),
-                }
-                return _montar_confirmacao_editar(cand, novo_valor, cand.get("_tipo_registro", "movimentacao"))
-
-    return "Manda o *número* da opção (ou o *#ID*) ou *cancelar*."
+    return "Manda o *número*, *#ID*, *data* (24/03) ou *valor* (300), ou *cancelar*."
 
 
 def _processar_confirmacao_editar(usuario_id: int, mensagem: str) -> str:
@@ -1438,16 +1551,8 @@ def _montar_desambiguacao_editar(movimentacoes: list[dict], descricao: str, novo
         f"Qual você quer editar para {formatar_real(novo_valor)}?\n\n"
     )
 
-    for i, mov in enumerate(movimentacoes, 1):
-        if mov.get("_tipo_registro") == "divida":
-            emoji = "🧾"
-            desc = mov.get("descricao") or "dívida"
-        else:
-            emoji = "💚" if mov.get("tipo") == "entrada" else "🔴"
-            desc = mov.get("descricao") or mov.get("categoria", "")
-        resposta += f"*{i}.* {emoji} {desc} — {formatar_real(mov['valor'])} _(#{mov['id']})_\n"
-
-    resposta += "\nManda o *número* (ou *#ID*) da opção ou *cancelar*."
+    resposta += _montar_linhas_candidatas(movimentacoes)
+    resposta += "\n\nManda o *número*, *#ID*, *data* (24/03) ou *valor* (300), ou *cancelar*."
     return resposta
 
 

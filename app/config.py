@@ -46,6 +46,13 @@ WHATSAPP_PHONE_ID = os.getenv("WHATSAPP_PHONE_ID", "")        # ID do número de
 WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "caco-verify-token-2026")  # Token de verificação do webhook
 WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")    # App Secret para validar assinatura
 
+# --- Telegram Bot API ---
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_WEBHOOK_SECRET_TOKEN = os.getenv("TELEGRAM_WEBHOOK_SECRET_TOKEN", "")
+TG_DEDUP_TTL = int(os.getenv("TG_DEDUP_TTL", "300"))
+TG_SEND_TYPING = os.getenv("TG_SEND_TYPING", "true").lower() == "true"
+TG_POLL_TIMEOUT = int(os.getenv("TG_POLL_TIMEOUT", "25"))
+
 # --- Banco de dados ---
 DATABASE_PATH = os.getenv("DATABASE_PATH", "financeiro.db")
 

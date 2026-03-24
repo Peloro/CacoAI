@@ -451,19 +451,25 @@ def gerar_resposta_desambiguacao_apagar(movimentacoes: list[dict], descricao: st
       - movimentacoes: lista de dicts com id, tipo, valor, categoria, descricao, data_ref
       - descricao: o que o usuário pediu pra apagar (ex: "uber")
     """
-    resposta = f"🤔 Encontrei *{len(movimentacoes)}* movimentações com \"{descricao}\".\n"
+    resposta = f"🤔 Encontrei *{len(movimentacoes)}* lançamentos com \"{descricao}\".\n"
     resposta += "Qual você quer apagar?\n\n"
 
     for i, mov in enumerate(movimentacoes, 1):
-        emoji = "💚" if mov["tipo"] == "entrada" else "🔴"
-        desc = mov.get("descricao") or mov.get("categoria", "")
+        if mov.get("_tipo_registro") == "divida":
+            emoji = "🧾"
+            desc = mov.get("descricao") or "dívida"
+            extra = f" (credor: {mov.get('credor') or 'não informado'})"
+        else:
+            emoji = "💚" if mov.get("tipo") == "entrada" else "🔴"
+            desc = mov.get("descricao") or mov.get("categoria", "")
+            extra = ""
         valor_fmt = formatar_real(mov["valor"])
 
         # Formata data amigável
         data_fmt = _formatar_data_curta(mov["data_ref"])
 
-        resposta += f"*{i}.* {emoji} {desc} — {valor_fmt} _(#{mov['id']} - {data_fmt})_\n"
+        resposta += f"*{i}.* {emoji} {desc} — {valor_fmt}{extra} _(# {mov['id']} - {data_fmt})_\n"
 
-    resposta += "\nManda o *número* da opção ou *cancelar* pra desistir."
+    resposta += "\nManda o *número*, *#ID*, *data* (24/03) ou *valor* (300), ou *cancelar*."
     return resposta
 
