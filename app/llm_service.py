@@ -439,7 +439,7 @@ def gerar_resposta_chat(
         # Remove aspas envolvendo a resposta inteira
         if resposta.startswith('"') and resposta.endswith('"'):
             resposta = resposta[1:-1]
-        return resposta
+        return _sanitizar_resposta_conversa(resposta)
 
     except Exception as e:
         log.warning("Erro LLM (%s) em chat: %s", _provedor_ativo, e)
@@ -527,6 +527,32 @@ def gerar_observacao_resumo(contexto: str) -> str:
 def _resposta_fallback() -> str:
     """Gera resposta genérica quando o LLM falha."""
     return "Oi! Sou o Caco, seu assistente financeiro. 😊 Me diz o que você precisa!"
+
+
+def _sanitizar_resposta_conversa(resposta: str) -> str:
+    """Bloqueia promessas de capacidades que o bot não executa."""
+    texto = (resposta or "").strip()
+    if not texto:
+        return _resposta_fallback()
+
+    texto_lower = texto.lower()
+    padroes_nao_suportados = [
+        r'\bcriar\s+um\s+or[çc]amento\b',
+        r'\bmontar\s+um\s+or[çc]amento\b',
+        r'\bcriar\s+um\s+plano\b',
+        r'\bte\s+ensinar\b',
+        r'\bcomo\s+[ée]\s+o\s+processo\b',
+        r'\bacompanhar\s+você\b',
+        r'\bte\s+acompanhar\b',
+    ]
+
+    if any(re.search(p, texto_lower) for p in padroes_nao_suportados):
+        return (
+            "Posso te ajudar com o que o bot já faz: registrar gastos/entradas/dívidas, "
+            "mostrar resumo e saldo. Se quiser, digite *ajuda* para ver os comandos."
+        )
+
+    return texto
 
 
 # ---------------------------------------------------------------------------

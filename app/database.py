@@ -290,7 +290,10 @@ def apagar_divida_por_id(usuario_id: int, divida_id: int) -> dict | None:
             return None
 
         div = dict(row)
-        cur.execute("DELETE FROM dividas WHERE id = ?", (divida_id,))
+        cur.execute(
+            "DELETE FROM dividas WHERE id = ? AND usuario_id = ?",
+            (divida_id, usuario_id),
+        )
         conn.commit()
     return div
 
@@ -642,7 +645,10 @@ def apagar_ultima_movimentacao(usuario_id: int, tipo: Optional[str] = None) -> d
             return None
 
         mov = dict(row)
-        cur.execute("DELETE FROM movimentacoes WHERE id = ?", (mov["id"],))
+        cur.execute(
+            "DELETE FROM movimentacoes WHERE id = ? AND usuario_id = ?",
+            (mov["id"], usuario_id),
+        )
         conn.commit()
     return mov
 
@@ -877,7 +883,10 @@ def apagar_movimentacao_por_id(usuario_id: int, movimentacao_id: int) -> dict | 
             return None
 
         mov = dict(row)
-        cur.execute("DELETE FROM movimentacoes WHERE id = ?", (movimentacao_id,))
+        cur.execute(
+            "DELETE FROM movimentacoes WHERE id = ? AND usuario_id = ?",
+            (movimentacao_id, usuario_id),
+        )
         conn.commit()
     return mov
 

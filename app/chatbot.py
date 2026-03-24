@@ -27,6 +27,8 @@ import random
 import logging
 import re
 import time
+import json
+from pathlib import Path
 from contextvars import ContextVar
 from datetime import date, datetime
 from app.database import (
@@ -84,9 +86,65 @@ from app.financeiro import (
     formatar_real,
     detectar_gasto_fora_do_padrao,
 )
+from app.config import BOT_REQUEST_LOG_ENABLED, BOT_REQUEST_LOG_PATH
 
 
 log = logging.getLogger("caco.chatbot")
+request_log = logging.getLogger("caco.requests")
+
+
+def _configurar_logger_requisicoes() -> None:
+    """Configura logger dedicado para arquivo local de testes."""
+    if not BOT_REQUEST_LOG_ENABLED:
+        return
+
+    try:
+        root_dir = Path(__file__).resolve().parents[1]
+        path = Path(BOT_REQUEST_LOG_PATH)
+        if not path.is_absolute():
+            path = root_dir / path
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        resolved_target = str(path.resolve())
+        for handler in request_log.handlers:
+            if isinstance(handler, logging.FileHandler):
+                try:
+                    if str(Path(handler.baseFilename).resolve()) == resolved_target:
+                        return
+                except Exception:
+                    continue
+
+        request_log.setLevel(logging.INFO)
+        request_log.propagate = False
+
+        file_handler = logging.FileHandler(path, encoding="utf-8")
+        file_handler.setFormatter(logging.Formatter("%(message)s"))
+        request_log.addHandler(file_handler)
+    except Exception as e:
+        log.warning("Nao foi possivel configurar log de requisicoes: %s", e)
+
+
+def _registrar_requisicao_teste(telefone: str, mensagem: str, resposta: str, erro: str | None = None) -> None:
+    """Registra entrada e saida do bot em arquivo JSONL local."""
+    if not BOT_REQUEST_LOG_ENABLED:
+        return
+
+    try:
+        payload = {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "telefone": telefone,
+            "mensagem": mensagem,
+            "resposta": resposta,
+        }
+        if erro:
+            payload["erro"] = erro
+
+        request_log.info(json.dumps(payload, ensure_ascii=False))
+    except Exception as e:
+        log.warning("Falha ao registrar log de requisicao: %s", e)
+
+
+_configurar_logger_requisicoes()
 
 # Delay padrão para todas as respostas (incluindo IA)
 _DELAY_LOCAL_SECONDS = 3.0
@@ -117,6 +175,10 @@ _pendente_confirmacao_editar: dict[int, dict] = {}
 # Armazena confirmação pendente de limpeza de movimentações
 # Chave: usuario_id, valor: tupla (tipo_limpar, mes_ref) onde tipo é 'entrada', 'saida' ou None
 _pendente_confirmacao_limpar: dict[int, tuple[str | None, str | None]] = {}
+
+# Armazena registro pendente quando faltou apenas o valor.
+# Chave: usuario_id, valor: dict com intencao, descricao e metadados.
+_pendente_valor_registro: dict[int, dict] = {}
 
 # Nomes de meses para respostas amigáveis
 _NOMES_MES = {
@@ -314,6 +376,102 @@ _RE_TERMO_FINANCEIRO = re.compile(
     re.IGNORECASE,
 )
 
+_RE_VALOR_MENSAGEM = re.compile(r'\b\d+(?:[.,]\d{1,2})?\b')
+_RE_ENTRADA_ACAO = re.compile(r'\b(recebi|ganhei|entrou|faturei|depositaram|pix\s+recebido)\b', re.IGNORECASE)
+_RE_SAIDA_ACAO = re.compile(r'\b(gastei|paguei|comprei|torrei|despesa|despesas|saiu)\b', re.IGNORECASE)
+_RE_DIVIDA_ACAO = re.compile(r'\b(devo|devendo|d[ií]vida|d[ií]vidas|fiquei\s+devendo|emprestimo|empr[eé]stimo)\b', re.IGNORECASE)
+_RE_COMANDO_RESUMO = re.compile(r'\b(resumo|extrato|historico|histórico)\b', re.IGNORECASE)
+_RE_COMANDO_SALDO = re.compile(r'\b(saldo|quanto\s+sobra|quanto\s+tenho|quanto\s+falta)\b', re.IGNORECASE)
+_RE_COMANDO_LISTAR = re.compile(r'\b(listar|lista|mostrar|mostra|ver)\b', re.IGNORECASE)
+_RE_COMANDO_APAGAR = re.compile(r'\b(apagar|apaga|deletar|deleta|remover|remove|excluir|exclui)\b', re.IGNORECASE)
+_RE_COMANDO_EDITAR = re.compile(r'\b(editar|edita|alterar|altera|atualizar|atualiza|corrigir|corrige|trocar|troca|mudar|muda)\b', re.IGNORECASE)
+_RE_COMANDO_LIMPAR = re.compile(r'\b(limpar|limpa|zerar|zera|resetar|reseta)\b', re.IGNORECASE)
+_RE_COMANDO_AJUDA = re.compile(r'\b(ajuda|help|comandos)\b', re.IGNORECASE)
+_RE_PLANEJAMENTO_COMPLEXO = re.compile(
+    r'\b(parcelar|parcela|parcelado|entrada|juros|financiar|financiamento|'
+    r'no\s+final|a\s+longo\s+prazo|vezes)\b',
+    re.IGNORECASE,
+)
+
+
+def _detectar_multiplos_comandos(mensagem: str) -> bool:
+    """Retorna True quando a mensagem aparenta conter mais de um comando."""
+    texto = (mensagem or "").strip().lower()
+    if not texto:
+        return False
+
+    comandos: set[str] = set()
+
+    # Acoes financeiras com valor (reduz falso positivo em consultas como "quanto gastei?").
+    if _RE_VALOR_MENSAGEM.search(texto):
+        if _RE_ENTRADA_ACAO.search(texto):
+            comandos.add("registrar_entrada")
+        if _RE_SAIDA_ACAO.search(texto):
+            comandos.add("registrar_saida")
+        if _RE_DIVIDA_ACAO.search(texto):
+            comandos.add("registrar_divida")
+
+    # Comandos de consulta/acao sem valor.
+    if _RE_COMANDO_RESUMO.search(texto):
+        comandos.add("consultar_resumo")
+    if _RE_COMANDO_SALDO.search(texto):
+        comandos.add("consultar_saldo")
+    if _RE_COMANDO_LISTAR.search(texto):
+        comandos.add("listar")
+    if _RE_COMANDO_APAGAR.search(texto):
+        comandos.add("apagar")
+    if _RE_COMANDO_EDITAR.search(texto):
+        comandos.add("editar")
+    if _RE_COMANDO_LIMPAR.search(texto):
+        comandos.add("limpar")
+    if _RE_COMANDO_AJUDA.search(texto):
+        comandos.add("ajuda")
+
+    return len(comandos) > 1
+
+_TERMOS_DESCRICAO_GENERICOS = {
+    "ganhei", "ganho", "recebi", "receber", "entrada", "entradas",
+    "gastei", "gasto", "gastos", "gastar", "paguei", "pagar", "comprei", "comprar",
+    "saida", "saída", "saidas", "saídas", "despesa", "despesas",
+    "divida", "dívida", "dividas", "dívidas", "devo", "devendo", "endividado",
+    "valor", "dinheiro", "conta", "lancamento", "lançamento", "movimentacao", "movimentação",
+    "compensacao", "compensação", "mes", "mês", "semana", "hoje", "ontem",
+    "essa", "esse", "isso", "aquilo", "coisa", "negocio", "negócio",
+}
+
+
+def _descricao_insuficiente_para_registro(descricao: str) -> bool:
+    """Retorna True quando a descrição está ausente ou genérica demais."""
+    desc = (descricao or "").strip().lower()
+    if not desc:
+        return True
+
+    tokens = re.findall(r"[\wÀ-ÿ]+", desc)
+    if not tokens:
+        return True
+
+    # Se todos os tokens forem termos genéricos, falta contexto real.
+    if all(token in _TERMOS_DESCRICAO_GENERICOS for token in tokens):
+        return True
+
+    return False
+
+
+def _duvida_posso_gastar_e_complexa(mensagem: str) -> bool:
+    """Detecta cenários de planejamento que devem ir para IA."""
+    texto = (mensagem or "").strip().lower()
+    if not texto:
+        return False
+
+    qtd_numeros = len(re.findall(r'\d+(?:[.,]\d{1,2})?', texto))
+    if qtd_numeros >= 2:
+        return True
+
+    if _RE_PLANEJAMENTO_COMPLEXO.search(texto):
+        return True
+
+    return len(texto.split()) >= 18
+
 
 def _normalizar_credor_texto(credor: str) -> str:
     """Normaliza credor extraído pela IA para evitar artigos/preposições no início."""
@@ -339,6 +497,7 @@ def _deve_forcar_extracao_ia(mensagem: str, parsed: dict) -> bool:
         "consultar_resumo",
         "consultar_saldo",
         "consultar_total",
+        "registrar_saldo_inicial",
         "listar_movimentacoes",
         "listar_categorias",
         "consultar_categoria",
@@ -498,6 +657,18 @@ def _resposta_dica_com_ia(mensagem: str, contexto: dict | None = None) -> str:
     return "Não consegui gerar uma dica agora. Tenta novamente em instantes."
 
 
+def _garantir_hint_ajuda(resposta: str) -> str:
+    """Garante que toda resposta cite o comando de ajuda."""
+    texto = (resposta or "").strip()
+    if not texto:
+        texto = "Tudo certo por aqui."
+
+    if "ajuda" in texto.lower():
+        return texto
+
+    return f"{texto}\n\n💡 Se precisar, digite *ajuda*."
+
+
 def processar_mensagem(telefone: str, mensagem: str) -> str:
     """
     Pipeline principal (híbrido):
@@ -512,6 +683,9 @@ def processar_mensagem(telefone: str, mensagem: str) -> str:
     NUNCA retorna erro ao usuário — sempre tem fallback local.
     """
     _usou_ia_ctx.set(False)
+    resposta = ""
+    erro_msg: str | None = None
+
     try:
         # 0. Identifica / cria usuário
         usuario = get_or_create_user(telefone)
@@ -520,25 +694,25 @@ def processar_mensagem(telefone: str, mensagem: str) -> str:
         # 1. Fluxo de cadastro (primeiro acesso)
         if not usuario_tem_cadastro(usuario_id):
             resposta = _fluxo_cadastro(usuario_id, mensagem)
-            time.sleep(_DELAY_LOCAL_SECONDS)
-            return resposta
 
         # 2. Verifica sessão (expira em 1h)
-        if not sessao_valida(usuario_id):
+        elif not sessao_valida(usuario_id):
             resposta = _fluxo_login(usuario_id, mensagem)
-            time.sleep(_DELAY_LOCAL_SECONDS)
-            return resposta
 
         # 3. Sessão válida → renova e processa normalmente
-        renovar_sessao(usuario_id)
-        resposta = _processar_mensagem_interna(usuario_id, mensagem)
-        time.sleep(_DELAY_LOCAL_SECONDS)
-        return resposta
+        else:
+            renovar_sessao(usuario_id)
+            resposta = _processar_mensagem_interna(usuario_id, mensagem)
 
     except Exception as e:
+        erro_msg = str(e)
         log.exception("Erro fatal ao processar mensagem: %s", e)
-        time.sleep(_DELAY_LOCAL_SECONDS)
-        return "Opa, tive um problema aqui. 😅 Tenta de novo?"
+        resposta = "Opa, tive um problema aqui. 😅 Tenta de novo?"
+
+    resposta = _garantir_hint_ajuda(resposta)
+    _registrar_requisicao_teste(telefone=telefone, mensagem=mensagem, resposta=resposta, erro=erro_msg)
+    time.sleep(_DELAY_LOCAL_SECONDS)
+    return resposta
 
 
 def _montar_contexto_observacao_resumo(
@@ -699,6 +873,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         _pendente_confirmacao_apagar.pop(usuario_id, None)
         _pendente_confirmacao_editar.pop(usuario_id, None)
         _pendente_confirmacao_limpar.pop(usuario_id, None)
+        _pendente_valor_registro.pop(usuario_id, None)
         invalidar_sessao(usuario_id)
         nome = get_nome_usuario(usuario_id) or "amigo"
         return (
@@ -725,6 +900,20 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     # --- Verifica se há confirmação pendente de limpeza ---
     if usuario_id in _pendente_confirmacao_limpar:
         return _processar_confirmacao_limpar(usuario_id, mensagem)
+
+    # --- Verifica se ficou faltando apenas o valor de um lançamento ---
+    if usuario_id in _pendente_valor_registro:
+        return _processar_pendente_valor_registro(usuario_id, mensagem)
+
+    # Evita executar mensagens com múltiplos comandos na mesma frase.
+    if _detectar_multiplos_comandos(mensagem):
+        return (
+            "Percebi mais de um comando na mesma mensagem. 👀\n"
+            "Pra evitar erro, manda *um comando por vez*.\n\n"
+            "Exemplos:\n"
+            "• `gastei 16 no almoço`\n"
+            "• `recebi 20 de pix`"
+        )
 
     # 2. Parser interpreta a mensagem (100% código, sem LLM)
     parsed = detectar_intencao(mensagem)
@@ -769,11 +958,60 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
 
     # Se regras detectaram movimento financeiro sem valor, pede o valor.
     if intencao == "registrar_entrada" and not valor:
+        _pendente_valor_registro[usuario_id] = {
+            "intencao": "registrar_entrada",
+            "descricao": descricao,
+            "categoria_regra": categoria_regra,
+            "data_ref": data_ref,
+        }
         return "Entendi como *ganho*, mas faltou o valor. 💚\nEx: \"ganhei 150 de pix\""
     if intencao == "registrar_saida" and not valor:
+        _pendente_valor_registro[usuario_id] = {
+            "intencao": "registrar_saida",
+            "descricao": descricao,
+            "categoria_regra": categoria_regra,
+            "data_ref": data_ref,
+        }
         return "Entendi como *gasto*, mas faltou o valor. 💸\nEx: \"gastei 80 no mercado\""
     if intencao == "registrar_divida" and not valor:
+        _pendente_valor_registro[usuario_id] = {
+            "intencao": "registrar_divida",
+            "descricao": descricao,
+            "categoria_regra": categoria_regra,
+            "data_ref": data_ref,
+            "credor_divida": parsed.get("credor_divida"),
+        }
         return "Entendi como *dívida*, mas faltou o valor. 🧾\nEx: \"fiquei devendo 300 no cartão\""
+
+    if intencao == "posso_gastar" and (not valor or valor <= 0):
+        return (
+            "Entendi sua dúvida sobre a compra, mas faltou o valor pra eu avaliar. 🤔\n"
+            "Exemplo: `vou comprar um tênis de 300, vale a pena?`"
+        )
+
+    if intencao == "registrar_saldo_inicial" and (not valor or valor <= 0):
+        return (
+            "Entendi que você quer definir seu *saldo inicial*, mas faltou o valor. 💰\n"
+            "Exemplo: \"tenho 300 na conta\""
+        )
+
+    if intencao == "registrar_entrada" and valor and _descricao_insuficiente_para_registro(descricao):
+        return (
+            "Entendi o valor da *entrada* 💚, mas faltou dizer *de onde veio* esse dinheiro.\n"
+            "Exemplos: \"ganhei 300 de salário\", \"recebi 150 de pix do João\""
+        )
+
+    if intencao == "registrar_saida" and valor and _descricao_insuficiente_para_registro(descricao):
+        return (
+            "Entendi o valor do *gasto* 💸, mas faltou dizer *com o que foi*.\n"
+            "Exemplos: \"gastei 200 com ifood\", \"paguei 80 de gasolina\""
+        )
+
+    if intencao == "registrar_divida" and valor and _descricao_insuficiente_para_registro(descricao):
+        return (
+            "Entendi o valor da *dívida* 🧾, mas faltou dizer *de quê* ou *com quem*.\n"
+            "Exemplos: \"fiquei devendo 300 no cartão\", \"devo 200 pro João\""
+        )
 
     # Helper: label do mês para mensagens
     label_mes = _nome_mes(mes_ref)
@@ -795,6 +1033,25 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             data_ref=data_ref,
         )
         return _montar_resposta_registro("entrada", valor, descricao, categoria, usuario_id, data_ref=data_ref)
+
+    elif intencao == "registrar_saldo_inicial" and valor and valor > 0:
+        registrar_movimentacao(
+            usuario_id=usuario_id,
+            tipo="entrada",
+            valor=valor,
+            categoria="saldo_inicial",
+            descricao="Saldo inicial",
+            data_ref=data_ref,
+        )
+        return _montar_resposta_registro(
+            "entrada",
+            valor,
+            "Saldo inicial",
+            "saldo_inicial",
+            usuario_id,
+            data_ref=data_ref,
+            rotulo_tipo="Saldo inicial",
+        )
 
     elif intencao == "registrar_saida" and valor and valor > 0:
         categoria = _resolver_categoria(categoria_regra, descricao)
@@ -881,6 +1138,17 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             return f"Tá faltando {formatar_real(abs(saldo))} pra fechar{sufixo_mes or ' o mês'}. 😬"
 
     elif intencao == "posso_gastar" and valor and valor > 0:
+        if _duvida_posso_gastar_e_complexa(mensagem):
+            try:
+                _usou_ia_ctx.set(True)
+                from app.llm_service import gerar_resposta_chat
+
+                resposta_ia = gerar_resposta_chat(mensagem=mensagem)
+                if resposta_ia:
+                    return resposta_ia
+            except Exception as e:
+                log.warning("IA indisponível para dúvida complexa de compra: %s", e)
+
         avaliacao = avaliar_gasto(usuario_id, valor)
         return _montar_avaliacao_gasto(avaliacao)
 
@@ -1301,6 +1569,76 @@ def _processar_confirmacao_limpar(usuario_id: int, mensagem: str) -> str:
 
     # Não entendeu
     return "🤔 Manda *sim* pra confirmar ou *não* pra cancelar."
+
+
+def _processar_pendente_valor_registro(usuario_id: int, mensagem: str) -> str:
+    """Completa um registro pendente quando o usuário envia só o valor."""
+    pendente = _pendente_valor_registro.get(usuario_id)
+    if not pendente:
+        return "Ops, perdi o contexto. Me manda o lançamento de novo."
+
+    texto = (mensagem or "").strip().lower()
+    if texto in ("cancelar", "cancela", "nao", "não", "deixa", "esquece"):
+        _pendente_valor_registro.pop(usuario_id, None)
+        return "Beleza, cancelei esse lançamento."
+
+    valor = _extrair_valor_selecao(mensagem)
+    if not valor or valor <= 0:
+        desc = (pendente.get("descricao") or "esse lançamento").strip()
+        return (
+            f"Ainda estou aguardando só o valor de *{desc}*.\n"
+            "Manda algo como `300` ou `300,50` (ou `cancelar`)."
+        )
+
+    intencao = pendente.get("intencao")
+    descricao = pendente.get("descricao") or ""
+    categoria_regra = pendente.get("categoria_regra")
+    data_ref = pendente.get("data_ref") or date.today().isoformat()
+    credor = (pendente.get("credor_divida") or "").strip()
+
+    _pendente_valor_registro.pop(usuario_id, None)
+    valor = float(valor)
+
+    if intencao == "registrar_entrada":
+        categoria = _resolver_categoria(categoria_regra, descricao)
+        registrar_movimentacao(
+            usuario_id=usuario_id,
+            tipo="entrada",
+            valor=valor,
+            categoria=categoria,
+            descricao=descricao,
+            data_ref=data_ref,
+        )
+        return _montar_resposta_registro("entrada", valor, descricao, categoria, usuario_id, data_ref=data_ref)
+
+    if intencao == "registrar_divida":
+        registrar_divida(
+            usuario_id=usuario_id,
+            valor=valor,
+            credor=credor,
+            descricao=descricao or "Divida",
+            data_ref=data_ref,
+        )
+        return _montar_resposta_registro_divida(
+            valor=valor,
+            descricao=descricao or "Divida",
+            credor=credor,
+            usuario_id=usuario_id,
+            data_ref=data_ref,
+        )
+
+    # fallback: registrar_saida
+    categoria = _resolver_categoria(categoria_regra, descricao)
+    registrar_movimentacao(
+        usuario_id=usuario_id,
+        tipo="saida",
+        valor=valor,
+        categoria=categoria,
+        descricao=descricao,
+        data_ref=data_ref,
+    )
+    alerta = detectar_gasto_fora_do_padrao(usuario_id, categoria, valor)
+    return _montar_resposta_registro("saida", valor, descricao, categoria, usuario_id, alerta, data_ref=data_ref)
 
 
 # ---------------------------------------------------------------------------

@@ -83,6 +83,35 @@ _RE_COMANDO_EDITAR_VALOR = re.compile(
     re.IGNORECASE,
 )
 
+_RE_PLANEJAMENTO_COMPRA_DUVIDA = re.compile(
+    r'(\?|\b(?:se\s+eu|vale\s+a\s+pena|vou\s+ficar|fica\s+ruim|no\s+final|parcelar|parcelado|parcela)\b)',
+    re.IGNORECASE,
+)
+_RE_ACAO_FUTURA_COMPRA = re.compile(
+    r'\b(?:vou\s+comprar|quero\s+comprar|pretendo\s+comprar|compraria|comprar|parcelar|parcela)\b',
+    re.IGNORECASE,
+)
+
+# Ações explícitas de registro (mesmo sem valor informado)
+_RE_ACAO_REGISTRO_ENTRADA = re.compile(
+    r'\b(ganhei|recebi|entrou|caiu\s+na\s+conta|me\s+pagaram|pagaram\s+pra\s+mim|pix\s+recebido)\b',
+    re.IGNORECASE,
+)
+_RE_ACAO_REGISTRO_SAIDA = re.compile(
+    r'\b(gastei|paguei|comprei|torrei|debitei|passei\s+no\s+cart[aã]o|mandei\s+pix|fiz\s+pix)\b',
+    re.IGNORECASE,
+)
+_RE_ACAO_REGISTRO_DIVIDA = re.compile(
+    r'\b(devo|devendo|fiquei\s+devendo|peguei\s+emprestado|tenho\s+uma\s+d[ií]vida)\b',
+    re.IGNORECASE,
+)
+
+_RE_SALDO_INICIAL_SETUP = re.compile(
+    r'\b(?:atualmente\s+|hoje\s+|agora\s+)?(?:tenho|to\s+com|tô\s+com|estou\s+com)\b.*\b'
+    r'(?:na\s+conta|em\s+conta|de\s+saldo|de\s+caixa|guardado)\b',
+    re.IGNORECASE,
+)
+
 _RE_TIPO_LISTAR_DIVIDA = re.compile(
     r'\b(?:d[ií]vida|d[ií]vidas|divida|dividas|empr[eé]stimo|emprestimo|devo|devendo)\b',
     re.IGNORECASE,
@@ -828,13 +857,36 @@ def detectar_intencao(texto: str) -> dict:
         or (valor and texto.strip().endswith("?") and _texto_contem(texto_lower, ["posso", "consigo", "dá pra", "da pra", "rola"]))
         or (valor and texto.strip().endswith("?") and _texto_contem(texto_lower, _PALAVRAS_DUVIDA))
     )
-    if eh_pergunta_posso and valor:
+    if eh_pergunta_posso:
         return {
             "intencao": "posso_gastar",
             "valor": valor,
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+        }
+
+    # Perguntas de planejamento/parcelamento sobre compra devem ser tratadas
+    # como avaliacao de gasto, nunca como registro de saida.
+    if _RE_ACAO_FUTURA_COMPRA.search(texto_lower) and _RE_PLANEJAMENTO_COMPRA_DUVIDA.search(texto_lower):
+        return {
+            "intencao": "posso_gastar",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+        }
+
+    # 1b. Setup de saldo inicial (ex.: "tenho 300 na conta")
+    if valor and _RE_SALDO_INICIAL_SETUP.search(texto_lower):
+        return {
+            "intencao": "registrar_saldo_inicial",
+            "valor": valor,
+            "descricao": "Saldo inicial",
+            "data": data_ref,
+            "categoria_regra": "saldo_inicial",
             "mes_referencia": mes_referencia,
         }
 
@@ -1010,6 +1062,39 @@ def detectar_intencao(texto: str) -> dict:
 
     # 10. Registrar saída
     if _texto_contem(texto_lower, PALAVRAS_SAIDA) and valor:
+        return {
+            "intencao": "registrar_saida",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+        }
+
+    # 10b. Registro explícito sem valor informado
+    # Ex.: "comprei o tenis", "recebi de pix", "fiquei devendo no cartao"
+    if _RE_ACAO_REGISTRO_ENTRADA.search(texto_lower):
+        return {
+            "intencao": "registrar_entrada",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+        }
+
+    if _RE_ACAO_REGISTRO_DIVIDA.search(texto_lower):
+        return {
+            "intencao": "registrar_divida",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+            "credor_divida": credor_divida,
+        }
+
+    if _RE_ACAO_REGISTRO_SAIDA.search(texto_lower):
         return {
             "intencao": "registrar_saida",
             "valor": valor,

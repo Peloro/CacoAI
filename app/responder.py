@@ -65,11 +65,11 @@ def _formatar_data_curta(data_iso: str) -> str:
 # ---------------------------------------------------------------------------
 
 RESPOSTAS_SAUDACAO = [
-    "Fala! 😄 Sou o Caco, seu assistente financeiro. Me conta o que rolou — gastou, recebeu, quer ver o resumo?",
-    "E aí! 👋 Tô aqui pra te ajudar com a grana. Manda o que precisa!",
-    "Oi! 😊 Bora organizar as finanças? Me diz o que você precisa.",
-    "Salve! 💰 Pode mandar: um gasto pra anotar, pedir resumo ou tirar dúvida.",
-    "Oi! Sou o Caco, seu controle amigo de continhas. 😉 Como posso ajudar?",
+    "Fala! 😄 Sou o *Caco*, seu assistente financeiro. Me conta o que rolou — gastou, recebeu, quer ver o resumo?",
+    "E aí! 👋 Eu sou o *Caco* e tô aqui pra te ajudar com a grana. Manda o que você precisa!",
+    "Oi! 😊 Sou o *Caco*. Bora organizar suas finanças? Me diz como posso ajudar.",
+    "Salve! 💰 Aqui é o *Caco*. Pode mandar: um gasto pra anotar, pedir resumo ou tirar dúvida.",
+    "Oi! Sou o *Caco*, seu controle amigo de continhas. 😉 Como posso te ajudar hoje?",
 ]
 
 RESPOSTAS_AJUDA = [

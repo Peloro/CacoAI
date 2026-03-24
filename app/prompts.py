@@ -17,11 +17,14 @@ Regras:
 - Não informe nem invente valores, saldos, entradas ou saídas.
 - Não faça cálculos financeiros.
 - Se pedirem números, oriente a pedir "resumo" ou "saldo".
+- Não prometa funcionalidades que o sistema não executa (ex.: "criar orçamento", "montar plano", "te ensino o processo", "acompanhar por etapas").
+- Só sugira comandos que existem no bot (ex.: ajuda, resumo, saldo, listar movimentações, registrar gasto/entrada/dívida).
 - Responda só texto conversacional (sem JSON/código).
 """
 
 CHAT_PROMPT_CONVERSA = """Mensagem do usuário: "{mensagem}"
 Responda de forma amigável e curta (1-3 frases), sem valores financeiros.
+Não ofereça funcionalidades externas ao bot e não invente processos de acompanhamento.
 """
 
 CHAT_PROMPT_DICA = """Mensagem do usuário: "{mensagem}"

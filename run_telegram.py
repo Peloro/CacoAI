@@ -11,6 +11,7 @@ import httpx
 
 from app.chatbot import processar_mensagem
 from app.config import TELEGRAM_BOT_TOKEN, TG_POLL_TIMEOUT, TG_SEND_TYPING
+from app.database import init_db
 
 
 log = logging.getLogger("caco.telegram")
@@ -90,6 +91,9 @@ def _send_typing(client: httpx.Client, base_url: str, chat_id: int) -> None:
 def main() -> None:
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN não configurado no .env")
+
+    # Garante que o schema exista no modo standalone (sem FastAPI lifespan).
+    init_db()
 
     base_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
     offset: int | None = None

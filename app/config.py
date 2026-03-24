@@ -66,3 +66,11 @@ APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
 # Render e outros PaaS injetam a variável PORT automaticamente
 APP_PORT = int(os.getenv("PORT", os.getenv("APP_PORT", "8000")))
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
+# --- API de teste (proteger em uso real) ---
+API_TEST_ENABLED = os.getenv("API_TEST_ENABLED", "false").lower() == "true"
+API_TEST_TOKEN = os.getenv("API_TEST_TOKEN", "")
+
+# --- Logs de teste de requisicoes do bot ---
+BOT_REQUEST_LOG_ENABLED = os.getenv("BOT_REQUEST_LOG_ENABLED", "true").lower() == "true"
+BOT_REQUEST_LOG_PATH = os.getenv("BOT_REQUEST_LOG_PATH", "logs/bot_requests.log")
