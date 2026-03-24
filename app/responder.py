@@ -12,6 +12,7 @@ Observação:
 """
 import re
 import random
+from datetime import datetime
 from app.financeiro import formatar_real
 
 
@@ -20,32 +21,43 @@ from app.financeiro import formatar_real
 # ---------------------------------------------------------------------------
 
 # Palavras/frases que indicam saudação
-SAUDACOES_PATTERNS = [
+def _compilar_patterns(patterns: list[str]) -> tuple[re.Pattern[str], ...]:
+    return tuple(re.compile(p, re.IGNORECASE) for p in patterns)
+
+
+SAUDACOES_PATTERNS = _compilar_patterns([
     r"\b(oi|olá|ola|hey|eai|eae|fala|salve|bom dia|boa tarde|boa noite)\b",
     r"^(oi+|ola+|hey+|eai+)\s*[!.?]*$",
-]
+])
 
 # Palavras que indicam pedido de ajuda
-AJUDA_PATTERNS = [
+AJUDA_PATTERNS = _compilar_patterns([
     r"\b(ajuda|help|como funciona|o que (você|vc|ce) faz|como us[ao]|comandos)\b",
     r"\b(o que (posso|dá pra|da pra) fazer)\b",
-]
+])
 
 # Palavras que indicam agradecimento
-AGRADECIMENTO_PATTERNS = [
+AGRADECIMENTO_PATTERNS = _compilar_patterns([
     r"\b(obrigad[oa]|valeu|vlw|thanks|brigad|tmj|show|top|massa)\b",
-]
+])
 
 # Palavras que indicam despedida
-DESPEDIDA_PATTERNS = [
+DESPEDIDA_PATTERNS = _compilar_patterns([
     r"\b(tchau|xau|bye|até mais|ate mais|falou|flw|até logo|ate logo)\b",
-]
+])
 
 
-def _match_patterns(texto: str, patterns: list[str]) -> bool:
+def _match_patterns(texto: str, patterns: tuple[re.Pattern[str], ...]) -> bool:
     """Verifica se o texto bate com algum dos padrões."""
     texto_lower = texto.lower().strip()
-    return any(re.search(p, texto_lower) for p in patterns)
+    return any(p.search(texto_lower) for p in patterns)
+
+
+def _formatar_data_curta(data_iso: str) -> str:
+    try:
+        return datetime.strptime(data_iso, "%Y-%m-%d").strftime("%d/%m")
+    except Exception:
+        return data_iso
 
 
 # ---------------------------------------------------------------------------
@@ -204,12 +216,7 @@ def gerar_resposta_listar_movimentacoes(
         id_mov = mov["id"]
         
         # Formata data de forma amigável
-        try:
-            from datetime import datetime
-            data_obj = datetime.strptime(data, "%Y-%m-%d")
-            data_fmt = data_obj.strftime("%d/%m")
-        except:
-            data_fmt = data
+        data_fmt = _formatar_data_curta(data)
         
         linha = f"{emoji} {descricao} — {valor_fmt} _(#{id_mov} - {data_fmt})_"
         linhas.append(linha)
@@ -285,12 +292,7 @@ def gerar_resposta_consultar_categoria(
             id_mov = mov["id"]
             
             # Formata data
-            try:
-                from datetime import datetime
-                data_obj = datetime.strptime(data, "%Y-%m-%d")
-                data_fmt = data_obj.strftime("%d/%m")
-            except:
-                data_fmt = data
+            data_fmt = _formatar_data_curta(data)
             
             resposta += f"• {descricao} — {valor_fmt} _(#{id_mov} - {data_fmt})_\n"
         
@@ -367,11 +369,7 @@ def gerar_resposta_extrato_completo(
         descricao = mov.get("descricao") or mov.get("categoria") or "movimentação"
         valor_fmt = formatar_real(mov.get("valor", 0))
         data = mov.get("data_ref", "")
-        try:
-            from datetime import datetime
-            data_fmt = datetime.strptime(data, "%Y-%m-%d").strftime("%d/%m")
-        except Exception:
-            data_fmt = data
+        data_fmt = _formatar_data_curta(data)
         return f"{emoji} {descricao} — {valor_fmt} _(#{mov['id']} - {data_fmt})_"
 
     resposta = f"📋 *Extrato completo{sufixo}:*\n\n"
@@ -391,11 +389,7 @@ def gerar_resposta_extrato_completo(
             credor = d.get("credor") or "não informado"
             valor_fmt = formatar_real(d.get("valor", 0))
             data = d.get("data_ref", "")
-            try:
-                from datetime import datetime
-                data_fmt = datetime.strptime(data, "%Y-%m-%d").strftime("%d/%m")
-            except Exception:
-                data_fmt = data
+            data_fmt = _formatar_data_curta(data)
             resposta += f"🧾 {descricao} — {valor_fmt} _(#{d['id']} - {data_fmt})_ • credor: {credor}\n"
         resposta += "\n"
 
@@ -420,11 +414,7 @@ def gerar_resposta_listar_dividas(dividas: list[dict], label_mes: str = "este m�
         credor = d.get("credor") or "não informado"
         valor_fmt = formatar_real(d.get("valor", 0))
         data = d.get("data_ref", "")
-        try:
-            from datetime import datetime
-            data_fmt = datetime.strptime(data, "%Y-%m-%d").strftime("%d/%m")
-        except Exception:
-            data_fmt = data
+        data_fmt = _formatar_data_curta(data)
         resposta += f"🧾 {descricao} — {valor_fmt} _(#{d['id']} - {data_fmt})_ • credor: {credor}\n"
 
     resposta += "\n💡 _Dica: para editar, use \"editar #ID para NOVO_VALOR\"_"
@@ -470,12 +460,7 @@ def gerar_resposta_desambiguacao_apagar(movimentacoes: list[dict], descricao: st
         valor_fmt = formatar_real(mov["valor"])
 
         # Formata data amigável
-        try:
-            from datetime import datetime
-            data_obj = datetime.strptime(mov["data_ref"], "%Y-%m-%d")
-            data_fmt = data_obj.strftime("%d/%m")
-        except Exception:
-            data_fmt = mov["data_ref"]
+        data_fmt = _formatar_data_curta(mov["data_ref"])
 
         resposta += f"*{i}.* {emoji} {desc} — {valor_fmt} _(#{mov['id']} - {data_fmt})_\n"
 

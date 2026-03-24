@@ -19,10 +19,13 @@ Modo híbrido:
   - LLM só é chamado quando realmente necessário
   - Se LLM falhar → resposta local genérica (NUNCA erro pro usuário)
 
-A IA NUNCA recebe ou gera valores financeiros.
+Em mensagens financeiras ambíguas/complexas, a IA pode ajudar na extração
+de tipo/valor/descrição/categoria. A validação final e o registro no banco
+continuam sendo feitos pelo código.
 """
 import random
 import logging
+import re
 import time
 from contextvars import ContextVar
 from datetime import date, datetime
@@ -64,7 +67,7 @@ from app.database import (
     renovar_sessao,
     invalidar_sessao,
 )
-from app.parser import detectar_intencao
+from app.parser import detectar_intencao, CATEGORIAS_KEYWORDS
 from app.responder import (
     resposta_local,
     RESPOSTAS_NAO_ENTENDI,
@@ -162,6 +165,136 @@ def _formatar_data_amigavel(data_iso: str) -> str:
 # ---------------------------------------------------------------------------
 # Helpers híbridos — local primeiro, LLM como fallback seguro
 # ---------------------------------------------------------------------------
+
+_RE_TERMO_FINANCEIRO = re.compile(
+    r"\b(?:"
+    r"gastei|gastar|paguei|pagar|comprei|comprar|recebi|receber|ganhei|ganho|"
+    r"entrada|saida|saída|despesa|gasto|divida|dívida|devo|devendo|"
+    r"endividei|faturei|freela|salario|salário|receita|"
+    r"pix|cartao|cartão|boleto|aluguel|mercado|parcela|emprestimo|empréstimo|"
+    r"valor"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _normalizar_credor_texto(credor: str) -> str:
+    """Normaliza credor extraído pela IA para evitar artigos/preposições no início."""
+    c = (credor or "").strip(" .,!?:;-")
+    if not c:
+        return ""
+    c = re.sub(
+        r"^(?:d[aeo]s?|n[oa]s?|pr[ao]s?|para|com|aos?|as|o|a)\s+",
+        "",
+        c,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"\s+", " ", c).strip(" .,!?:;-")
+
+
+def _deve_forcar_extracao_ia(mensagem: str, parsed: dict) -> bool:
+    """Decide se a mensagem deve passar por extração financeira estruturada via IA."""
+    texto = (mensagem or "").strip()
+    texto_lower = texto.lower()
+
+    intencao = parsed.get("intencao", "")
+    if intencao in {
+        "consultar_resumo",
+        "consultar_saldo",
+        "consultar_total",
+        "listar_movimentacoes",
+        "listar_categorias",
+        "consultar_categoria",
+        "apagar_movimentacao",
+        "editar_movimentacao",
+        "limpar_movimentacoes",
+        "quitar_dividas",
+        "pagar_divida",
+        "pedir_dica",
+    }:
+        return False
+
+    tem_valor = bool(parsed.get("valor"))
+    parece_financeiro = bool(_RE_TERMO_FINANCEIRO.search(texto_lower))
+    candidato_registro = intencao in {"registrar_entrada", "registrar_saida", "registrar_divida"}
+
+    # Caso clássico ambíguo: o parser não bateu em intenção de registro,
+    # mas a mensagem tem cara financeira (com valor ou com termos financeiros).
+    if intencao == "conversa_geral" and (tem_valor or parece_financeiro):
+        return True
+
+    if not candidato_registro:
+        return False
+
+    descricao = (parsed.get("descricao") or "").strip()
+    categoria_regra = parsed.get("categoria_regra")
+
+    sinais_complexidade = 0
+    if "/" in texto or " no valor " in texto_lower or "valor de" in texto_lower:
+        sinais_complexidade += 1
+    if len(texto_lower.split()) >= 8:
+        sinais_complexidade += 1
+    if categoria_regra is None:
+        sinais_complexidade += 1
+    if not descricao or len(descricao) <= 2:
+        sinais_complexidade += 1
+
+    # Para mensagens simples e bem resolvidas por regra, não força IA.
+    # Para mensagens mais complexas/ambíguas, força IA.
+    return sinais_complexidade >= 2
+
+
+def _aplicar_extracao_ia_financeira(mensagem: str, parsed: dict) -> dict:
+    """Tenta enriquecer/ajustar a interpretação financeira usando extração estruturada da IA."""
+    try:
+        from app.llm_service import extrair_movimentacao_estruturada
+    except Exception as e:
+        log.warning("IA indisponível para extração estruturada: %s", e)
+        return parsed
+
+    try:
+        _usou_ia_ctx.set(True)
+        extraido = extrair_movimentacao_estruturada(mensagem)
+    except Exception as e:
+        log.warning("Falha ao extrair movimentação via IA: %s", e)
+        return parsed
+
+    tipo_ia = extraido.get("tipo")
+    confianca = float(extraido.get("confianca", 0.0) or 0.0)
+    map_intencao = {
+        "entrada": "registrar_entrada",
+        "saida": "registrar_saida",
+        "divida": "registrar_divida",
+    }
+
+    # Exige confiança moderada para sobrescrever a intenção atual.
+    if tipo_ia in map_intencao and confianca >= 0.45:
+        parsed["intencao"] = map_intencao[tipo_ia]
+
+    valor_ia = float(extraido.get("valor", 0.0) or 0.0)
+    if valor_ia > 0:
+        parsed["valor"] = valor_ia
+
+    descricao_ia = (extraido.get("descricao") or "").strip()
+    if descricao_ia:
+        parsed["descricao"] = descricao_ia
+
+    categoria_ia = (extraido.get("categoria") or "").strip().lower()
+    if categoria_ia in CATEGORIAS_KEYWORDS:
+        parsed["categoria_regra"] = categoria_ia
+
+    data_ref_ia = extraido.get("data_ref")
+    if isinstance(data_ref_ia, str) and data_ref_ia:
+        parsed["data"] = data_ref_ia
+
+    if parsed.get("intencao") == "registrar_divida":
+        credor_atual = (parsed.get("credor_divida") or "").strip()
+        if not credor_atual:
+            origem_destino = (extraido.get("origem_destino") or "").strip()
+            if origem_destino:
+                parsed["credor_divida"] = _normalizar_credor_texto(origem_destino)
+
+    return parsed
 
 def _categorizar_com_fallback(descricao: str) -> str:
     """Tenta categorizar via LLM, retorna 'outros' se falhar."""
@@ -463,6 +596,15 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     descricao = parsed["descricao"]
     data_ref = parsed["data"] or date.today().isoformat()
     mes_ref = parsed.get("mes_referencia")  # YYYY-MM ou None (mês atual)
+
+    # Mensagens financeiras ambíguas/complexas passam por IA para
+    # extrair tipo, valor, descrição, categoria e credor quando aplicável.
+    if _deve_forcar_extracao_ia(mensagem, parsed):
+        parsed = _aplicar_extracao_ia_financeira(mensagem, parsed)
+        intencao = parsed["intencao"]
+        valor = parsed["valor"]
+        descricao = parsed["descricao"]
+        data_ref = parsed["data"] or date.today().isoformat()
 
     # 3. Categorização: só resolve quando realmente precisa (registro)
     #    NÃO chama LLM pra resumo, saldo, saudação, etc.
@@ -1135,18 +1277,26 @@ def _montar_resumo(resumo: dict, usuario_id: int, label_mes: str = "este mês") 
     titulo_mes = label_mes.capitalize() if label_mes != "este mês" else "do mês"
     texto = f"📊 *Resumo {titulo_mes}*\n\n"
     texto += f"💰 Entrou: {formatar_real(entradas)}\n"
-    texto += f"💸 Saiu: {formatar_real(saidas)}\n"
+    texto += f"💸 Saiu (sem dívidas): {formatar_real(saidas)}\n"
 
     if saldo >= 0:
         texto += f"✅ Sobra: {formatar_real(saldo)}\n"
     else:
         texto += f"🔴 Falta: {formatar_real(abs(saldo))}\n"
 
-    # Mostra dívidas em bloco separado (não mistura com gastos)
+    # Mostra dívidas em bloco separado e destacado (não mistura com gastos)
     totais_div = totais_dividas(usuario_id, ano_mes=resumo.get("ano_mes"))
-    if totais_div.get("qtd_dividas", 0) > 0:
-        texto += f"🧾 Dívidas: {formatar_real(totais_div.get('total_dividas', 0.0))}"
-        texto += f" ({totais_div.get('qtd_dividas', 0)} registro{'s' if totais_div.get('qtd_dividas', 0) != 1 else ''})\n"
+    qtd_dividas = int(totais_div.get("qtd_dividas", 0) or 0)
+    total_dividas = float(totais_div.get("total_dividas", 0.0) or 0.0)
+
+    if qtd_dividas > 0:
+        texto += "\n🟠 *Dívidas em aberto:*\n"
+        texto += f"🧾 Total: {formatar_real(total_dividas)}\n"
+        texto += f"🧮 Registros: {qtd_dividas}\n"
+    else:
+        texto += "\n🟢 *Dívidas em aberto:*\n"
+        texto += "🧾 Total: R$ 0,00\n"
+        texto += "🧮 Registros: 0\n"
 
     if cats_saidas:
         texto += "\n📁 *Categorias de saída (pra onde foi o dinheiro):*\n"
@@ -1172,7 +1322,7 @@ def _montar_resumo(resumo: dict, usuario_id: int, label_mes: str = "este mês") 
 
     observacao_ia = _gerar_observacao_resumo_ia(resumo, totais_div, label_mes)
     if observacao_ia:
-        texto += f"\n💡 *Observação IA:* {observacao_ia}\n"
+        texto += f"\n💡 {observacao_ia}\n"
 
     return texto
 

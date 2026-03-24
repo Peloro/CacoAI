@@ -115,6 +115,27 @@ _RE_PAGAMENTO_DIVIDA = re.compile(
     re.IGNORECASE,
 )
 
+# Regex de valor pre-compiladas para evitar recompilacao em cada mensagem.
+_RE_VALOR_POR = re.compile(
+    r'\d+\s+\w+\s+por\s+(?:R\$\s*)?(\d+(?:[.,]\d{1,2})?)(?:\s*reais)?',
+    re.IGNORECASE,
+)
+_RE_PRECO_EXPLICITO = re.compile(
+    r'(?:custou|custa|deu|foi|sa\u00edu|saiu|por)\s+(?:R\$\s*)?(\d+(?:[.,]\d{1,2})?)(?:\s*(?:reais|conto|pila))?',
+    re.IGNORECASE,
+)
+_RE_BR_FULL = re.compile(r'R?\$?\s*(\d{1,3}(?:\.\d{3})+),(\d{1,2})')
+_RE_BR_SIMPLE = re.compile(r'R?\$?\s*(\d+),(\d{1,2})\b')
+_RE_DOT_DEC = re.compile(r'R?\$?\s*(\d+)\.(\d{2})\b')
+_RE_INTEIRO_COM_RS = re.compile(r'R\$\s*(\d+)')
+_RE_NUM_CONTEXTO = re.compile(
+    r'(?:gastei|paguei|comprei|recebi|ganhei|torrei|custou|custa|deu|'
+    r'posso gastar|da pra gastar|dá pra gastar|posso comprar|'
+    r'gastar|comprar)\s+(?:uns?\s+)?(?:R\$\s*)?(\d+(?:[.,]\d{1,2})?)',
+    re.IGNORECASE,
+)
+_RE_QUALQUER_NUM = re.compile(r'\b(\d+(?:[.,]\d{1,2})?)\b')
+
 
 def _detectar_tipo_contexto(texto_lower: str) -> Optional[str]:
     tem_entrada = bool(_RE_TIPO_ENTRADA_CTX.search(texto_lower))
@@ -138,59 +159,48 @@ def extrair_valor(texto: str) -> Optional[float]:
     Entende: 50, 50.00, 50,00, R$ 1.500,00, 1500, etc.
     """
     # PRIORIDADE: padrão "X [coisa] por Y [reais]" → o preço é Y
-    por_match = re.search(
-        r'\d+\s+\w+\s+por\s+(?:R\$\s*)?(\d+(?:[.,]\d{1,2})?)(?:\s*reais)?',
-        texto, re.IGNORECASE,
-    )
+    por_match = _RE_VALOR_POR.search(texto)
     if por_match:
         val = por_match.group(1).replace(",", ".")
         return float(val)
 
     # PRIORIDADE: "custou/custa/deu/foi X reais" — preço explícito
-    preco_explicito = re.search(
-        r'(?:custou|custa|deu|foi|sa\u00edu|saiu|por)\s+(?:R\$\s*)?(\d+(?:[.,]\d{1,2})?)(?:\s*(?:reais|conto|pila))?',
-        texto, re.IGNORECASE,
-    )
+    preco_explicito = _RE_PRECO_EXPLICITO.search(texto)
     if preco_explicito:
         val = preco_explicito.group(1).replace(",", ".")
         return float(val)
 
     # Primeiro tenta formato brasileiro completo: R$ 1.234,56 ou 1.234,56
-    br_full = re.search(r'R?\$?\s*(\d{1,3}(?:\.\d{3})+),(\d{1,2})', texto)
+    br_full = _RE_BR_FULL.search(texto)
     if br_full:
         inteiro = br_full.group(1).replace(".", "")
         decimal = br_full.group(2)
         return float(f"{inteiro}.{decimal}")
 
     # Formato brasileiro simples: 50,00 ou R$ 50,00
-    br_simple = re.search(r'R?\$?\s*(\d+),(\d{1,2})\b', texto)
+    br_simple = _RE_BR_SIMPLE.search(texto)
     if br_simple:
         return float(f"{br_simple.group(1)}.{br_simple.group(2)}")
 
     # Formato com ponto decimal: 50.00 ou R$ 50.00
-    dot_dec = re.search(r'R?\$?\s*(\d+)\.(\d{2})\b', texto)
+    dot_dec = _RE_DOT_DEC.search(texto)
     if dot_dec:
         return float(f"{dot_dec.group(1)}.{dot_dec.group(2)}")
 
     # Número inteiro simples (com ou sem R$)
-    inteiro = re.search(r'R\$\s*(\d+)', texto)
+    inteiro = _RE_INTEIRO_COM_RS.search(texto)
     if inteiro:
         return float(inteiro.group(1))
 
     # Número isolado no contexto de valor
     # Procura padrões como "gastei 50", "recebi 200"
-    num_contexto = re.search(
-        r'(?:gastei|paguei|comprei|recebi|ganhei|torrei|custou|custa|deu|'
-        r'posso gastar|da pra gastar|dá pra gastar|posso comprar|'
-        r'gastar|comprar)\s+(?:uns?\s+)?(?:R\$\s*)?(\d+(?:[.,]\d{1,2})?)',
-        texto, re.IGNORECASE
-    )
+    num_contexto = _RE_NUM_CONTEXTO.search(texto)
     if num_contexto:
         val = num_contexto.group(1).replace(",", ".")
         return float(val)
 
     # Último recurso: qualquer número solto que pareça valor
-    qualquer = re.search(r'\b(\d+(?:[.,]\d{1,2})?)\b', texto)
+    qualquer = _RE_QUALQUER_NUM.search(texto)
     if qualquer:
         # Não retorna se for muito pequeno ou parecer outra coisa (data etc.)
         val_str = qualquer.group(1).replace(",", ".")
@@ -228,6 +238,33 @@ _DIAS_SEMANA = {
     "domingo": 6,
 }
 
+_PADROES_DIA_SEMANA = [
+    (
+        re.compile(r'(?:na\s+|n[ao]\s+)?' + re.escape(nome_dia) + r'(?:\s+passad[ao])?'),
+        weekday_alvo,
+    )
+    for nome_dia, weekday_alvo in _DIAS_SEMANA.items()
+]
+
+_RE_INICIO_MES = re.compile(r'(?:come[cç]o|in[ií]cio)\s+do\s+m[eê]s')
+_RE_DIA_EXPLICITO = re.compile(r'(?:no\s+)?dia\s+(\d{1,2})\b')
+_RE_DATA_COMPLETA = re.compile(r'(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?')
+
+_RE_MES_PASSADO = re.compile(r'm[eê]s\s+(?:passado|anterior)')
+_RE_MES_RETRASADO = re.compile(r'm[eê]s\s+retrasado|2\s+meses\s+atr[aá]s')
+_RE_MES_ATUAL = re.compile(r'(?:est[ea]|ess[ea]|nest[ea])\s+m[eê]s')
+_PADROES_MES_NOME = [
+    (
+        re.compile(
+            r'(?:^|[\s,;.!?\-])(?:(?:em|de|no m[eê]s de|d[eo])\s+)?'
+            + re.escape(nome_mes)
+            + r'(?:$|[\s,;.!?\-])'
+        ),
+        num_mes,
+    )
+    for nome_mes, num_mes in _MESES_NOME.items()
+]
+
 
 def extrair_data(texto: str) -> Optional[str]:
     """
@@ -251,9 +288,8 @@ def extrair_data(texto: str) -> Optional[str]:
         return (hoje - timedelta(days=7)).isoformat()
 
     # Dia da semana: "na segunda", "sexta passada", "na terça"
-    for nome_dia, weekday_alvo in _DIAS_SEMANA.items():
-        pattern = r'(?:na\s+|n[ao]\s+)?' + re.escape(nome_dia) + r'(?:\s+passad[ao])?'
-        if re.search(pattern, texto_lower):
+    for pattern_dia, weekday_alvo in _PADROES_DIA_SEMANA:
+        if pattern_dia.search(texto_lower):
             # Calcula quantos dias atrás foi esse dia da semana
             dia_atual = hoje.weekday()  # 0=segunda
             dias_atras = (dia_atual - weekday_alvo) % 7
@@ -262,11 +298,11 @@ def extrair_data(texto: str) -> Optional[str]:
             return (hoje - timedelta(days=dias_atras)).isoformat()
 
     # "começo do mês" / "início do mês"
-    if re.search(r'(?:come[cç]o|in[ií]cio)\s+do\s+m[eê]s', texto_lower):
+    if _RE_INICIO_MES.search(texto_lower):
         return hoje.replace(day=1).isoformat()
 
     # "dia 15" ou "no dia 15"
-    dia_match = re.search(r'(?:no\s+)?dia\s+(\d{1,2})\b', texto_lower)
+    dia_match = _RE_DIA_EXPLICITO.search(texto_lower)
     if dia_match:
         dia = int(dia_match.group(1))
         try:
@@ -275,7 +311,7 @@ def extrair_data(texto: str) -> Optional[str]:
             pass
 
     # DD/MM/YYYY ou DD/MM
-    data_completa = re.search(r'(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?', texto)
+    data_completa = _RE_DATA_COMPLETA.search(texto)
     if data_completa:
         dia = int(data_completa.group(1))
         mes = int(data_completa.group(2))
@@ -308,13 +344,13 @@ def extrair_mes_referencia(texto: str) -> Optional[str]:
     hoje = date.today()
 
     # "mês passado" / "mês anterior"
-    if re.search(r'm[eê]s\s+(?:passado|anterior)', texto_lower):
+    if _RE_MES_PASSADO.search(texto_lower):
         if hoje.month == 1:
             return f"{hoje.year - 1}-12"
         return f"{hoje.year}-{hoje.month - 1:02d}"
 
     # "mês retrasado" / "2 meses atrás"
-    if re.search(r'm[eê]s\s+retrasado|2\s+meses\s+atr[aá]s', texto_lower):
+    if _RE_MES_RETRASADO.search(texto_lower):
         mes = hoje.month - 2
         ano = hoje.year
         if mes <= 0:
@@ -323,14 +359,12 @@ def extrair_mes_referencia(texto: str) -> Optional[str]:
         return f"{ano}-{mes:02d}"
 
     # "este mês", "esse mês", "neste mês" → retorna None (usa padrão = mês atual)
-    if re.search(r'(?:est[ea]|ess[ea]|nest[ea])\s+m[eê]s', texto_lower):
+    if _RE_MES_ATUAL.search(texto_lower):
         return None  # mês atual é o padrão
 
     # Nome de mês: "em janeiro", "de fevereiro", "março", "no mês de abril"
-    for nome_mes, num_mes in _MESES_NOME.items():
-        # Checa com word boundary para evitar falsos positivos
-        pattern = r'(?:^|[\s,;.!?\-])(?:(?:em|de|no m[eê]s de|d[eo])\s+)?' + re.escape(nome_mes) + r'(?:$|[\s,;.!?\-])'
-        if re.search(pattern, texto_lower):
+    for pattern_mes, num_mes in _PADROES_MES_NOME:
+        if pattern_mes.search(texto_lower):
             # Se o mês mencionado é futuro no ano atual, assume ano passado
             ano = hoje.year
             if num_mes > hoje.month:
@@ -489,6 +523,22 @@ def extrair_novo_valor_edicao(texto: str, id_movimentacao: Optional[int] = None)
     return None
 
 
+def _normalizar_credor_extraido(credor: str) -> str:
+    """Remove prefixos naturais (artigos/preposições) do credor extraído."""
+    c = (credor or "").strip(" .,!?:;-")
+    if not c:
+        return ""
+
+    c = re.sub(
+        r'^(?:d[aeo]s?|n[oa]s?|pr[ao]s?|para|com|aos?|as|o|a)\s+',
+        '',
+        c,
+        flags=re.IGNORECASE,
+    )
+    c = re.sub(r'\s+', ' ', c).strip(" .,!?:;-")
+    return c
+
+
 def extrair_credor_divida(texto: str) -> Optional[str]:
     """
     Tenta extrair para quem o usuário está devendo.
@@ -507,13 +557,16 @@ def extrair_credor_divida(texto: str) -> Optional[str]:
         credor = m.group(1).strip(" .,!?:;-")
         # limpa sufixos comuns que podem vir após o credor
         credor = re.sub(r'\b(?:hoje|ontem|anteontem)\b.*$', '', credor, flags=re.IGNORECASE).strip()
+        credor = _normalizar_credor_extraido(credor)
         if credor:
             return credor
 
     # fallback: "devo para X" / "devendo X" simplificado
     m2 = re.search(r'\b(?:devo|devendo|d[ií]vida|d[ií]vidas?)\b.*?\b([\wÀ-ÿ]{2,})$', texto_norm, re.IGNORECASE)
     if m2:
-        return m2.group(1).strip(" .,!?:;-")
+        credor = _normalizar_credor_extraido(m2.group(1))
+        if credor:
+            return credor
 
     return None
 
