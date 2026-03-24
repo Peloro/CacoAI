@@ -526,6 +526,60 @@ def apagar_movimentacao_por_id(usuario_id: int, movimentacao_id: int) -> dict | 
     return mov
 
 
+def obter_movimentacao_por_id(usuario_id: int, movimentacao_id: int) -> dict | None:
+    """
+    Retorna uma movimentação específica pelo ID (somente se pertencer ao usuário).
+    """
+    with _db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, tipo, valor, categoria, descricao, data_ref
+            FROM movimentacoes
+            WHERE id = ? AND usuario_id = ?
+            """,
+            (movimentacao_id, usuario_id),
+        )
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def atualizar_valor_movimentacao(usuario_id: int, movimentacao_id: int, novo_valor: float) -> dict | None:
+    """
+    Atualiza o valor de uma movimentação e retorna dados com valor anterior e novo.
+    """
+    with _db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, tipo, valor, categoria, descricao, data_ref
+            FROM movimentacoes
+            WHERE id = ? AND usuario_id = ?
+            """,
+            (movimentacao_id, usuario_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        atual = dict(row)
+        valor_anterior = float(atual["valor"])
+
+        cur.execute(
+            """
+            UPDATE movimentacoes
+            SET valor = ?
+            WHERE id = ? AND usuario_id = ?
+            """,
+            (novo_valor, movimentacao_id, usuario_id),
+        )
+        conn.commit()
+
+    atual["valor_anterior"] = valor_anterior
+    atual["valor"] = float(novo_valor)
+    return atual
+
+
 def consultar_categoria(usuario_id: int, categoria: str, ano_mes: Optional[str] = None) -> dict:
     """
     Consulta todos os gastos de uma categoria específica.

@@ -46,22 +46,18 @@
   "resumo": [
     "resumo", "como tá o mês", "como ta o mes", "como está o mês",
     "como estou", "meu mês", "meu mes", "relatório", "relatorio",
-    "como tá", "como ta", "como que tá", "como que ta",
+    "como que tá o mês", "como que ta o mes",
     "quanto gastei", "quanto entrou",
     "pra onde foi meu dinheiro", "onde gastei", "em que gastei",
     "em que eu gastei", "no que eu gastei", "no que gastei",
-    "minhas finanças", "minhas financas",
     "meus gastos", "meus ganhos", "minhas despesas",
-    "me mostr", "mostre meus", "mostra meus", "mostra minha",
-    "como está os meus", "como estão os meus", "como estão meus",
-    "como está meu", "como estao", "como esta",
     "extrato", "balanço", "balanco",
     "o que eu gastei", "detalhes do mês", "detalhes do mes",
     "fechamento", "fechamento do mês", "fechamento do mes",
     "visão geral", "visao geral", "panorama",
     "relatório mensal", "relatorio mensal",
-    "minha situação", "minha situacao",
-    "como anda", "como andam", "como andam meus gastos",
+    "minha situação financeira", "minha situacao financeira",
+    "como anda meus gastos", "como andam meus gastos",
     "quanto já gastei", "quanto ja gastei",
     "quanto eu gastei esse mês", "quanto eu gastei esse mes",
     "quanto entrou esse mês", "quanto entrou esse mes",
@@ -114,6 +110,17 @@
     "registrou errado", "anotou errado",
     "lançou errado", "lancou errado",
     "tava errado", "estava errado"
+  ],
+
+  "editar": [
+    "editar", "edita", "edite",
+    "alterar", "altera", "altere",
+    "atualizar", "atualiza", "atualize",
+    "corrigir valor", "corrige valor", "corrija valor",
+    "mudar valor", "muda valor", "mude valor",
+    "trocar valor", "troca valor", "troque valor",
+    "ajustar valor", "ajusta valor", "ajuste valor",
+    "valor correto", "valor certo"
   ],
 
   "apagar_entrada": [
@@ -175,6 +182,15 @@
     "preciso mesmo", "preciso realmente"
   ],
 
+  "dica_financeira": [
+    "dica", "me de uma dica", "me dê uma dica", "me da uma dica", "me dá uma dica",
+    "sugestao", "sugestão", "me de uma sugestao", "me dê uma sugestão",
+    "conselho", "me de um conselho", "me dê um conselho",
+    "como economizar", "quero economizar", "economizar",
+    "como poupar", "poupar", "guardar dinheiro", "como guardar dinheiro",
+    "dica financeira", "dicas financeiras"
+  ],
+
   "listar_movimentacoes": [
     "lista", "listar", "liste",
     "mostrar", "mostra", "mostre",
@@ -203,7 +219,7 @@
     "despesa de", "despesa com", "despesa em",
     "despesas de", "despesas com", "despesas em",
     "total de", "total em", "total com",
-    "categoria de", "categoria", "por categoria",
+    "categoria de", "por categoria",
     "ver categoria", "mostra categoria", "mostrar categoria",
     "quanto foi na categoria", "quanto foi de categoria",
     "detalhe de", "detalhes de", "detalhe da categoria",
@@ -212,17 +228,16 @@
     "quanto estou gastando em", "quanto estou gastando com",
     "histórico de", "historico de",
     "extrato de", "lista de",
-    "me mostra", "me mostre", "me dá", "me da",
     "me diz mais sobre", "diz mais sobre", "mais sobre",
     "fala mais sobre", "fala sobre",
     "me fala sobre", "me fala mais sobre",
     "conta mais sobre", "me conta sobre", "me conta mais sobre",
     "sobre o que gastei", "sobre os gastos",
     "detalha", "detalhar", "detalhes da", "detalhes do",
-    "quero saber sobre", "quero ver",
+    "quero saber sobre",
     "me explica", "explica sobre",
-    "como tá o", "como ta o", "como está o",
-    "como anda o", "como andam os"
+    "como tá na categoria", "como ta na categoria", "como está na categoria",
+    "como anda a categoria", "como andam as categorias"
   ],
 
   "limpar_tudo": [

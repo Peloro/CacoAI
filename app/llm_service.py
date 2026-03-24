@@ -10,7 +10,9 @@ usa respostas locais genericas — nunca fica sem resposta.
 Todo o parsing (intencao, valor, data, descricao) e feito em parser.py.
 """
 import logging
+import json
 import re
+import unicodedata
 from json import JSONDecodeError
 from typing import Optional
 from urllib.parse import urlparse
@@ -25,7 +27,13 @@ from app.config import (
         OPENROUTER_SITE_URL,
         OPENROUTER_APP_NAME,
 )
-from app.prompts import SYSTEM_PROMPT_CHAT, CHAT_PROMPT_CONVERSA, CATEGORIZATION_PROMPT
+from app.prompts import (
+    SYSTEM_PROMPT_CHAT,
+    CHAT_PROMPT_CONVERSA,
+    CATEGORIZATION_PROMPT,
+    INTENT_CLASSIFICATION_PROMPT,
+    TRANSACTION_EXTRACTION_PROMPT,
+)
 
 log = logging.getLogger("caco.llm")
 
@@ -331,3 +339,188 @@ def gerar_resposta_chat(
 def _resposta_fallback() -> str:
     """Gera resposta genérica quando o LLM falha."""
     return "Oi! Sou o Caco, seu assistente financeiro. 😊 Me diz o que você precisa!"
+
+
+# ---------------------------------------------------------------------------
+# 3. Classificacao de intencao financeira via LLM
+# ---------------------------------------------------------------------------
+
+_TIPOS_INTENCAO_IA = {"gasto", "ganho", "divida", "nao_financeiro", "incerto"}
+_TIPOS_MOV_IA = {"entrada", "saida", "divida", "nao_financeiro", "incerto"}
+
+
+def classificar_intencao_financeira(mensagem: str) -> dict:
+    """
+    Classifica a mensagem em: gasto, ganho, divida, nao_financeiro ou incerto.
+
+    Retorna dict:
+      - tipo: str
+      - confianca: float (0.0 a 1.0)
+      - justificativa: str
+    """
+    if not mensagem or not mensagem.strip():
+        return {"tipo": "incerto", "confianca": 0.0, "justificativa": "mensagem_vazia"}
+
+    if not _openrouter_disponivel:
+        return {"tipo": "incerto", "confianca": 0.0, "justificativa": "llm_indisponivel"}
+
+    prompt = INTENT_CLASSIFICATION_PROMPT.format(mensagem=mensagem.strip())
+
+    try:
+        bruto = _chat_openrouter(
+            prompt,
+            temperature=0.0,
+            max_tokens=120,
+        )
+
+        # Tenta parse direto e, se falhar, extrai o primeiro bloco JSON.
+        data = None
+        try:
+            data = json.loads(bruto)
+        except Exception:
+            match = re.search(r'\{[\s\S]*\}', bruto)
+            if match:
+                data = json.loads(match.group(0))
+
+        if not isinstance(data, dict):
+            return {"tipo": "incerto", "confianca": 0.0, "justificativa": "json_invalido"}
+
+        tipo = str(data.get("tipo", "incerto")).strip().lower()
+        if tipo not in _TIPOS_INTENCAO_IA:
+            tipo = "incerto"
+
+        try:
+            confianca = float(data.get("confianca", 0.0))
+        except (TypeError, ValueError):
+            confianca = 0.0
+        confianca = max(0.0, min(1.0, confianca))
+
+        justificativa = str(data.get("justificativa", "")).strip()
+
+        return {
+            "tipo": tipo,
+            "confianca": confianca,
+            "justificativa": justificativa,
+        }
+
+    except Exception as e:
+        log.warning("Erro OpenRouter (classificacao_intencao): %s", e)
+        return {"tipo": "incerto", "confianca": 0.0, "justificativa": "erro_llm"}
+
+
+def _slugify_categoria(valor: str) -> str:
+    txt = (valor or "").strip().lower()
+    txt = unicodedata.normalize("NFKD", txt).encode("ascii", "ignore").decode("ascii")
+    txt = re.sub(r"[^a-z0-9]+", "_", txt)
+    return txt.strip("_")
+
+
+def _to_float_seguro(valor) -> float:
+    if isinstance(valor, (int, float)):
+        return float(valor)
+    if isinstance(valor, str):
+        txt = valor.strip().replace("R$", "").replace(" ", "")
+        txt = txt.replace(".", "").replace(",", ".") if "," in txt else txt
+        try:
+            return float(txt)
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def extrair_movimentacao_estruturada(mensagem: str) -> dict:
+    """
+    Extrai campos estruturados de uma mensagem financeira via IA.
+
+    Retorna dict com:
+      - tipo: entrada|saida|divida|nao_financeiro|incerto
+      - valor: float
+      - descricao: str
+      - categoria: str
+      - meio_pagamento: str
+      - origem_destino: str
+      - data_ref: str | None
+      - confianca: float
+      - justificativa: str
+    """
+    vazio = {
+        "tipo": "incerto",
+        "valor": 0.0,
+        "descricao": "",
+        "categoria": "",
+        "meio_pagamento": "",
+        "origem_destino": "",
+        "data_ref": None,
+        "confianca": 0.0,
+        "justificativa": "llm_indisponivel",
+    }
+
+    if not mensagem or not mensagem.strip():
+        vazio["justificativa"] = "mensagem_vazia"
+        return vazio
+
+    if not _openrouter_disponivel:
+        return vazio
+
+    prompt = TRANSACTION_EXTRACTION_PROMPT.format(mensagem=mensagem.strip())
+
+    try:
+        bruto = _chat_openrouter(
+            prompt,
+            temperature=0.0,
+            max_tokens=220,
+        )
+
+        data = None
+        try:
+            data = json.loads(bruto)
+        except Exception:
+            match = re.search(r'\{[\s\S]*\}', bruto)
+            if match:
+                data = json.loads(match.group(0))
+
+        if not isinstance(data, dict):
+            vazio["justificativa"] = "json_invalido"
+            return vazio
+
+        tipo = str(data.get("tipo", "incerto")).strip().lower()
+        if tipo not in _TIPOS_MOV_IA:
+            tipo = "incerto"
+
+        valor = max(0.0, _to_float_seguro(data.get("valor", 0.0)))
+        descricao = str(data.get("descricao", "") or "").strip()
+        categoria = _slugify_categoria(str(data.get("categoria", "") or ""))
+        meio_pagamento = str(data.get("meio_pagamento", "") or "").strip().lower()
+        origem_destino = str(data.get("origem_destino", "") or "").strip().lower()
+
+        data_ref_raw = data.get("data_ref")
+        data_ref = None
+        if isinstance(data_ref_raw, str):
+            d = data_ref_raw.strip()
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
+                data_ref = d
+
+        try:
+            confianca = float(data.get("confianca", 0.0))
+        except (TypeError, ValueError):
+            confianca = 0.0
+        confianca = max(0.0, min(1.0, confianca))
+
+        justificativa = str(data.get("justificativa", "") or "").strip()
+
+        return {
+            "tipo": tipo,
+            "valor": valor,
+            "descricao": descricao,
+            "categoria": categoria,
+            "meio_pagamento": meio_pagamento,
+            "origem_destino": origem_destino,
+            "data_ref": data_ref,
+            "confianca": confianca,
+            "justificativa": justificativa,
+        }
+
+    except Exception as e:
+        log.warning("Erro OpenRouter (extracao_movimentacao): %s", e)
+        vazio["justificativa"] = "erro_llm"
+        return vazio

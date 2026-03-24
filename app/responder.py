@@ -68,6 +68,11 @@ RESPOSTAS_AJUDA = [
         "Claro! Aqui vai o que eu sei fazer 👇\n\n"
         "💸 *Anotar gasto:* \"Gastei 50 no mercado\"\n"
         "💚 *Anotar entrada:* \"Recebi 3000 de salário\"\n"
+        "✏️ *Editar valor:* \"editar #12 para 45\"\n"
+        "🗑️ *Apagar lançamento:* \"apagar #12\" _(com confirmação)_\n"
+        "🧹 *Limpar tudo:* \"limpar tudo\" _(com confirmação)_\n"
+        "📋 *Ver extrato com IDs:* \"listar movimentações\"\n"
+        "🧾 *Ver só dívidas:* \"listar dívidas\"\n"
         "📊 *Ver resumo:* \"Resumo do mês\"\n"
         "💰 *Ver saldo:* \"Quanto tenho sobrando?\"\n"
         "🤔 *Avaliar compra:* \"Posso gastar 200?\"\n"
@@ -345,6 +350,56 @@ def gerar_resposta_consultar_categoria(
 
     resposta += "\n💡 _Dica: pra ver todas as categorias, manda \"resumo\"_"
     
+    return resposta
+
+
+def gerar_resposta_extrato_completo(
+    movimentacoes: list[dict],
+    label_mes: str = "este mês",
+) -> str:
+    """
+    Gera extrato completo com seções separadas por tipo, sempre mostrando IDs.
+    """
+    sufixo = f" em *{label_mes}*" if label_mes != "este mês" else " deste mês"
+
+    if not movimentacoes:
+        return f"Você ainda não tem movimentações registradas{sufixo}. 🤔"
+
+    entradas = [m for m in movimentacoes if m.get("tipo") == "entrada"]
+    saidas = [m for m in movimentacoes if m.get("tipo") == "saida" and (m.get("categoria") or "") != "dividas"]
+    dividas = [m for m in movimentacoes if m.get("tipo") == "saida" and (m.get("categoria") or "") == "dividas"]
+
+    def _linha(mov: dict, emoji: str) -> str:
+        descricao = mov.get("descricao") or mov.get("categoria") or "movimentação"
+        valor_fmt = formatar_real(mov.get("valor", 0))
+        data = mov.get("data_ref", "")
+        try:
+            from datetime import datetime
+            data_fmt = datetime.strptime(data, "%Y-%m-%d").strftime("%d/%m")
+        except Exception:
+            data_fmt = data
+        return f"{emoji} {descricao} — {valor_fmt} _(#{mov['id']} - {data_fmt})_"
+
+    resposta = f"📋 *Extrato completo{sufixo}:*\n\n"
+
+    if entradas:
+        resposta += f"💚 *Entradas ({len(entradas)}):*\n"
+        resposta += "\n".join(_linha(m, "💚") for m in entradas[:20]) + "\n\n"
+
+    if saidas:
+        resposta += f"💸 *Gastos ({len(saidas)}):*\n"
+        resposta += "\n".join(_linha(m, "🔴") for m in saidas[:20]) + "\n\n"
+
+    if dividas:
+        resposta += f"🧾 *Dívidas ({len(dividas)}):*\n"
+        resposta += "\n".join(_linha(m, "🧾") for m in dividas[:20]) + "\n\n"
+
+    resposta += (
+        "💡 *Como usar os IDs:*\n"
+        "• Editar: \"editar #12 para 45\"\n"
+        "• Apagar: \"apagar #12\""
+    )
+
     return resposta
 
 

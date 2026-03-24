@@ -42,6 +42,7 @@ PALAVRAS_SAIDA: list[str] = _PALAVRAS.get("saida", [])
 PALAVRAS_RESUMO: list[str] = _PALAVRAS.get("resumo", [])
 PALAVRAS_SALDO: list[str] = _PALAVRAS.get("saldo", [])
 PALAVRAS_APAGAR: list[str] = _PALAVRAS.get("apagar", [])
+PALAVRAS_EDITAR: list[str] = _PALAVRAS.get("editar", [])
 PALAVRAS_APAGAR_ENTRADA: list[str] = _PALAVRAS.get("apagar_entrada", [])
 PALAVRAS_APAGAR_SAIDA: list[str] = _PALAVRAS.get("apagar_saida", [])
 PALAVRAS_POSSO_GASTAR: list[str] = _PALAVRAS.get("posso_gastar", [])
@@ -53,6 +54,7 @@ PALAVRAS_LIMPAR_GASTOS: list[str] = _PALAVRAS.get("limpar_gastos", [])
 PALAVRAS_LIMPAR_GANHOS: list[str] = _PALAVRAS.get("limpar_ganhos", [])
 PALAVRAS_QUANTO_GANHEI: list[str] = _PALAVRAS.get("quanto_ganhei", [])
 PALAVRAS_QUANTO_GASTEI: list[str] = _PALAVRAS.get("quanto_gastei", [])
+PALAVRAS_DICA: list[str] = _PALAVRAS.get("dica_financeira", [])
 
 # Padrões para detectar "todos/todas + tipo" (fallback para limpar)
 _RE_TODOS_GASTOS = re.compile(
@@ -396,6 +398,41 @@ def extrair_id_movimentacao(texto: str) -> Optional[int]:
     return None
 
 
+def extrair_novo_valor_edicao(texto: str, id_movimentacao: Optional[int] = None) -> Optional[float]:
+    """
+    Extrai o novo valor em comandos de edição.
+    Prioriza padrões como "para 50", "valor 50", "#12 para 50".
+    """
+    # "para 50", "pra 50", "por 50", "valor 50"
+    match = re.search(
+        r'(?:para|pra|por|valor|novo valor|corrigir para|mudar para)\s+(?:R\$\s*)?(\d+(?:[.,]\d{1,2})?)',
+        texto,
+        re.IGNORECASE,
+    )
+    if match:
+        return float(match.group(1).replace(",", "."))
+
+    # Fallback: se houver 2+ números, tenta usar o último diferente do ID
+    nums = re.findall(r'\d+(?:[.,]\d{1,2})?', texto)
+    if nums:
+        candidatos = []
+        for n in nums:
+            try:
+                v = float(n.replace(",", "."))
+                candidatos.append(v)
+            except ValueError:
+                continue
+
+        if candidatos:
+            if id_movimentacao is not None:
+                for v in reversed(candidatos):
+                    if int(v) != int(id_movimentacao):
+                        return v
+            return candidatos[-1]
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Extração de descrição
 # ---------------------------------------------------------------------------
@@ -414,7 +451,8 @@ def extrair_descricao(texto: str) -> str:
         r'deveria |devo |seria bom )?'
         r'(pagar|gastar|comprar|gastei|paguei|comprei|torrei|recebi|ganhei|'
         r'entrou|depositaram|saiu|faturei|vendi|custou|custa|deu|foi|'
-        r'remov[aei]r?|apag[aeu]r?|exclu[aií]r?|delet[aei]r?|tir[aei]r?)\s+',
+        r'remov[aei]r?|apag[aeu]r?|exclu[aií]r?|delet[aei]r?|tir[aei]r?|'
+        r'edit[aei]r?|alter[aei]r?|atualiz[aei]r?|corrig[aei]r?|mudar|trocar|ajustar)\s+',
         '', t, flags=re.IGNORECASE)
 
     # Remove valores monetários (R$ 1.050,00 / 1050 / etc.)
@@ -427,7 +465,7 @@ def extrair_descricao(texto: str) -> str:
     t = re.sub(r'\b(reais|real|conto|contos|pila|pilas)\b', '', t, flags=re.IGNORECASE)
 
     # Remove preposições e artigos no início
-    t = re.sub(r'^(de|com|no|na|em|pro|pra|uns?|da|do|o|a|os|as)\s+', '', t.strip(), flags=re.IGNORECASE)
+    t = re.sub(r'^(de|com|no|na|num|numa|nuns?|numas|em|pro|pra|uns?|da|do|o|a|os|as)\s+', '', t.strip(), flags=re.IGNORECASE)
 
     # Remove frases de ligação comuns que ficam soltas
     t = re.sub(r'\b(que foi|que é|que era|que custa|que custou)\b', '', t, flags=re.IGNORECASE)
@@ -448,8 +486,8 @@ def extrair_descricao(texto: str) -> str:
     t = re.sub(r'\s+', ' ', t).strip()
 
     # Remove preposições/artigos soltos no início e no final
-    t = re.sub(r'^(de|com|no|na|em|pro|pra|uns?|da|do|o|a|os|as)\s+', '', t.strip(), flags=re.IGNORECASE)
-    t = re.sub(r'\s+(de|com|no|na|em|pro|pra|da|do)$', '', t.strip(), flags=re.IGNORECASE)
+    t = re.sub(r'^(de|com|no|na|num|numa|nuns?|numas|em|pro|pra|uns?|da|do|o|a|os|as)\s+', '', t.strip(), flags=re.IGNORECASE)
+    t = re.sub(r'\s+(de|com|no|na|num|numa|nuns?|numas|em|pro|pra|da|do)$', '', t.strip(), flags=re.IGNORECASE)
 
     # Remove pontuação solta e vírgulas no início/fim
     t = re.sub(r'^[,;.!?\-\s]+|[,;.!?\-\s]+$', '', t)
@@ -484,9 +522,19 @@ def categorizar_por_regras(descricao: str) -> tuple[Optional[str], Optional[str]
 # ---------------------------------------------------------------------------
 
 def _texto_contem(texto: str, palavras: list[str]) -> bool:
-    """Verifica se alguma das palavras/frases aparece no texto."""
+    """Verifica se alguma palavra/frase aparece no texto com fronteira de termo."""
     texto_lower = texto.lower()
-    return any(p in texto_lower for p in palavras)
+
+    for p in palavras:
+        termo = p.strip().lower()
+        if not termo:
+            continue
+        # Evita falso positivo por substring interna (ex.: "compensa" em "compensação").
+        pattern = r'(?<!\w)' + re.escape(termo) + r'(?!\w)'
+        if re.search(pattern, texto_lower):
+            return True
+
+    return False
 
 
 def detectar_intencao(texto: str) -> dict:
@@ -643,11 +691,28 @@ def detectar_intencao(texto: str) -> dict:
             "id_movimentacao": id_mov,
         }
 
+    # 2b. Editar valor de movimentação
+    if _texto_contem(texto_lower, PALAVRAS_EDITAR):
+        id_mov = extrair_id_movimentacao(texto)
+        novo_valor = extrair_novo_valor_edicao(texto, id_mov)
+        return {
+            "intencao": "editar_movimentacao",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+            "id_movimentacao": id_mov,
+            "novo_valor": novo_valor,
+        }
+
     # 3. Listar movimentações recentes
     if _texto_contem(texto_lower, PALAVRAS_LISTAR):
         # Detecta se é entrada ou saída específica
         tipo_listar = None
-        if any(p in texto_lower for p in ["entradas", "entrada", "recebi", "ganhei", "receitas"]):
+        if any(p in texto_lower for p in ["dívida", "divida", "dívidas", "dividas", "empréstimo", "emprestimo"]):
+            tipo_listar = "divida"
+        elif any(p in texto_lower for p in ["entradas", "entrada", "recebi", "ganhei", "receitas"]):
             tipo_listar = "entrada"
         elif any(p in texto_lower for p in ["gastos", "gasto", "saídas", "saidas", "despesas", "despesa"]):
             tipo_listar = "saida"
@@ -698,6 +763,17 @@ def detectar_intencao(texto: str) -> dict:
             }
 
     # 5. Consulta de resumo
+    if _texto_contem(texto_lower, PALAVRAS_DICA):
+        return {
+            "intencao": "pedir_dica",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+        }
+
+    # 6. Consulta de resumo
     if _texto_contem(texto_lower, PALAVRAS_RESUMO):
         return {
             "intencao": "consultar_resumo",
@@ -708,7 +784,7 @@ def detectar_intencao(texto: str) -> dict:
             "mes_referencia": mes_referencia,
         }
 
-    # 6. Consulta de saldo
+    # 7. Consulta de saldo
     if _texto_contem(texto_lower, PALAVRAS_SALDO):
         return {
             "intencao": "consultar_saldo",
@@ -719,7 +795,7 @@ def detectar_intencao(texto: str) -> dict:
             "mes_referencia": mes_referencia,
         }
 
-    # 7. Registrar entrada
+    # 8. Registrar entrada
     if _texto_contem(texto_lower, PALAVRAS_ENTRADA) and valor:
         return {
             "intencao": "registrar_entrada",
@@ -730,7 +806,7 @@ def detectar_intencao(texto: str) -> dict:
             "mes_referencia": mes_referencia,
         }
 
-    # 8. Registrar saída
+    # 9. Registrar saída
     if _texto_contem(texto_lower, PALAVRAS_SAIDA) and valor:
         return {
             "intencao": "registrar_saida",
@@ -741,7 +817,7 @@ def detectar_intencao(texto: str) -> dict:
             "mes_referencia": mes_referencia,
         }
 
-    # 9. Se tem valor mas não identificou direção, assume saída
+    # 10. Se tem valor mas não identificou direção, assume saída
     #    (maioria das mensagens com valor é gasto)
     if valor and descricao:
         return {
@@ -753,7 +829,7 @@ def detectar_intencao(texto: str) -> dict:
             "mes_referencia": mes_referencia,
         }
 
-    # 10. Conversa geral — nenhuma regra bateu
+    # 11. Conversa geral — nenhuma regra bateu
     return {
         "intencao": "conversa_geral",
         "valor": valor,
