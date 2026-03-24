@@ -5,6 +5,10 @@ Usa templates + dados reais para montar respostas naturais.
 Usado como primeira opção no modo híbrido:
   - Se a intenção é clara → resposta local (instantânea e grátis)
     - Se não → fallback para OpenRouter
+
+Observação:
+  - Pedidos de dica financeira são tratados no fluxo de IA (chatbot.py),
+    não por templates fixos locais.
 """
 import re
 import random
@@ -12,7 +16,7 @@ from app.financeiro import formatar_real
 
 
 # ---------------------------------------------------------------------------
-# Templates para conversação (saudação, ajuda, dica)
+# Templates para conversação (saudação, ajuda)
 # ---------------------------------------------------------------------------
 
 # Palavras/frases que indicam saudação
@@ -25,13 +29,6 @@ SAUDACOES_PATTERNS = [
 AJUDA_PATTERNS = [
     r"\b(ajuda|help|como funciona|o que (você|vc|ce) faz|como us[ao]|comandos)\b",
     r"\b(o que (posso|dá pra|da pra) fazer)\b",
-]
-
-# Palavras que indicam pedido de dica financeira
-DICA_PATTERNS = [
-    r"\b(dica|conselho|sugestão|sugestao|como (economiz|guard|poupar|investir))\b",
-    r"\b(tô|to|estou) (sem grana|liso|duro|apertado|no vermelho)\b",
-    r"\b(preciso economizar|quero economizar|quero guardar)\b",
 ]
 
 # Palavras que indicam agradecimento
@@ -69,36 +66,22 @@ RESPOSTAS_AJUDA = [
         "💸 *Anotar gasto:* \"Gastei 50 no mercado\"\n"
         "💚 *Anotar entrada:* \"Recebi 3000 de salário\"\n"
         "🧾 *Anotar dívida:* \"devo 300 pro João\"\n"
+        "✅ *Quitar dívidas:* \"quitei minhas dívidas\"\n"
+        "💳 *Pagar parte da dívida:* \"paguei 150 da dívida com João\"\n"
         "✏️ *Editar valor:* \"editar #12 para 45\"\n"
         "🗑️ *Apagar lançamento:* \"apagar #12\" _(com confirmação)_\n"
         "🧹 *Limpar tudo:* \"limpar tudo\" _(com confirmação)_\n"
         "📋 *Ver extrato com IDs:* \"listar movimentações\"\n"
+        "📁 *Ver categorias:* \"listar categorias de saídas\"\n"
+        "🔎 *Expandir categoria:* \"detalhar categoria transporte de saídas\"\n"
+        "🔎 *Expandir entradas:* \"mostrar categoria salário de entradas\"\n"
+        "🧾 *Citar separado:* \"citar minhas entradas\", \"citar minhas saídas\", \"citar minhas dívidas\"\n"
         "🧾 *Ver só dívidas:* \"listar dívidas\"\n"
         "📊 *Ver resumo:* \"Resumo do mês\"\n"
         "💰 *Ver saldo:* \"Quanto tenho sobrando?\"\n"
         "🤔 *Avaliar compra:* \"Posso gastar 200?\"\n"
         "💡 *Pedir dica:* \"Como economizar?\"\n\n"
         "É só mandar natural, tipo conversa mesmo! 😉"
-    ),
-]
-
-RESPOSTAS_DICA = [
-    (
-        "💡 Bora de dicas!\n\n"
-        "1️⃣ *Regra 50/30/20:* 50% pro essencial, 30% desejos, 20% poupança\n"
-        "2️⃣ *Anote tudo:* Tô aqui pra isso! Manda cada gasto que faz\n"
-        "3️⃣ *Espere 24h:* Antes de compras por impulso, dorme e vê se ainda quer\n"
-        "4️⃣ *Cozinhe mais:* Comer fora custa até 3x mais\n"
-        "5️⃣ *Revise assinaturas:* Netflix, Spotify, apps... tá usando tudo mesmo?\n\n"
-        "Quer ver seu resumo pra saber onde dá pra cortar? Manda \"resumo\"! 📊"
-    ),
-    (
-        "💡 Algumas dicas rápidas:\n\n"
-        "• Leva marmita pro trabalho/faculdade — economiza fácil R$ 500/mês\n"
-        "• Cancela o que não usa: streaming, app, mensalidade\n"
-        "• Faz lista antes de ir ao mercado — evita compra por impulso\n"
-        "• Tenta guardar pelo menos 10% do que entra\n\n"
-        "Quer que eu mostre onde você mais gasta? Manda \"resumo\"! 📊"
     ),
 ]
 
@@ -138,63 +121,24 @@ RESPOSTAS_NAO_ENTENDI = [
 
 
 # ---------------------------------------------------------------------------
-# Dicas personalizadas baseadas nos dados do usuário
-# ---------------------------------------------------------------------------
-
-DICAS_POR_CATEGORIA = {
-    "alimentacao": [
-        "🍽️ Alimentação tá pesando! Que tal cozinhar mais em casa? Economiza uns 40%.",
-        "🍽️ Tá gastando bastante com comida fora. Marmita é a salvação! 💪",
-    ],
-    "transporte": [
-        "🚗 Transporte tá alto! Já pensou em carona, bike ou transporte público pra alguns dias?",
-        "🚗 Muita grana com transporte. Dá pra juntar corridas de app com amigos?",
-    ],
-    "lazer": [
-        "🎬 Lazer tá consumindo bastante. Tenta achar rolês gratuitos na cidade!",
-        "🎬 Que tal trocar algumas saídas caras por programas mais econômicos?",
-    ],
-    "compras": [
-        "🛒 Tá comprando bastante coisa. Lembra: espera 24h antes de comprar por impulso!",
-        "🛒 Muita compra esse mês. Tenta a regra: \"Preciso ou quero?\" antes de comprar.",
-    ],
-}
-
-
-def gerar_dica_personalizada(categorias: dict) -> str:
-    """Gera dica baseada na categoria de maior gasto."""
-    if not categorias:
-        return ""
-
-    top_cat = max(categorias, key=categorias.get)
-    top_val = categorias[top_cat]
-
-    dica_extra = ""
-    if top_cat in DICAS_POR_CATEGORIA:
-        dica_extra = random.choice(DICAS_POR_CATEGORIA[top_cat])
-    else:
-        dica_extra = f"📌 Seu maior gasto é em _{top_cat}_ ({formatar_real(top_val)}). Foca em reduzir aí!"
-
-    return dica_extra
-
-
-# ---------------------------------------------------------------------------
 # Função principal — tenta gerar resposta local
 # ---------------------------------------------------------------------------
 
 def resposta_local(mensagem: str, contexto: dict | None = None) -> str | None:
     """
     Tenta gerar uma resposta local para mensagens conversacionais
-    (saudações, ajuda, dicas, agradecimentos, despedidas).
+    (saudações, ajuda, agradecimentos, despedidas).
 
     Retorna:
       - str com a resposta se conseguiu responder
-            - None se não souber responder (→ OpenRouter assume)
+      - None se não souber responder (→ OpenRouter assume)
 
     Parâmetros:
       - mensagem: texto do usuário
-      - contexto: dict opcional com dados do usuário (categorias, saldo, etc.)
+      - contexto: dict opcional com dados do usuário (mantido por compatibilidade)
     """
+    _ = contexto
+
     # Saudação
     if _match_patterns(mensagem, SAUDACOES_PATTERNS):
         return random.choice(RESPOSTAS_SAUDACAO)
@@ -202,15 +146,6 @@ def resposta_local(mensagem: str, contexto: dict | None = None) -> str | None:
     # Ajuda
     if _match_patterns(mensagem, AJUDA_PATTERNS):
         return random.choice(RESPOSTAS_AJUDA)
-
-    # Dica financeira
-    if _match_patterns(mensagem, DICA_PATTERNS):
-        resposta = random.choice(RESPOSTAS_DICA)
-        if contexto and "categorias" in contexto and contexto["categorias"]:
-            dica = gerar_dica_personalizada(contexto["categorias"])
-            if dica:
-                resposta += f"\n\n{dica}"
-        return resposta
 
     # Agradecimento
     if _match_patterns(mensagem, AGRADECIMENTO_PATTERNS):
@@ -297,6 +232,7 @@ def gerar_resposta_consultar_categoria(
       - label_mes: nome amigável do mês ('este mês', 'janeiro/2026', etc.)
     """
     categoria = dados_categoria["categoria"]
+    tipo = dados_categoria.get("tipo")
     total = dados_categoria["total"]
     quantidade = dados_categoria["quantidade"]
     movimentacoes = dados_categoria["movimentacoes"]
@@ -317,15 +253,27 @@ def gerar_resposta_consultar_categoria(
     }
     emoji = emojis.get(categoria, "📌")
 
+    if tipo == "entrada":
+        tipo_nome = "entradas"
+    elif tipo == "saida":
+        tipo_nome = "gastos"
+    else:
+        tipo_nome = "movimentações"
+
     if quantidade == 0:
         sufixo = f" em *{label_mes}*" if label_mes != "este mês" else " este mês"
-        return f"{emoji} Você não tem gastos em *{categoria}*{sufixo}."
+        return f"{emoji} Você não tem {tipo_nome} em *{categoria}*{sufixo}."
 
     # Cabeçalho
     titulo_mes = f" ({label_mes})" if label_mes != "este mês" else ""
-    resposta = f"{emoji} *Gastos em {categoria.upper()}*{titulo_mes}\n\n"
+    resposta = f"{emoji} *{tipo_nome.capitalize()} em {categoria.upper()}*{titulo_mes}\n\n"
     resposta += f"💰 *Total:* {formatar_real(total)}\n"
-    resposta += f"📊 *Quantidade:* {quantidade} {'gasto' if quantidade == 1 else 'gastos'}\n\n"
+    if tipo == "entrada":
+        resposta += f"📊 *Quantidade:* {quantidade} {'entrada' if quantidade == 1 else 'entradas'}\n\n"
+    elif tipo == "saida":
+        resposta += f"📊 *Quantidade:* {quantidade} {'gasto' if quantidade == 1 else 'gastos'}\n\n"
+    else:
+        resposta += f"📊 *Quantidade:* {quantidade} movimentação{'es' if quantidade != 1 else ''}\n\n"
 
     # Lista as movimentações
     if movimentacoes:
@@ -347,10 +295,52 @@ def gerar_resposta_consultar_categoria(
             resposta += f"• {descricao} — {valor_fmt} _(#{id_mov} - {data_fmt})_\n"
         
         if len(movimentacoes) > 10:
-            resposta += f"\n_...e mais {len(movimentacoes) - 10} gastos_\n"
+            resposta += f"\n_...e mais {len(movimentacoes) - 10} registros_\n"
 
     resposta += "\n💡 _Dica: pra ver todas as categorias, manda \"resumo\"_"
     
+    return resposta
+
+
+def gerar_resposta_listar_categorias(
+    categorias: list[dict],
+    tipo: str | None = None,
+    label_mes: str = "este mês",
+) -> str:
+    """Lista categorias de entradas/saídas com total e quantidade para expansão posterior."""
+    sufixo = f" em *{label_mes}*" if label_mes != "este mês" else " deste mês"
+
+    if not categorias:
+        if tipo == "entrada":
+            return f"Você ainda não tem categorias de entrada{sufixo}."
+        if tipo == "saida":
+            return f"Você ainda não tem categorias de saída{sufixo}."
+        return f"Você ainda não tem categorias registradas{sufixo}."
+
+    if tipo == "entrada":
+        titulo = f"💚 *Categorias de entradas{sufixo}:*\n"
+    elif tipo == "saida":
+        titulo = f"💸 *Categorias de saídas{sufixo}:*\n"
+    else:
+        titulo = f"📁 *Categorias por tipo{sufixo}:*\n"
+
+    resposta = titulo
+    for item in categorias[:30]:
+        tipo_item = item.get("tipo")
+        categoria = (item.get("categoria") or "outros").capitalize()
+        total = formatar_real(item.get("total", 0.0) or 0.0)
+        qtd = int(item.get("quantidade", 0) or 0)
+
+        if tipo is None:
+            prefixo = "💚" if tipo_item == "entrada" else "💸"
+            resposta += f"{prefixo} {categoria}: {total} ({qtd})\n"
+        else:
+            resposta += f"• {categoria}: {total} ({qtd})\n"
+
+    resposta += (
+        "\n💡 _Para expandir uma categoria, diga por exemplo:_\n"
+        "_\"detalhar categoria transporte de saídas\"_ ou _\"mostrar categoria salário de entradas\"_."
+    )
     return resposta
 
 

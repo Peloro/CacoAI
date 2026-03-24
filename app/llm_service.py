@@ -33,6 +33,8 @@ from app.config import (
 from app.prompts import (
     SYSTEM_PROMPT_CHAT,
     CHAT_PROMPT_CONVERSA,
+    CHAT_PROMPT_DICA,
+    CHAT_PROMPT_OBSERVACAO_RESUMO,
     CATEGORIZATION_PROMPT,
     INTENT_CLASSIFICATION_PROMPT,
     TRANSACTION_EXTRACTION_PROMPT,
@@ -45,11 +47,13 @@ _MAX_TOKENS_CATEGORIZACAO = 20
 _MAX_TOKENS_CHAT = 140
 _MAX_TOKENS_CLASSIFICACAO = 90
 _MAX_TOKENS_EXTRACAO = 150
+_MAX_TOKENS_OBSERVACAO_RESUMO = 90
 
 _MAX_CHARS_DESC_CATEGORIZACAO = 220
 _MAX_CHARS_MSG_CHAT = 900
 _MAX_CHARS_MSG_CLASSIFICACAO = 700
 _MAX_CHARS_MSG_EXTRACAO = 900
+_MAX_CHARS_CTX_OBSERVACAO = 700
 
 
 def _compactar_texto(texto: str, limite_chars: int) -> str:
@@ -440,6 +444,84 @@ def gerar_resposta_chat(
     except Exception as e:
         log.warning("Erro LLM (%s) em chat: %s", _provedor_ativo, e)
         return _resposta_fallback()
+
+
+def _contexto_dica_sem_valores(contexto: dict | None) -> str:
+    """Converte contexto financeiro em texto sem números para orientar dicas."""
+    if not contexto:
+        return "- Sem contexto adicional."
+
+    categorias = contexto.get("categorias") or {}
+    if not isinstance(categorias, dict) or not categorias:
+        return "- Sem categorias suficientes para personalização."
+
+    try:
+        top = sorted(categorias.items(), key=lambda x: float(x[1]), reverse=True)[:3]
+        nomes = [str(nome).strip() for nome, _ in top if str(nome).strip()]
+        if nomes:
+            return f"- Principais categorias de gasto percebidas: {', '.join(nomes)}."
+    except Exception:
+        pass
+
+    return "- Contexto parcial disponível, sem categorias confiáveis."
+
+
+def gerar_dica_financeira(mensagem: str, contexto: dict | None = None) -> str:
+    """
+    Gera dicas financeiras dinamicamente via LLM para pedidos de "dica".
+
+    Não informa valores financeiros; produz apenas orientação textual.
+    """
+    if not _llm_disponivel:
+        raise RuntimeError("LLM nao disponivel")
+
+    mensagem_compacta = _compactar_texto(mensagem, _MAX_CHARS_MSG_CHAT)
+    contexto_texto = _contexto_dica_sem_valores(contexto)
+    prompt = CHAT_PROMPT_DICA.format(
+        mensagem=mensagem_compacta,
+        contexto=contexto_texto,
+    )
+
+    try:
+        resposta = _chat_llm(
+            prompt,
+            system_prompt=SYSTEM_PROMPT_CHAT,
+            temperature=0.7,
+            max_tokens=_MAX_TOKENS_CHAT,
+        )
+        if resposta.startswith('"') and resposta.endswith('"'):
+            resposta = resposta[1:-1]
+        return resposta
+    except Exception as e:
+        log.warning("Erro LLM (%s) em dica: %s", _provedor_ativo, e)
+        return "Não consegui gerar dicas agora. Tenta de novo em instantes."
+
+
+def gerar_observacao_resumo(contexto: str) -> str:
+    """
+    Gera uma observação curta para o final do resumo mensal.
+
+    O contexto deve vir sem valores numéricos sensíveis.
+    """
+    if not _llm_disponivel:
+        raise RuntimeError("LLM nao disponivel")
+
+    contexto_compacto = _compactar_texto(contexto, _MAX_CHARS_CTX_OBSERVACAO)
+    prompt = CHAT_PROMPT_OBSERVACAO_RESUMO.format(contexto=contexto_compacto)
+
+    try:
+        resposta = _chat_llm(
+            prompt,
+            system_prompt=SYSTEM_PROMPT_CHAT,
+            temperature=0.5,
+            max_tokens=_MAX_TOKENS_OBSERVACAO_RESUMO,
+        )
+        if resposta.startswith('"') and resposta.endswith('"'):
+            resposta = resposta[1:-1]
+        return resposta.strip()
+    except Exception as e:
+        log.warning("Erro LLM (%s) em observacao_resumo: %s", _provedor_ativo, e)
+        return ""
 
 
 def _resposta_fallback() -> str:

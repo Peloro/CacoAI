@@ -24,6 +24,30 @@ CHAT_PROMPT_CONVERSA = """Mensagem do usuário: "{mensagem}"
 Responda de forma amigável e curta (1-3 frases), sem valores financeiros.
 """
 
+CHAT_PROMPT_DICA = """Mensagem do usuário: "{mensagem}"
+
+Contexto opcional do usuário (sem valores):
+{contexto}
+
+Gere dicas financeiras PERSONALIZADAS e práticas para o contexto acima.
+Requisitos:
+- Entregue 3 a 5 dicas curtas e acionáveis.
+- Evite respostas genéricas/repetitivas.
+- Não cite valores numéricos de orçamento/saldo.
+- Linguagem leve, brasileira e motivadora.
+"""
+
+CHAT_PROMPT_OBSERVACAO_RESUMO = """Resumo do mês (sem valores numéricos):
+{contexto}
+
+Gere uma observação curta e útil para aparecer ao final do resumo financeiro.
+Requisitos:
+- 1 ou 2 frases.
+- Tom amigável e objetivo.
+- Foco em orientação prática (prioridade do mês).
+- Não inventar números e não pedir dados adicionais.
+"""
+
 
 # ---------------------------------------------------------------------------
 # Prompt de CATEGORIZAÇÃO — classifica transações

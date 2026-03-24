@@ -370,10 +370,140 @@ def totais_dividas(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
     }
 
 
+def quitar_dividas(
+    usuario_id: int,
+    credor: Optional[str] = None,
+    ano_mes: Optional[str] = None,
+) -> dict:
+    """Quita (remove) dívidas em aberto do usuário, opcionalmente por credor e mês."""
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
+
+    filtros = ["usuario_id = ?", "data_ref LIKE ?"]
+    params: list = [usuario_id, f"{ano_mes}%"]
+
+    if credor and credor.strip():
+        filtros.append("LOWER(credor) LIKE ?")
+        params.append(f"%{credor.strip().lower()}%")
+
+    where_sql = " AND ".join(filtros)
+
+    with _db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            SELECT COUNT(*) as qtd, SUM(valor) as total
+            FROM dividas
+            WHERE {where_sql}
+            """,
+            tuple(params),
+        )
+        row = cur.fetchone()
+        qtd = int((row["qtd"] if row else 0) or 0)
+        total = float((row["total"] if row else 0.0) or 0.0)
+
+        if qtd > 0:
+            cur.execute(
+                f"""
+                DELETE FROM dividas
+                WHERE {where_sql}
+                """,
+                tuple(params),
+            )
+            conn.commit()
+
+    return {
+        "qtd_quitadas": qtd,
+        "valor_quitado": total,
+    }
+
+
+def pagar_divida(
+    usuario_id: int,
+    valor_pago: float,
+    credor: Optional[str] = None,
+    ano_mes: Optional[str] = None,
+) -> dict:
+    """
+    Aplica pagamento parcial/total em dívidas do usuário.
+    O pagamento é aplicado das dívidas mais antigas para as mais novas.
+    """
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
+
+    valor_restante = float(valor_pago or 0.0)
+    if valor_restante <= 0:
+        return {
+            "valor_aplicado": 0.0,
+            "valor_sobrou": 0.0,
+            "qtd_quitadas": 0,
+            "qtd_atualizadas": 0,
+        }
+
+    filtros = ["usuario_id = ?", "data_ref LIKE ?"]
+    params: list = [usuario_id, f"{ano_mes}%"]
+    if credor and credor.strip():
+        filtros.append("LOWER(credor) LIKE ?")
+        params.append(f"%{credor.strip().lower()}%")
+
+    where_sql = " AND ".join(filtros)
+
+    qtd_quitadas = 0
+    qtd_atualizadas = 0
+    valor_aplicado = 0.0
+
+    with _db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            SELECT id, valor
+            FROM dividas
+            WHERE {where_sql}
+            ORDER BY data_ref ASC, id ASC
+            """,
+            tuple(params),
+        )
+        dividas = [dict(row) for row in cur.fetchall()]
+
+        for d in dividas:
+            if valor_restante <= 0:
+                break
+
+            id_divida = int(d["id"])
+            valor_divida = float(d["valor"] or 0.0)
+            if valor_divida <= 0:
+                continue
+
+            if valor_restante >= valor_divida:
+                cur.execute("DELETE FROM dividas WHERE id = ? AND usuario_id = ?", (id_divida, usuario_id))
+                valor_restante -= valor_divida
+                valor_aplicado += valor_divida
+                qtd_quitadas += 1
+            else:
+                novo_valor = valor_divida - valor_restante
+                cur.execute(
+                    "UPDATE dividas SET valor = ? WHERE id = ? AND usuario_id = ?",
+                    (novo_valor, id_divida, usuario_id),
+                )
+                valor_aplicado += valor_restante
+                valor_restante = 0.0
+                qtd_atualizadas += 1
+
+        if qtd_quitadas > 0 or qtd_atualizadas > 0:
+            conn.commit()
+
+    return {
+        "valor_aplicado": float(valor_aplicado),
+        "valor_sobrou": float(valor_restante),
+        "qtd_quitadas": qtd_quitadas,
+        "qtd_atualizadas": qtd_atualizadas,
+    }
+
+
 def resumo_mes(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
     """
     Retorna resumo do mês: total_entradas, total_saidas, saldo,
-    lista de gastos por categoria.
+    categorias de saídas e categorias de entradas.
     ano_mes no formato 'YYYY-MM'. Se None, usa mês atual.
     """
     if ano_mes is None:
@@ -396,7 +526,7 @@ def resumo_mes(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
         entradas = totais.get("entrada", 0.0)
         saidas = totais.get("saida", 0.0)
 
-        # Gastos por categoria
+        # Saídas por categoria
         cur.execute(
             """
             SELECT categoria, SUM(valor) as total
@@ -407,7 +537,20 @@ def resumo_mes(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
             """,
             (usuario_id, f"{ano_mes}%"),
         )
-        categorias = {row["categoria"]: row["total"] for row in cur.fetchall()}
+        categorias_saidas = {row["categoria"]: row["total"] for row in cur.fetchall()}
+
+        # Entradas por categoria (ex.: salario, freelas, pix, etc.)
+        cur.execute(
+            """
+            SELECT categoria, SUM(valor) as total
+            FROM movimentacoes
+            WHERE usuario_id = ? AND tipo = 'entrada' AND data_ref LIKE ?
+            GROUP BY categoria
+            ORDER BY total DESC
+            """,
+            (usuario_id, f"{ano_mes}%"),
+        )
+        categorias_entradas = {row["categoria"]: row["total"] for row in cur.fetchall()}
 
         # Últimas movimentações (5)
         cur.execute(
@@ -427,7 +570,9 @@ def resumo_mes(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
         "entradas": entradas,
         "saidas": saidas,
         "saldo": entradas - saidas,
-        "categorias": categorias,
+        "categorias": categorias_saidas,
+        "categorias_saidas": categorias_saidas,
+        "categorias_entradas": categorias_entradas,
         "ultimas_movimentacoes": ultimas,
     }
 
@@ -791,15 +936,21 @@ def atualizar_valor_movimentacao(usuario_id: int, movimentacao_id: int, novo_val
     return atual
 
 
-def consultar_categoria(usuario_id: int, categoria: str, ano_mes: Optional[str] = None) -> dict:
+def consultar_categoria(
+    usuario_id: int,
+    categoria: str,
+    ano_mes: Optional[str] = None,
+    tipo: Optional[str] = None,
+) -> dict:
     """
-    Consulta todos os gastos de uma categoria específica.
+    Consulta movimentações de uma categoria específica.
 
     Parâmetros:
       - categoria: nome da categoria (ex: 'alimentacao', 'transporte')
       - ano_mes: formato 'YYYY-MM' ou None para mês atual
 
-    Retorna dict com total, quantidade e lista de movimentações
+    Retorna dict com total, quantidade e lista de movimentações.
+    Se tipo='entrada' ou tipo='saida', filtra somente esse tipo.
     """
     if ano_mes is None:
         ano_mes = date.today().strftime("%Y-%m")
@@ -807,14 +958,21 @@ def consultar_categoria(usuario_id: int, categoria: str, ano_mes: Optional[str] 
     with _db() as conn:
         cur = conn.cursor()
 
+        filtros = ["usuario_id = ?", "categoria = ?", "data_ref LIKE ?"]
+        params: list = [usuario_id, categoria.lower(), f"{ano_mes}%"]
+        if tipo in ("entrada", "saida"):
+            filtros.append("tipo = ?")
+            params.append(tipo)
+        where_sql = " AND ".join(filtros)
+
         # Total e quantidade
         cur.execute(
-            """
+            f"""
             SELECT COUNT(*) as quantidade, SUM(valor) as total
             FROM movimentacoes
-            WHERE usuario_id = ? AND tipo = 'saida' AND categoria = ? AND data_ref LIKE ?
+            WHERE {where_sql}
             """,
-            (usuario_id, categoria.lower(), f"{ano_mes}%"),
+            tuple(params),
         )
         row = cur.fetchone()
         quantidade = row["quantidade"] if row else 0
@@ -822,23 +980,68 @@ def consultar_categoria(usuario_id: int, categoria: str, ano_mes: Optional[str] 
 
         # Lista de movimentações
         cur.execute(
-            """
-            SELECT id, valor, descricao, data_ref
+            f"""
+            SELECT id, tipo, valor, descricao, data_ref
             FROM movimentacoes
-            WHERE usuario_id = ? AND tipo = 'saida' AND categoria = ? AND data_ref LIKE ?
+            WHERE {where_sql}
             ORDER BY data_ref DESC, id DESC
             """,
-            (usuario_id, categoria.lower(), f"{ano_mes}%"),
+            tuple(params),
         )
         movimentacoes = [dict(row) for row in cur.fetchall()]
 
     return {
         "categoria": categoria.lower(),
+        "tipo": tipo,
         "ano_mes": ano_mes,
         "total": total,
         "quantidade": quantidade,
         "movimentacoes": movimentacoes,
     }
+
+
+def listar_categorias_por_tipo(
+    usuario_id: int,
+    tipo: Optional[str] = None,
+    ano_mes: Optional[str] = None,
+) -> list[dict]:
+    """
+    Lista categorias com totais e quantidade de lançamentos.
+
+    tipo:
+      - 'entrada': retorna só categorias de entrada
+      - 'saida': retorna só categorias de saída
+      - None: retorna ambas
+    """
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
+
+    with _db() as conn:
+        cur = conn.cursor()
+        if tipo in ("entrada", "saida"):
+            cur.execute(
+                """
+                SELECT tipo, categoria, COUNT(*) as quantidade, SUM(valor) as total
+                FROM movimentacoes
+                WHERE usuario_id = ? AND tipo = ? AND data_ref LIKE ?
+                GROUP BY tipo, categoria
+                ORDER BY total DESC
+                """,
+                (usuario_id, tipo, f"{ano_mes}%"),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT tipo, categoria, COUNT(*) as quantidade, SUM(valor) as total
+                FROM movimentacoes
+                WHERE usuario_id = ? AND data_ref LIKE ?
+                GROUP BY tipo, categoria
+                ORDER BY tipo ASC, total DESC
+                """,
+                (usuario_id, f"{ano_mes}%"),
+            )
+
+        return [dict(row) for row in cur.fetchall()]
 
 
 # ---------------------------------------------------------------------------

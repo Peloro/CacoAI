@@ -43,6 +43,9 @@ from app.database import (
     atualizar_valor_divida,
     limpar_dividas,
     totais_dividas,
+    quitar_dividas,
+    pagar_divida,
+    listar_categorias_por_tipo,
     buscar_movimentacoes_por_descricao,
     consultar_categoria,
     limpar_movimentacoes,
@@ -69,6 +72,7 @@ from app.responder import (
     gerar_resposta_listar_dividas,
     gerar_resposta_extrato_completo,
     gerar_resposta_consultar_categoria,
+    gerar_resposta_listar_categorias,
     gerar_resposta_apagar_com_id,
     gerar_resposta_desambiguacao_apagar,
 )
@@ -81,7 +85,7 @@ from app.financeiro import (
 
 log = logging.getLogger("caco.chatbot")
 
-# Delay padrão para respostas locais (sem IA)
+# Delay padrão para todas as respostas (incluindo IA)
 _DELAY_LOCAL_SECONDS = 3.0
 # Flag por contexto de execução para saber se houve uso de IA nesta mensagem
 _usou_ia_ctx: ContextVar[bool] = ContextVar("usou_ia_ctx", default=False)
@@ -209,6 +213,21 @@ def _resposta_chat_com_fallback(mensagem: str, contexto: dict | None = None) -> 
     return random.choice(RESPOSTAS_NAO_ENTENDI)
 
 
+def _resposta_dica_com_ia(mensagem: str, contexto: dict | None = None) -> str:
+    """Gera dicas dinamicamente via IA para pedidos explícitos de dica."""
+    try:
+        _usou_ia_ctx.set(True)
+        from app.llm_service import gerar_dica_financeira
+
+        resp = gerar_dica_financeira(mensagem=mensagem, contexto=contexto)
+        if resp:
+            return resp
+    except Exception as e:
+        log.warning("IA indisponível para dica: %s", e)
+
+    return "Não consegui gerar uma dica agora. Tenta novamente em instantes."
+
+
 def processar_mensagem(telefone: str, mensagem: str) -> str:
     """
     Pipeline principal (híbrido):
@@ -231,29 +250,60 @@ def processar_mensagem(telefone: str, mensagem: str) -> str:
         # 1. Fluxo de cadastro (primeiro acesso)
         if not usuario_tem_cadastro(usuario_id):
             resposta = _fluxo_cadastro(usuario_id, mensagem)
-            if not _usou_ia_ctx.get():
-                time.sleep(_DELAY_LOCAL_SECONDS)
+            time.sleep(_DELAY_LOCAL_SECONDS)
             return resposta
 
         # 2. Verifica sessão (expira em 1h)
         if not sessao_valida(usuario_id):
             resposta = _fluxo_login(usuario_id, mensagem)
-            if not _usou_ia_ctx.get():
-                time.sleep(_DELAY_LOCAL_SECONDS)
+            time.sleep(_DELAY_LOCAL_SECONDS)
             return resposta
 
         # 3. Sessão válida → renova e processa normalmente
         renovar_sessao(usuario_id)
         resposta = _processar_mensagem_interna(usuario_id, mensagem)
-        if not _usou_ia_ctx.get():
-            time.sleep(_DELAY_LOCAL_SECONDS)
+        time.sleep(_DELAY_LOCAL_SECONDS)
         return resposta
 
     except Exception as e:
         log.exception("Erro fatal ao processar mensagem: %s", e)
-        if not _usou_ia_ctx.get():
-            time.sleep(_DELAY_LOCAL_SECONDS)
+        time.sleep(_DELAY_LOCAL_SECONDS)
         return "Opa, tive um problema aqui. 😅 Tenta de novo?"
+
+
+def _montar_contexto_observacao_resumo(
+    resumo: dict,
+    totais_div: dict,
+    label_mes: str,
+) -> str:
+    """Monta contexto textual (sem valores) para gerar observação via IA."""
+    saldo = resumo.get("saldo", 0.0)
+    cats = resumo.get("categorias") or {}
+    ultimas = resumo.get("ultimas_movimentacoes") or []
+
+    status = "positivo" if saldo >= 0 else "negativo"
+    top_categorias = ", ".join([str(cat) for cat in list(cats.keys())[:3]]) if cats else "sem categoria dominante"
+
+    return (
+        f"mes={label_mes}; "
+        f"status_saldo={status}; "
+        f"qtd_movimentacoes={len(ultimas)}; "
+        f"qtd_dividas={totais_div.get('qtd_dividas', 0)}; "
+        f"top_categorias={top_categorias}"
+    )
+
+
+def _gerar_observacao_resumo_ia(resumo: dict, totais_div: dict, label_mes: str) -> str:
+    """Gera observação curta para o resumo mensal usando IA com fallback silencioso."""
+    try:
+        _usou_ia_ctx.set(True)
+        from app.llm_service import gerar_observacao_resumo
+
+        contexto = _montar_contexto_observacao_resumo(resumo, totais_div, label_mes)
+        return gerar_observacao_resumo(contexto)
+    except Exception as e:
+        log.warning("IA indisponivel para observacao de resumo: %s", e)
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -418,8 +468,9 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     #    NÃO chama LLM pra resumo, saldo, saudação, etc.
     categoria_regra = parsed["categoria_regra"]
 
-    # Conversas conhecidas (saudacao/ajuda/dica/agradecimento/despedida)
-    # devem ficar 100% locais e nao precisam chamar IA.
+    # Conversas conhecidas (saudacao/ajuda/agradecimento/despedida)
+    # seguem locais com fallback híbrido.
+    # Pedido de dica deve ser gerado pela IA (sem template fixo).
     if intencao in ("conversa_geral", "pedir_dica"):
         try:
             resumo_ctx = resumo_mes(usuario_id)
@@ -429,6 +480,9 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             }
         except Exception:
             contexto_local = None
+
+        if intencao == "pedir_dica":
+            return _resposta_dica_com_ia(mensagem, contexto_local)
 
         resp_local = resposta_local(mensagem, contexto_local)
         if resp_local:
@@ -494,6 +548,46 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             usuario_id=usuario_id,
             data_ref=data_ref,
         )
+
+    elif intencao == "quitar_dividas":
+        credor = (parsed.get("credor_divida") or "").strip()
+        resultado = quitar_dividas(usuario_id, credor=credor, ano_mes=mes_ref)
+        qtd = int(resultado.get("qtd_quitadas", 0) or 0)
+        total = float(resultado.get("valor_quitado", 0.0) or 0.0)
+        if qtd == 0:
+            if credor:
+                return f"Não encontrei dívidas com *{credor}* para quitar{(sufixo_mes or '')}."
+            return f"Você não tem dívidas para quitar{(sufixo_mes or '')}."
+
+        alvo = f" com *{credor}*" if credor else ""
+        return (
+            f"✅ Dívidas quitadas{alvo}!\n"
+            f"🧾 {qtd} dívida{'s' if qtd != 1 else ''} removida{'s' if qtd != 1 else ''}\n"
+            f"💰 Total quitado: {formatar_real(total)}"
+        )
+
+    elif intencao == "pagar_divida" and valor and valor > 0:
+        credor = (parsed.get("credor_divida") or "").strip()
+        resultado = pagar_divida(usuario_id, valor_pago=valor, credor=credor, ano_mes=mes_ref)
+        valor_aplicado = float(resultado.get("valor_aplicado", 0.0) or 0.0)
+        valor_sobrou = float(resultado.get("valor_sobrou", 0.0) or 0.0)
+        qtd_quitadas = int(resultado.get("qtd_quitadas", 0) or 0)
+        qtd_atualizadas = int(resultado.get("qtd_atualizadas", 0) or 0)
+
+        if valor_aplicado <= 0:
+            if credor:
+                return f"Não encontrei dívidas com *{credor}* para aplicar esse pagamento{(sufixo_mes or '')}."
+            return f"Não encontrei dívidas para aplicar esse pagamento{(sufixo_mes or '')}."
+
+        alvo = f" com *{credor}*" if credor else ""
+        resposta = (
+            f"✅ Pagamento de dívida registrado{alvo}!\n"
+            f"💸 Valor aplicado: {formatar_real(valor_aplicado)}\n"
+            f"🧾 Quitadas: {qtd_quitadas} | Atualizadas: {qtd_atualizadas}"
+        )
+        if valor_sobrou > 0:
+            resposta += f"\nℹ️ Sobrou {formatar_real(valor_sobrou)} sem dívida correspondente."
+        return resposta
 
     elif intencao == "consultar_resumo":
         resumo = resumo_mes(usuario_id, ano_mes=mes_ref)
@@ -659,12 +753,18 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         )
         return gerar_resposta_listar_movimentacoes(movimentacoes, tipo_listar, label_mes=label_mes)
 
+    elif intencao == "listar_categorias":
+        tipo_categoria = parsed.get("tipo_categoria")  # 'entrada', 'saida' ou None
+        categorias = listar_categorias_por_tipo(usuario_id, tipo=tipo_categoria, ano_mes=mes_ref)
+        return gerar_resposta_listar_categorias(categorias, tipo=tipo_categoria, label_mes=label_mes)
+
     elif intencao == "consultar_categoria":
         categoria_consulta = parsed.get("categoria_consulta")
+        tipo_consulta = parsed.get("tipo_consulta")  # 'entrada', 'saida' ou None
         if not categoria_consulta:
             return "🤔 Qual categoria você quer consultar? Ex: \"Quanto gastei em transporte\""
         
-        dados_cat = consultar_categoria(usuario_id, categoria_consulta, ano_mes=mes_ref)
+        dados_cat = consultar_categoria(usuario_id, categoria_consulta, ano_mes=mes_ref, tipo=tipo_consulta)
         return gerar_resposta_consultar_categoria(dados_cat, label_mes=label_mes)
 
     elif intencao == "limpar_movimentacoes":
@@ -1029,7 +1129,8 @@ def _montar_resumo(resumo: dict, usuario_id: int, label_mes: str = "este mês") 
     entradas = resumo["entradas"]
     saidas = resumo["saidas"]
     saldo = resumo["saldo"]
-    cats = resumo["categorias"]
+    cats_saidas = resumo.get("categorias_saidas", resumo.get("categorias", {}))
+    cats_entradas = resumo.get("categorias_entradas", {})
 
     titulo_mes = label_mes.capitalize() if label_mes != "este mês" else "do mês"
     texto = f"📊 *Resumo {titulo_mes}*\n\n"
@@ -1047,9 +1148,14 @@ def _montar_resumo(resumo: dict, usuario_id: int, label_mes: str = "este mês") 
         texto += f"🧾 Dívidas: {formatar_real(totais_div.get('total_dividas', 0.0))}"
         texto += f" ({totais_div.get('qtd_dividas', 0)} registro{'s' if totais_div.get('qtd_dividas', 0) != 1 else ''})\n"
 
-    if cats:
-        texto += "\n📁 *Pra onde foi o dinheiro:*\n"
-        for cat, val in list(cats.items())[:5]:
+    if cats_saidas:
+        texto += "\n📁 *Categorias de saída (pra onde foi o dinheiro):*\n"
+        for cat, val in list(cats_saidas.items())[:5]:
+            texto += f"  • {cat.capitalize()}: {formatar_real(val)}\n"
+
+    if cats_entradas:
+        texto += "\n💚 *Categorias de entrada (de onde veio):*\n"
+        for cat, val in list(cats_entradas.items())[:5]:
             texto += f"  • {cat.capitalize()}: {formatar_real(val)}\n"
 
     ultimas = resumo.get("ultimas_movimentacoes", [])
@@ -1063,6 +1169,10 @@ def _montar_resumo(resumo: dict, usuario_id: int, label_mes: str = "este mês") 
             if data_fmt:
                 texto += f" _({data_fmt})_"
             texto += "\n"
+
+    observacao_ia = _gerar_observacao_resumo_ia(resumo, totais_div, label_mes)
+    if observacao_ia:
+        texto += f"\n💡 *Observação IA:* {observacao_ia}\n"
 
     return texto
 

@@ -71,6 +71,61 @@ _PERGUNTA_POSSO = re.compile(
     re.IGNORECASE,
 )
 
+_RE_PEDIDO_LISTAGEM_EXPLICITA = re.compile(
+    r'\b(?:listar|lista|mostra|mostrar|ver|veja|quero ver|citar|cite|me cita|me mostre)\b',
+    re.IGNORECASE,
+)
+
+_RE_TIPO_LISTAR_DIVIDA = re.compile(
+    r'\b(?:d[ií]vida|d[ií]vidas|divida|dividas|empr[eé]stimo|emprestimo|devo|devendo)\b',
+    re.IGNORECASE,
+)
+
+_RE_TIPO_LISTAR_ENTRADA = re.compile(
+    r'\b(?:entrada|entradas|ganho|ganhos|receita|receitas|recebi|ganhei)\b',
+    re.IGNORECASE,
+)
+
+_RE_TIPO_LISTAR_SAIDA = re.compile(
+    r'\b(?:sa[ií]da|sa[ií]das|saida|saidas|gasto|gastos|despesa|despesas|paguei|comprei|gastei)\b',
+    re.IGNORECASE,
+)
+
+_RE_VER_CATEGORIAS = re.compile(r'\b(?:categoria|categorias)\b', re.IGNORECASE)
+_RE_ACAO_VER = re.compile(
+    r'\b(?:listar|lista|mostra|mostrar|ver|veja|citar|cite|detalhar|detalhe|expandir|abrir)\b',
+    re.IGNORECASE,
+)
+_RE_TIPO_ENTRADA_CTX = re.compile(
+    r'\b(?:entrada|entradas|ganho|ganhos|receita|receitas|recebi|ganhei)\b',
+    re.IGNORECASE,
+)
+_RE_TIPO_SAIDA_CTX = re.compile(
+    r'\b(?:sa[ií]da|sa[ií]das|saida|saidas|gasto|gastos|despesa|despesas)\b',
+    re.IGNORECASE,
+)
+
+_RE_QUITAR_DIVIDAS = re.compile(
+    r'\b(?:quitei|quitar|quitei|liquidei|liquidar|zerei|zerar|paguei\s+todas?)\b.*\b(?:d[ií]vida|divida|d[ií]vidas|dividas)\b',
+    re.IGNORECASE,
+)
+_RE_PAGAMENTO_DIVIDA = re.compile(
+    r'(?:\b(?:paguei|pagar|pagamento|abati|amortizei|quitei|liquidei)\b.*\b(?:d[ií]vida|divida|parcela|empr[eé]stimo|emprestimo)\b)|'
+    r'(?:\b(?:d[ií]vida|divida|parcela|empr[eé]stimo|emprestimo)\b.*\b(?:paguei|pagar|pagamento|abati|amortizei|quitei|liquidei)\b)',
+    re.IGNORECASE,
+)
+
+
+def _detectar_tipo_contexto(texto_lower: str) -> Optional[str]:
+    tem_entrada = bool(_RE_TIPO_ENTRADA_CTX.search(texto_lower))
+    tem_saida = bool(_RE_TIPO_SAIDA_CTX.search(texto_lower))
+
+    if tem_entrada and not tem_saida:
+        return "entrada"
+    if tem_saida and not tem_entrada:
+        return "saida"
+    return None
+
 
 # ---------------------------------------------------------------------------
 # Extração de valor monetário
@@ -442,9 +497,9 @@ def extrair_credor_divida(texto: str) -> Optional[str]:
     """
     texto_norm = texto.strip()
 
-    # padrões com preposição para/pro/pra
+    # padrões com preposição para/pro/pra/com
     m = re.search(
-        r'\b(?:para|pra|pro|a)\s+([\wÀ-ÿ][\wÀ-ÿ\s\.-]{1,50})\b',
+        r'\b(?:para|pra|pro|a|com)\s+([\wÀ-ÿ][\wÀ-ÿ\s\.-]{1,50})\b',
         texto_norm,
         re.IGNORECASE,
     )
@@ -587,6 +642,7 @@ def detectar_intencao(texto: str) -> dict:
     mes_referencia = extrair_mes_referencia(texto)
     credor_divida = extrair_credor_divida(texto)
     categoria_regra, keyword_encontrada = categorizar_por_regras(texto_lower)
+    tipo_contexto = _detectar_tipo_contexto(texto_lower)
 
     # Se achou a keyword da categoria, usa ela como descrição limpa
     if keyword_encontrada:
@@ -680,6 +736,29 @@ def detectar_intencao(texto: str) -> dict:
             "tipo_total": "saida",
         }
 
+    # 0c. Quitar / pagar dívida
+    if _RE_QUITAR_DIVIDAS.search(texto_lower) and not valor:
+        return {
+            "intencao": "quitar_dividas",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+            "credor_divida": credor_divida,
+        }
+
+    if valor and _RE_PAGAMENTO_DIVIDA.search(texto_lower):
+        return {
+            "intencao": "pagar_divida",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+            "credor_divida": credor_divida,
+        }
+
     # 1. "Posso gastar" — prioridade alta (contém valor e pergunta)
     #    Detecta: "posso gastar 200", "quero gastar 200, eu posso?",
     #    "deveria gastar 200 em uber hoje?", qualquer frase com valor + "?"
@@ -737,17 +816,17 @@ def detectar_intencao(texto: str) -> dict:
             "novo_valor": novo_valor,
         }
 
-    # 3. Listar movimentações recentes
-    if _texto_contem(texto_lower, PALAVRAS_LISTAR):
-        # Detecta se é entrada ou saída específica
-        tipo_listar = None
-        if any(p in texto_lower for p in ["dívida", "divida", "dívidas", "dividas", "empréstimo", "emprestimo"]):
-            tipo_listar = "divida"
-        elif any(p in texto_lower for p in ["entradas", "entrada", "recebi", "ganhei", "receitas"]):
-            tipo_listar = "entrada"
-        elif any(p in texto_lower for p in ["gastos", "gasto", "saídas", "saidas", "despesas", "despesa"]):
-            tipo_listar = "saida"
-        
+    # 3. Listar movimentações recentes (inclui frases como "citar minhas entradas")
+    pedido_listagem = _texto_contem(texto_lower, PALAVRAS_LISTAR) or bool(_RE_PEDIDO_LISTAGEM_EXPLICITA.search(texto_lower))
+    tipo_listar = None
+    if _RE_TIPO_LISTAR_DIVIDA.search(texto_lower):
+        tipo_listar = "divida"
+    elif _RE_TIPO_LISTAR_ENTRADA.search(texto_lower):
+        tipo_listar = "entrada"
+    elif _RE_TIPO_LISTAR_SAIDA.search(texto_lower):
+        tipo_listar = "saida"
+
+    if pedido_listagem or tipo_listar is not None:
         return {
             "intencao": "listar_movimentacoes",
             "valor": valor,
@@ -756,6 +835,18 @@ def detectar_intencao(texto: str) -> dict:
             "categoria_regra": categoria_regra,
             "mes_referencia": mes_referencia,
             "tipo_listar": tipo_listar,
+        }
+
+    # 3b. Listar categorias de entradas/saídas
+    if _RE_VER_CATEGORIAS.search(texto_lower) and _RE_ACAO_VER.search(texto_lower):
+        return {
+            "intencao": "listar_categorias",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+            "tipo_categoria": tipo_contexto,
         }
 
     # 4. Consultar categoria específica
@@ -772,6 +863,7 @@ def detectar_intencao(texto: str) -> dict:
             "categoria_regra": categoria_regra,
             "mes_referencia": mes_referencia,
             "categoria_consulta": categoria_mencionada,
+            "tipo_consulta": tipo_contexto,
         }
     # Se mencionou uma categoria válida sem valor e sem outra intenção clara,
     # assume que quer consultar (ex: "me fala sobre transporte")
@@ -791,6 +883,7 @@ def detectar_intencao(texto: str) -> dict:
                 "categoria_regra": categoria_regra,
                 "mes_referencia": mes_referencia,
                 "categoria_consulta": categoria_mencionada,
+                "tipo_consulta": tipo_contexto,
             }
 
     # 5. Consulta de resumo
