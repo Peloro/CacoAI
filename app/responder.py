@@ -68,6 +68,7 @@ RESPOSTAS_AJUDA = [
         "Claro! Aqui vai o que eu sei fazer 👇\n\n"
         "💸 *Anotar gasto:* \"Gastei 50 no mercado\"\n"
         "💚 *Anotar entrada:* \"Recebi 3000 de salário\"\n"
+        "🧾 *Anotar dívida:* \"devo 300 pro João\"\n"
         "✏️ *Editar valor:* \"editar #12 para 45\"\n"
         "🗑️ *Apagar lançamento:* \"apagar #12\" _(com confirmação)_\n"
         "🧹 *Limpar tudo:* \"limpar tudo\" _(com confirmação)_\n"
@@ -355,6 +356,7 @@ def gerar_resposta_consultar_categoria(
 
 def gerar_resposta_extrato_completo(
     movimentacoes: list[dict],
+    dividas: list[dict] | None = None,
     label_mes: str = "este mês",
 ) -> str:
     """
@@ -362,12 +364,14 @@ def gerar_resposta_extrato_completo(
     """
     sufixo = f" em *{label_mes}*" if label_mes != "este mês" else " deste mês"
 
-    if not movimentacoes:
+    dividas = dividas or []
+
+    if not movimentacoes and not dividas:
         return f"Você ainda não tem movimentações registradas{sufixo}. 🤔"
 
     entradas = [m for m in movimentacoes if m.get("tipo") == "entrada"]
     saidas = [m for m in movimentacoes if m.get("tipo") == "saida" and (m.get("categoria") or "") != "dividas"]
-    dividas = [m for m in movimentacoes if m.get("tipo") == "saida" and (m.get("categoria") or "") == "dividas"]
+    dividas_lista = dividas
 
     def _linha(mov: dict, emoji: str) -> str:
         descricao = mov.get("descricao") or mov.get("categoria") or "movimentação"
@@ -390,9 +394,20 @@ def gerar_resposta_extrato_completo(
         resposta += f"💸 *Gastos ({len(saidas)}):*\n"
         resposta += "\n".join(_linha(m, "🔴") for m in saidas[:20]) + "\n\n"
 
-    if dividas:
-        resposta += f"🧾 *Dívidas ({len(dividas)}):*\n"
-        resposta += "\n".join(_linha(m, "🧾") for m in dividas[:20]) + "\n\n"
+    if dividas_lista:
+        resposta += f"🧾 *Dívidas ({len(dividas_lista)}):*\n"
+        for d in dividas_lista[:20]:
+            descricao = d.get("descricao") or "dívida"
+            credor = d.get("credor") or "não informado"
+            valor_fmt = formatar_real(d.get("valor", 0))
+            data = d.get("data_ref", "")
+            try:
+                from datetime import datetime
+                data_fmt = datetime.strptime(data, "%Y-%m-%d").strftime("%d/%m")
+            except Exception:
+                data_fmt = data
+            resposta += f"🧾 {descricao} — {valor_fmt} _(#{d['id']} - {data_fmt})_ • credor: {credor}\n"
+        resposta += "\n"
 
     resposta += (
         "💡 *Como usar os IDs:*\n"
@@ -400,6 +415,29 @@ def gerar_resposta_extrato_completo(
         "• Apagar: \"apagar #12\""
     )
 
+    return resposta
+
+
+def gerar_resposta_listar_dividas(dividas: list[dict], label_mes: str = "este mês") -> str:
+    """Gera resposta amigável listando dívidas com credor e ID."""
+    sufixo = f" em *{label_mes}*" if label_mes != "este mês" else ""
+    if not dividas:
+        return f"Você não tem dívidas registradas{sufixo}. ✅"
+
+    resposta = f"🧾 *Suas dívidas{sufixo}:*\n\n"
+    for d in dividas:
+        descricao = d.get("descricao") or "dívida"
+        credor = d.get("credor") or "não informado"
+        valor_fmt = formatar_real(d.get("valor", 0))
+        data = d.get("data_ref", "")
+        try:
+            from datetime import datetime
+            data_fmt = datetime.strptime(data, "%Y-%m-%d").strftime("%d/%m")
+        except Exception:
+            data_fmt = data
+        resposta += f"🧾 {descricao} — {valor_fmt} _(#{d['id']} - {data_fmt})_ • credor: {credor}\n"
+
+    resposta += "\n💡 _Dica: para editar, use \"editar #ID para NOVO_VALOR\"_"
     return resposta
 
 

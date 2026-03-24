@@ -25,7 +25,12 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 logger = logging.getLogger("caco")
 
 # --- Provedor de IA ---
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openrouter").lower()
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
+
+# Groq
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 # OpenRouter
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")

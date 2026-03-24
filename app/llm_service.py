@@ -1,5 +1,5 @@
 """
-Servico LLM — usa OpenRouter como FALLBACK para:
+Servico LLM — usa provedor configurado (Groq/OpenRouter) como FALLBACK para:
     1. Categorizar transacoes (quando as regras nao conseguem)
     2. Gerar respostas conversacionais amigaveis
 
@@ -20,12 +20,15 @@ from urllib.parse import urlparse
 import httpx
 
 from app.config import (
-        LLM_PROVIDER,
-        OPENROUTER_API_KEY,
+    LLM_PROVIDER,
+    GROQ_API_KEY,
+    GROQ_BASE_URL,
+    GROQ_MODEL,
+    OPENROUTER_API_KEY,
     OPENROUTER_BASE_URL,
-        OPENROUTER_MODEL,
-        OPENROUTER_SITE_URL,
-        OPENROUTER_APP_NAME,
+    OPENROUTER_MODEL,
+    OPENROUTER_SITE_URL,
+    OPENROUTER_APP_NAME,
 )
 from app.prompts import (
     SYSTEM_PROMPT_CHAT,
@@ -36,6 +39,25 @@ from app.prompts import (
 )
 
 log = logging.getLogger("caco.llm")
+
+# Ajustes de budget de tokens por tarefa (mais enxuto, sem perder utilidade)
+_MAX_TOKENS_CATEGORIZACAO = 20
+_MAX_TOKENS_CHAT = 140
+_MAX_TOKENS_CLASSIFICACAO = 90
+_MAX_TOKENS_EXTRACAO = 150
+
+_MAX_CHARS_DESC_CATEGORIZACAO = 220
+_MAX_CHARS_MSG_CHAT = 900
+_MAX_CHARS_MSG_CLASSIFICACAO = 700
+_MAX_CHARS_MSG_EXTRACAO = 900
+
+
+def _compactar_texto(texto: str, limite_chars: int) -> str:
+    """Normaliza espaços e limita tamanho para economizar tokens de entrada."""
+    t = re.sub(r"\s+", " ", (texto or "").strip())
+    if len(t) <= limite_chars:
+        return t
+    return t[:limite_chars].rstrip() + "..."
 
 
 def _normalizar_api_key_openrouter(raw_key: str) -> str:
@@ -59,7 +81,20 @@ def _api_key_openrouter_valida(api_key: str) -> bool:
     return True
 
 
+def _api_key_groq_valida(api_key: str) -> bool:
+    if not api_key:
+        return False
+    if api_key.startswith("http://") or api_key.startswith("https://"):
+        return False
+    if "groq.com" in api_key.lower():
+        return False
+    if len(api_key) < 16:
+        return False
+    return True
+
+
 _OPENROUTER_API_KEY = _normalizar_api_key_openrouter(OPENROUTER_API_KEY)
+_GROQ_API_KEY = _normalizar_api_key_openrouter(GROQ_API_KEY)
 
 # Categorias válidas (carregadas do JSON para manter consistência)
 try:
@@ -71,21 +106,68 @@ except Exception:
         "educacao", "compras", "servicos", "freelas", "salario", "outros",
     }
 
-# Inicializa OpenRouter apenas se estiver configurado
-_openrouter_disponivel = False
+# Inicializa provedor de LLM conforme configuração
+_llm_disponivel = False
+_provedor_ativo = LLM_PROVIDER
 
-if LLM_PROVIDER == "openrouter" and _api_key_openrouter_valida(_OPENROUTER_API_KEY):
-    _openrouter_disponivel = True
+if LLM_PROVIDER == "groq" and _api_key_groq_valida(_GROQ_API_KEY):
+    _llm_disponivel = True
+    log.info("Groq configurado como fallback (modelo: %s)", GROQ_MODEL)
+elif LLM_PROVIDER == "groq" and GROQ_API_KEY:
+    log.warning("GROQ_API_KEY parece invalida (formato inesperado).")
+elif LLM_PROVIDER == "openrouter" and _api_key_openrouter_valida(_OPENROUTER_API_KEY):
+    _llm_disponivel = True
     log.info("OpenRouter configurado como fallback (modelo: %s)", OPENROUTER_MODEL)
 elif LLM_PROVIDER == "openrouter" and OPENROUTER_API_KEY:
     log.warning(
         "OPENROUTER_API_KEY parece invalida (formato inesperado). "
         "Use a chave da pagina https://openrouter.ai/keys"
     )
-elif LLM_PROVIDER != "openrouter":
-    log.info("LLM_PROVIDER=%s — modo 100%% local", LLM_PROVIDER)
+elif LLM_PROVIDER not in ("groq", "openrouter"):
+    log.warning("LLM_PROVIDER=%s não suportado — modo 100%% local", LLM_PROVIDER)
 else:
-    log.info("Sem OPENROUTER_API_KEY — modo 100%% local (sem custo)")
+    log.info("Sem chave de API válida — modo 100%% local (sem custo)")
+
+
+def _headers_groq() -> dict:
+    return {
+        "Authorization": f"Bearer {_GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+
+def _chat_groq(
+    user_prompt: str,
+    *,
+    system_prompt: Optional[str] = None,
+    temperature: float = 0.7,
+    max_tokens: int = 300,
+) -> str:
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": user_prompt})
+
+    base = GROQ_BASE_URL.rstrip("/")
+    endpoint = f"{base}/chat/completions" if not base.endswith("/chat/completions") else base
+
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    with httpx.Client(timeout=30.0) as client:
+        response = client.post(endpoint, headers=_headers_groq(), json=payload)
+        response.raise_for_status()
+        data = response.json()
+
+    conteudo = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    if isinstance(conteudo, list):
+        partes = [item.get("text", "") for item in conteudo if isinstance(item, dict)]
+        conteudo = "".join(partes)
+    return str(conteudo).strip()
 
 
 def _headers_openrouter() -> dict:
@@ -256,6 +338,28 @@ def _chat_openrouter(
     return str(conteudo).strip()
 
 
+def _chat_llm(
+    user_prompt: str,
+    *,
+    system_prompt: Optional[str] = None,
+    temperature: float = 0.7,
+    max_tokens: int = 300,
+) -> str:
+    if _provedor_ativo == "groq":
+        return _chat_groq(
+            user_prompt,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    return _chat_openrouter(
+        user_prompt,
+        system_prompt=system_prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+
+
 # ---------------------------------------------------------------------------
 # 1. Categorização via LLM
 # ---------------------------------------------------------------------------
@@ -270,16 +374,17 @@ def categorizar_transacao(descricao: str) -> str:
     if not descricao or not descricao.strip():
         return "outros"
 
-    if not _openrouter_disponivel:
+    if not _llm_disponivel:
         return "outros"
 
-    prompt = CATEGORIZATION_PROMPT.format(descricao=descricao)
+    descricao_compacta = _compactar_texto(descricao, _MAX_CHARS_DESC_CATEGORIZACAO)
+    prompt = CATEGORIZATION_PROMPT.format(descricao=descricao_compacta)
 
     try:
-        categoria = _chat_openrouter(
+        categoria = _chat_llm(
             prompt,
             temperature=0.0,
-            max_tokens=50,
+            max_tokens=_MAX_TOKENS_CATEGORIZACAO,
         ).lower()
         # Remove aspas, pontuação
         categoria = re.sub(r'["\'\.\!\?\,]', '', categoria).strip()
@@ -296,7 +401,7 @@ def categorizar_transacao(descricao: str) -> str:
         return "outros"
 
     except Exception as e:
-        log.warning("Erro OpenRouter (categorizacao): %s", e)
+        log.warning("Erro LLM (%s) em categorizacao: %s", _provedor_ativo, e)
         return "outros"
 
 
@@ -314,17 +419,18 @@ def gerar_resposta_chat(
     NUNCA recebe ou gera valores financeiros.
     Retorna str ou levanta excecao se OpenRouter indisponivel.
     """
-    if not _openrouter_disponivel:
-        raise RuntimeError("OpenRouter nao disponivel")
+    if not _llm_disponivel:
+        raise RuntimeError("LLM nao disponivel")
 
-    prompt = CHAT_PROMPT_CONVERSA.format(mensagem=mensagem)
+    mensagem_compacta = _compactar_texto(mensagem, _MAX_CHARS_MSG_CHAT)
+    prompt = CHAT_PROMPT_CONVERSA.format(mensagem=mensagem_compacta)
 
     try:
-        resposta = _chat_openrouter(
+        resposta = _chat_llm(
             prompt,
             system_prompt=SYSTEM_PROMPT_CHAT,
-            temperature=0.7,
-            max_tokens=300,
+            temperature=0.6,
+            max_tokens=_MAX_TOKENS_CHAT,
         )
         # Remove aspas envolvendo a resposta inteira
         if resposta.startswith('"') and resposta.endswith('"'):
@@ -332,7 +438,7 @@ def gerar_resposta_chat(
         return resposta
 
     except Exception as e:
-        log.warning("Erro OpenRouter (chat): %s", e)
+        log.warning("Erro LLM (%s) em chat: %s", _provedor_ativo, e)
         return _resposta_fallback()
 
 
@@ -361,16 +467,17 @@ def classificar_intencao_financeira(mensagem: str) -> dict:
     if not mensagem or not mensagem.strip():
         return {"tipo": "incerto", "confianca": 0.0, "justificativa": "mensagem_vazia"}
 
-    if not _openrouter_disponivel:
+    if not _llm_disponivel:
         return {"tipo": "incerto", "confianca": 0.0, "justificativa": "llm_indisponivel"}
 
-    prompt = INTENT_CLASSIFICATION_PROMPT.format(mensagem=mensagem.strip())
+    msg_compacta = _compactar_texto(mensagem, _MAX_CHARS_MSG_CLASSIFICACAO)
+    prompt = INTENT_CLASSIFICATION_PROMPT.format(mensagem=msg_compacta)
 
     try:
-        bruto = _chat_openrouter(
+        bruto = _chat_llm(
             prompt,
             temperature=0.0,
-            max_tokens=120,
+            max_tokens=_MAX_TOKENS_CLASSIFICACAO,
         )
 
         # Tenta parse direto e, se falhar, extrai o primeiro bloco JSON.
@@ -404,7 +511,7 @@ def classificar_intencao_financeira(mensagem: str) -> dict:
         }
 
     except Exception as e:
-        log.warning("Erro OpenRouter (classificacao_intencao): %s", e)
+        log.warning("Erro LLM (%s) em classificacao_intencao: %s", _provedor_ativo, e)
         return {"tipo": "incerto", "confianca": 0.0, "justificativa": "erro_llm"}
 
 
@@ -459,16 +566,17 @@ def extrair_movimentacao_estruturada(mensagem: str) -> dict:
         vazio["justificativa"] = "mensagem_vazia"
         return vazio
 
-    if not _openrouter_disponivel:
+    if not _llm_disponivel:
         return vazio
 
-    prompt = TRANSACTION_EXTRACTION_PROMPT.format(mensagem=mensagem.strip())
+    msg_compacta = _compactar_texto(mensagem, _MAX_CHARS_MSG_EXTRACAO)
+    prompt = TRANSACTION_EXTRACTION_PROMPT.format(mensagem=msg_compacta)
 
     try:
-        bruto = _chat_openrouter(
+        bruto = _chat_llm(
             prompt,
             temperature=0.0,
-            max_tokens=220,
+            max_tokens=_MAX_TOKENS_EXTRACAO,
         )
 
         data = None
@@ -521,6 +629,6 @@ def extrair_movimentacao_estruturada(mensagem: str) -> dict:
         }
 
     except Exception as e:
-        log.warning("Erro OpenRouter (extracao_movimentacao): %s", e)
+        log.warning("Erro LLM (%s) em extracao_movimentacao: %s", _provedor_ativo, e)
         vazio["justificativa"] = "erro_llm"
         return vazio

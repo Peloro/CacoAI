@@ -68,6 +68,17 @@ def init_db():
             FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
         );
 
+        CREATE TABLE IF NOT EXISTS dividas (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id      INTEGER NOT NULL,
+            valor           REAL    NOT NULL,
+            credor          TEXT,
+            descricao       TEXT,
+            data_ref        TEXT    NOT NULL,   -- YYYY-MM-DD
+            criado_em       TEXT    NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+        );
+
         CREATE TABLE IF NOT EXISTS sessoes (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario_id      INTEGER NOT NULL UNIQUE,
@@ -79,6 +90,9 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_mov_usuario
             ON movimentacoes(usuario_id, data_ref);
+
+        CREATE INDEX IF NOT EXISTS idx_div_usuario
+            ON dividas(usuario_id, data_ref);
         """)
 
         # Migração: adiciona colunas novas se ainda não existem
@@ -157,6 +171,203 @@ def registrar_movimentacao(
         conn.commit()
         mov_id = cur.lastrowid
     return mov_id
+
+
+def registrar_divida(
+    usuario_id: int,
+    valor: float,
+    credor: str = "",
+    descricao: str = "",
+    data_ref: Optional[str] = None,
+) -> int:
+    """Insere uma dívida e retorna o id."""
+    if data_ref is None:
+        data_ref = date.today().isoformat()
+
+    with _db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO dividas
+                (usuario_id, valor, credor, descricao, data_ref)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (usuario_id, valor, (credor or "").strip(), descricao, data_ref),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+def listar_dividas_recentes(
+    usuario_id: int,
+    limite: int = 20,
+    ano_mes: Optional[str] = None,
+) -> list[dict]:
+    """Lista as dívidas recentes do usuário."""
+    with _db() as conn:
+        cur = conn.cursor()
+        if ano_mes:
+            cur.execute(
+                """
+                SELECT id, valor, credor, descricao, data_ref
+                FROM dividas
+                WHERE usuario_id = ? AND data_ref LIKE ?
+                ORDER BY data_ref DESC, id DESC
+                LIMIT ?
+                """,
+                (usuario_id, f"{ano_mes}%", limite),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id, valor, credor, descricao, data_ref
+                FROM dividas
+                WHERE usuario_id = ?
+                ORDER BY data_ref DESC, id DESC
+                LIMIT ?
+                """,
+                (usuario_id, limite),
+            )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def buscar_dividas_por_descricao(
+    usuario_id: int,
+    descricao: str,
+    ano_mes: Optional[str] = None,
+) -> list[dict]:
+    """Busca dívidas por descrição/credor (case-insensitive)."""
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
+
+    with _db() as conn:
+        cur = conn.cursor()
+        desc_lower = descricao.lower().strip()
+        cur.execute(
+            """
+            SELECT id, valor, credor, descricao, data_ref
+            FROM dividas
+            WHERE usuario_id = ?
+              AND data_ref LIKE ?
+              AND (LOWER(descricao) LIKE ? OR LOWER(credor) LIKE ?)
+            ORDER BY data_ref DESC, id DESC
+            """,
+            (usuario_id, f"{ano_mes}%", f"%{desc_lower}%", f"%{desc_lower}%"),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def obter_divida_por_id(usuario_id: int, divida_id: int) -> dict | None:
+    """Retorna uma dívida específica pelo ID (somente se pertencer ao usuário)."""
+    with _db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, valor, credor, descricao, data_ref
+            FROM dividas
+            WHERE id = ? AND usuario_id = ?
+            """,
+            (divida_id, usuario_id),
+        )
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def apagar_divida_por_id(usuario_id: int, divida_id: int) -> dict | None:
+    """Apaga uma dívida específica pelo ID e retorna o registro apagado."""
+    with _db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, valor, credor, descricao, data_ref
+            FROM dividas
+            WHERE id = ? AND usuario_id = ?
+            """,
+            (divida_id, usuario_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        div = dict(row)
+        cur.execute("DELETE FROM dividas WHERE id = ?", (divida_id,))
+        conn.commit()
+    return div
+
+
+def atualizar_valor_divida(usuario_id: int, divida_id: int, novo_valor: float) -> dict | None:
+    """Atualiza valor de uma dívida e retorna antes/depois."""
+    with _db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, valor, credor, descricao, data_ref
+            FROM dividas
+            WHERE id = ? AND usuario_id = ?
+            """,
+            (divida_id, usuario_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        atual = dict(row)
+        valor_anterior = float(atual["valor"])
+        cur.execute(
+            """
+            UPDATE dividas
+            SET valor = ?
+            WHERE id = ? AND usuario_id = ?
+            """,
+            (novo_valor, divida_id, usuario_id),
+        )
+        conn.commit()
+
+    atual["valor_anterior"] = valor_anterior
+    atual["valor"] = float(novo_valor)
+    return atual
+
+
+def limpar_dividas(usuario_id: int, ano_mes: Optional[str] = None) -> int:
+    """Apaga todas as dívidas do usuário no mês informado."""
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
+
+    with _db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            DELETE FROM dividas
+            WHERE usuario_id = ? AND data_ref LIKE ?
+            """,
+            (usuario_id, f"{ano_mes}%"),
+        )
+        apagados = cur.rowcount
+        conn.commit()
+    return apagados
+
+
+def totais_dividas(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
+    """Retorna total e quantidade de dívidas do mês."""
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
+
+    with _db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT COUNT(*) as qtd, SUM(valor) as total
+            FROM dividas
+            WHERE usuario_id = ? AND data_ref LIKE ?
+            """,
+            (usuario_id, f"{ano_mes}%"),
+        )
+        row = cur.fetchone()
+
+    return {
+        "qtd_dividas": int(row["qtd"] or 0) if row else 0,
+        "total_dividas": float(row["total"] or 0.0) if row else 0.0,
+    }
 
 
 def resumo_mes(usuario_id: int, ano_mes: Optional[str] = None) -> dict:

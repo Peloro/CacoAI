@@ -35,6 +35,14 @@ from app.database import (
     apagar_movimentacao_por_id,
     obter_movimentacao_por_id,
     atualizar_valor_movimentacao,
+    registrar_divida,
+    listar_dividas_recentes,
+    buscar_dividas_por_descricao,
+    obter_divida_por_id,
+    apagar_divida_por_id,
+    atualizar_valor_divida,
+    limpar_dividas,
+    totais_dividas,
     buscar_movimentacoes_por_descricao,
     consultar_categoria,
     limpar_movimentacoes,
@@ -58,6 +66,7 @@ from app.responder import (
     resposta_local,
     RESPOSTAS_NAO_ENTENDI,
     gerar_resposta_listar_movimentacoes,
+    gerar_resposta_listar_dividas,
     gerar_resposta_extrato_completo,
     gerar_resposta_consultar_categoria,
     gerar_resposta_apagar_com_id,
@@ -469,30 +478,26 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         return _montar_resposta_registro("saida", valor, descricao, categoria, usuario_id, alerta, data_ref=data_ref)
 
     elif intencao == "registrar_divida" and valor and valor > 0:
-        categoria = "dividas"
         descricao_divida = descricao or "Divida"
-
-        registrar_movimentacao(
+        credor = (parsed.get("credor_divida") or "").strip()
+        registrar_divida(
             usuario_id=usuario_id,
-            tipo="saida",
             valor=valor,
-            categoria=categoria,
+            credor=credor,
             descricao=descricao_divida,
             data_ref=data_ref,
         )
-        return _montar_resposta_registro(
-            "saida",
-            valor,
-            descricao_divida,
-            categoria,
-            usuario_id,
+        return _montar_resposta_registro_divida(
+            valor=valor,
+            descricao=descricao_divida,
+            credor=credor,
+            usuario_id=usuario_id,
             data_ref=data_ref,
-            rotulo_tipo="Divida",
         )
 
     elif intencao == "consultar_resumo":
         resumo = resumo_mes(usuario_id, ano_mes=mes_ref)
-        return _montar_resumo(resumo, label_mes=label_mes)
+        return _montar_resumo(resumo, usuario_id=usuario_id, label_mes=label_mes)
 
     elif intencao == "consultar_saldo":
         resumo = resumo_mes(usuario_id, ano_mes=mes_ref)
@@ -512,10 +517,14 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         
         if id_mov:
             mov = obter_movimentacao_por_id(usuario_id, id_mov)
-            if not mov:
-                return f"🤷 Não encontrei uma movimentação com o ID #{id_mov}. Confere se tá certo!"
-            _pendente_confirmacao_apagar[usuario_id] = {"movimentacao": mov}
-            return _montar_confirmacao_apagar(mov)
+            if mov:
+                _pendente_confirmacao_apagar[usuario_id] = {"movimentacao": mov, "tipo_registro": "movimentacao"}
+                return _montar_confirmacao_apagar(mov, "movimentacao")
+            div = obter_divida_por_id(usuario_id, id_mov)
+            if div:
+                _pendente_confirmacao_apagar[usuario_id] = {"movimentacao": div, "tipo_registro": "divida"}
+                return _montar_confirmacao_apagar(div, "divida")
+            return f"🤷 Não encontrei lançamento com o ID #{id_mov}. Confere se tá certo!"
         
         # Se a descrição é apenas referência genérica ("última", "esse", "essa"),
         # não é uma busca real — vai direto pro apagar última
@@ -531,14 +540,18 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         
         # Tenta buscar por descrição/categoria mencionada na mensagem
         if descricao_real:
-            matches = buscar_movimentacoes_por_descricao(
+            matches_mov = buscar_movimentacoes_por_descricao(
                 usuario_id, descricao_real, tipo=tipo_apagar
             )
+            matches_div = buscar_dividas_por_descricao(usuario_id, descricao_real)
+            matches = ([{**m, "_tipo_registro": "movimentacao"} for m in matches_mov] +
+                       [{**d, "_tipo_registro": "divida"} for d in matches_div])
             
             if len(matches) == 1:
                 mov = matches[0]
-                _pendente_confirmacao_apagar[usuario_id] = {"movimentacao": mov}
-                return _montar_confirmacao_apagar(mov)
+                tipo_registro = mov.get("_tipo_registro", "movimentacao")
+                _pendente_confirmacao_apagar[usuario_id] = {"movimentacao": mov, "tipo_registro": tipo_registro}
+                return _montar_confirmacao_apagar(mov, tipo_registro)
             
             elif len(matches) > 1:
                 # Múltiplos matches → pede pra escolher
@@ -556,8 +569,8 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         mov = ultimas[0] if ultimas else None
         if not mov:
             return _montar_resposta_apagar(None, tipo_apagar)
-        _pendente_confirmacao_apagar[usuario_id] = {"movimentacao": mov}
-        return _montar_confirmacao_apagar(mov)
+        _pendente_confirmacao_apagar[usuario_id] = {"movimentacao": mov, "tipo_registro": "movimentacao"}
+        return _montar_confirmacao_apagar(mov, "movimentacao")
 
     elif intencao == "editar_movimentacao":
         id_mov = parsed.get("id_movimentacao")
@@ -571,13 +584,24 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
 
         if id_mov:
             mov = obter_movimentacao_por_id(usuario_id, id_mov)
-            if not mov:
-                return f"🤷 Não encontrei uma movimentação com o ID #{id_mov}."
-            _pendente_confirmacao_editar[usuario_id] = {
-                "movimentacao": mov,
-                "novo_valor": float(novo_valor),
-            }
-            return _montar_confirmacao_editar(mov, float(novo_valor))
+            if mov:
+                _pendente_confirmacao_editar[usuario_id] = {
+                    "movimentacao": mov,
+                    "novo_valor": float(novo_valor),
+                    "tipo_registro": "movimentacao",
+                }
+                return _montar_confirmacao_editar(mov, float(novo_valor), "movimentacao")
+
+            div = obter_divida_por_id(usuario_id, id_mov)
+            if div:
+                _pendente_confirmacao_editar[usuario_id] = {
+                    "movimentacao": div,
+                    "novo_valor": float(novo_valor),
+                    "tipo_registro": "divida",
+                }
+                return _montar_confirmacao_editar(div, float(novo_valor), "divida")
+
+            return f"🤷 Não encontrei lançamento com o ID #{id_mov}."
 
         import re as _re
         descricao_edit = (descricao or "").strip()
@@ -591,19 +615,24 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         if not descricao_edit:
             return "Me diga qual lançamento você quer editar (ID ou descrição). Ex: editar #12 para 45"
 
-        matches = buscar_movimentacoes_por_descricao(usuario_id, descricao_edit)
+        matches_mov = buscar_movimentacoes_por_descricao(usuario_id, descricao_edit)
+        matches_div = buscar_dividas_por_descricao(usuario_id, descricao_edit)
+        matches = ([{**m, "_tipo_registro": "movimentacao"} for m in matches_mov] +
+                   [{**d, "_tipo_registro": "divida"} for d in matches_div])
+
         if len(matches) == 0:
             return (
-                f"🤷 Não encontrei movimentação com \"{descricao_edit}\" neste mês.\n"
-                "Manda *listar gastos* pra ver os IDs."
+                f"🤷 Não encontrei lançamento com \"{descricao_edit}\" neste mês.\n"
+                "Manda *listar movimentações* pra ver os IDs."
             )
         if len(matches) == 1:
             mov = matches[0]
             _pendente_confirmacao_editar[usuario_id] = {
                 "movimentacao": mov,
                 "novo_valor": float(novo_valor),
+                "tipo_registro": mov.get("_tipo_registro", "movimentacao"),
             }
-            return _montar_confirmacao_editar(mov, float(novo_valor))
+            return _montar_confirmacao_editar(mov, float(novo_valor), mov.get("_tipo_registro", "movimentacao"))
 
         _pendente_desambiguacao_editar[usuario_id] = {
             "movimentacoes": matches,
@@ -615,17 +644,15 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     elif intencao == "listar_movimentacoes":
         tipo_listar = parsed.get("tipo_listar")  # 'entrada', 'saida' ou None
         if tipo_listar == "divida":
-            movs_saida = listar_movimentacoes_recentes(
-                usuario_id, limite=30, tipo="saida", ano_mes=mes_ref
-            )
-            movimentacoes = [m for m in movs_saida if (m.get("categoria") or "") == "dividas"]
-            return gerar_resposta_listar_movimentacoes(movimentacoes, "saida", label_mes=label_mes)
+            dividas = listar_dividas_recentes(usuario_id, limite=30, ano_mes=mes_ref)
+            return gerar_resposta_listar_dividas(dividas, label_mes=label_mes)
 
         if tipo_listar is None:
             movimentacoes = listar_movimentacoes_recentes(
                 usuario_id, limite=60, tipo=None, ano_mes=mes_ref
             )
-            return gerar_resposta_extrato_completo(movimentacoes, label_mes=label_mes)
+            dividas = listar_dividas_recentes(usuario_id, limite=60, ano_mes=mes_ref)
+            return gerar_resposta_extrato_completo(movimentacoes, dividas=dividas, label_mes=label_mes)
 
         movimentacoes = listar_movimentacoes_recentes(
             usuario_id, limite=20, tipo=tipo_listar, ano_mes=mes_ref
@@ -643,6 +670,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     elif intencao == "limpar_movimentacoes":
         tipo_limpar = parsed.get("tipo_limpar")  # 'entrada', 'saida' ou None (tudo)
         totais = totais_mes(usuario_id, ano_mes=mes_ref)
+        totais_div = totais_dividas(usuario_id, ano_mes=mes_ref)
 
         if tipo_limpar == "saida":
             qtd = totais["qtd_saidas"]
@@ -667,7 +695,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
                 f"Manda *sim* pra confirmar ou *não* pra cancelar."
             )
         else:
-            qtd_total = totais["qtd_entradas"] + totais["qtd_saidas"]
+            qtd_total = totais["qtd_entradas"] + totais["qtd_saidas"] + totais_div["qtd_dividas"]
             if qtd_total == 0:
                 return f"🤷 Você não tem nenhuma movimentação registrada{sufixo_mes or ' neste mês'}."
             _pendente_confirmacao_limpar[usuario_id] = (None, mes_ref)
@@ -677,7 +705,9 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
                 f"  💚 {totais['qtd_entradas']} entrada{'s' if totais['qtd_entradas'] != 1 else ''} "
                 f"({formatar_real(totais['total_entradas'])})\n"
                 f"  💸 {totais['qtd_saidas']} gasto{'s' if totais['qtd_saidas'] != 1 else ''} "
-                f"({formatar_real(totais['total_saidas'])})\n\n"
+                f"({formatar_real(totais['total_saidas'])})\n"
+                f"  🧾 {totais_div['qtd_dividas']} dívida{'s' if totais_div['qtd_dividas'] != 1 else ''} "
+                f"({formatar_real(totais_div['total_dividas'])})\n\n"
                 f"Manda *sim* pra confirmar ou *não* pra cancelar."
             )
 
@@ -746,15 +776,17 @@ def _processar_desambiguacao(usuario_id: int, mensagem: str) -> str:
         if 1 <= num <= len(candidatas):
             mov_escolhida = candidatas[num - 1]
             _pendente_desambiguacao.pop(usuario_id, None)
-            _pendente_confirmacao_apagar[usuario_id] = {"movimentacao": mov_escolhida}
-            return _montar_confirmacao_apagar(mov_escolhida)
+            tipo_registro = mov_escolhida.get("_tipo_registro", "movimentacao")
+            _pendente_confirmacao_apagar[usuario_id] = {"movimentacao": mov_escolhida, "tipo_registro": tipo_registro}
+            return _montar_confirmacao_apagar(mov_escolhida, tipo_registro)
 
         # Tenta como ID direto da movimentação
         for cand in candidatas:
             if cand["id"] == num:
                 _pendente_desambiguacao.pop(usuario_id, None)
-                _pendente_confirmacao_apagar[usuario_id] = {"movimentacao": cand}
-                return _montar_confirmacao_apagar(cand)
+                tipo_registro = cand.get("_tipo_registro", "movimentacao")
+                _pendente_confirmacao_apagar[usuario_id] = {"movimentacao": cand, "tipo_registro": tipo_registro}
+                return _montar_confirmacao_apagar(cand, tipo_registro)
 
     # Não entendeu a resposta
     return (
@@ -772,6 +804,13 @@ def _processar_confirmacao_apagar(usuario_id: int, mensagem: str) -> str:
         if not pendente:
             return "Ops, perdi o contexto. Me diz de novo o que quer apagar."
         mov = pendente["movimentacao"]
+        tipo_registro = pendente.get("tipo_registro", "movimentacao")
+        if tipo_registro == "divida":
+            apagada = apagar_divida_por_id(usuario_id, mov["id"])
+            if not apagada:
+                return "🤷 Não consegui apagar a dívida. Talvez já tenha sido removida."
+            return _montar_resposta_apagar_divida(apagada)
+
         apagada = apagar_movimentacao_por_id(usuario_id, mov["id"])
         if not apagada:
             return "🤷 Não consegui apagar. Talvez já tenha sido removida."
@@ -809,8 +848,9 @@ def _processar_desambiguacao_editar(usuario_id: int, mensagem: str) -> str:
             _pendente_confirmacao_editar[usuario_id] = {
                 "movimentacao": mov,
                 "novo_valor": novo_valor,
+                "tipo_registro": mov.get("_tipo_registro", "movimentacao"),
             }
-            return _montar_confirmacao_editar(mov, novo_valor)
+            return _montar_confirmacao_editar(mov, novo_valor, mov.get("_tipo_registro", "movimentacao"))
 
         for cand in candidatas:
             if cand["id"] == num:
@@ -818,8 +858,9 @@ def _processar_desambiguacao_editar(usuario_id: int, mensagem: str) -> str:
                 _pendente_confirmacao_editar[usuario_id] = {
                     "movimentacao": cand,
                     "novo_valor": novo_valor,
+                    "tipo_registro": cand.get("_tipo_registro", "movimentacao"),
                 }
-                return _montar_confirmacao_editar(cand, novo_valor)
+                return _montar_confirmacao_editar(cand, novo_valor, cand.get("_tipo_registro", "movimentacao"))
 
     return "Manda o *número* da opção (ou o *#ID*) ou *cancelar*."
 
@@ -835,10 +876,18 @@ def _processar_confirmacao_editar(usuario_id: int, mensagem: str) -> str:
 
         mov = pendente["movimentacao"]
         novo_valor = float(pendente["novo_valor"])
+        tipo_registro = pendente.get("tipo_registro", "movimentacao")
+
+        if tipo_registro == "divida":
+            atualizada = atualizar_valor_divida(usuario_id, mov["id"], novo_valor)
+            if not atualizada:
+                return "🤷 Não consegui editar a dívida. Talvez ela não exista mais."
+            return _montar_resposta_edicao(atualizada, "divida")
+
         atualizada = atualizar_valor_movimentacao(usuario_id, mov["id"], novo_valor)
         if not atualizada:
             return "🤷 Não consegui editar. Talvez a movimentação não exista mais."
-        return _montar_resposta_edicao(atualizada)
+        return _montar_resposta_edicao(atualizada, "movimentacao")
 
     if texto in ("nao", "não", "n", "cancelar", "cancela", "deixa", "esquece"):
         _pendente_confirmacao_editar.pop(usuario_id, None)
@@ -867,6 +916,9 @@ def _processar_confirmacao_limpar(usuario_id: int, mensagem: str) -> str:
 
         tipo_limpar, mes_limpar = pendente
         apagados = limpar_movimentacoes(usuario_id, tipo=tipo_limpar, ano_mes=mes_limpar)
+        apagados_dividas = 0
+        if tipo_limpar is None:
+            apagados_dividas = limpar_dividas(usuario_id, ano_mes=mes_limpar)
         label = _nome_mes(mes_limpar)
         sufixo = f" de *{label}*" if mes_limpar else " deste mês"
 
@@ -882,7 +934,7 @@ def _processar_confirmacao_limpar(usuario_id: int, mensagem: str) -> str:
             )
         else:
             return (
-                f"🗑️ Pronto! Apaguei *{apagados} movimentação{'ões' if apagados > 1 else ''}*{sufixo}.\n"
+                f"🗑️ Pronto! Apaguei *{apagados + apagados_dividas} movimentação{'ões' if (apagados + apagados_dividas) > 1 else ''}*{sufixo}.\n"
                 f"🔄 Tudo zerado. Bora recomeçar!"
             )
 
@@ -943,7 +995,36 @@ def _montar_resposta_registro(
     return texto
 
 
-def _montar_resumo(resumo: dict, label_mes: str = "este mês") -> str:
+def _montar_resposta_registro_divida(
+    valor: float,
+    descricao: str,
+    credor: str,
+    usuario_id: int,
+    data_ref: str | None = None,
+) -> str:
+    """Monta resposta de confirmação de registro de dívida em tabela separada."""
+    resumo = resumo_mes(usuario_id)
+    saldo = resumo["saldo"]
+
+    desc = (descricao or "Dívida").capitalize()
+    credor_txt = credor.strip() if credor else "não informado"
+
+    texto = "✅ Dívida registrada! 🧾\n"
+    texto += f"📝 {desc} — {formatar_real(valor)}\n"
+    texto += f"👤 Credor: {credor_txt}\n"
+
+    if data_ref and data_ref != date.today().isoformat():
+        texto += f"📅 Data: {_formatar_data_amigavel(data_ref)}\n"
+
+    if saldo >= 0:
+        texto += f"💰 Saldo do mês: {formatar_real(saldo)}"
+    else:
+        texto += f"🔴 Saldo do mês: {formatar_real(saldo)}"
+
+    return texto
+
+
+def _montar_resumo(resumo: dict, usuario_id: int, label_mes: str = "este mês") -> str:
     """Monta texto de resumo do mês com dados reais do banco."""
     entradas = resumo["entradas"]
     saidas = resumo["saidas"]
@@ -959,6 +1040,12 @@ def _montar_resumo(resumo: dict, label_mes: str = "este mês") -> str:
         texto += f"✅ Sobra: {formatar_real(saldo)}\n"
     else:
         texto += f"🔴 Falta: {formatar_real(abs(saldo))}\n"
+
+    # Mostra dívidas em bloco separado (não mistura com gastos)
+    totais_div = totais_dividas(usuario_id, ano_mes=resumo.get("ano_mes"))
+    if totais_div.get("qtd_dividas", 0) > 0:
+        texto += f"🧾 Dívidas: {formatar_real(totais_div.get('total_dividas', 0.0))}"
+        texto += f" ({totais_div.get('qtd_dividas', 0)} registro{'s' if totais_div.get('qtd_dividas', 0) != 1 else ''})\n"
 
     if cats:
         texto += "\n📁 *Pra onde foi o dinheiro:*\n"
@@ -1030,19 +1117,50 @@ def _montar_resposta_apagar(mov: dict | None, tipo_apagar: str | None) -> str:
     return texto
 
 
-def _montar_confirmacao_apagar(mov: dict) -> str:
-    """Monta mensagem de confirmação antes de apagar uma movimentação."""
-    tipo_nome = "entrada" if mov["tipo"] == "entrada" else "gasto"
+def _montar_resposta_apagar_divida(div: dict) -> str:
+    """Monta resposta de confirmação de deleção de dívida."""
+    desc = (div.get("descricao") or "dívida").capitalize()
+    credor = div.get("credor") or "não informado"
+    return (
+        "🗑️ Dívida apagada!\n"
+        f"🧾 {desc} — {formatar_real(div['valor'])} (credor: {credor})\n"
+        "✅ Lista de dívidas atualizada."
+    )
+
+
+def _montar_confirmacao_apagar(mov: dict, tipo_registro: str = "movimentacao") -> str:
+    """Monta mensagem de confirmação antes de apagar um lançamento."""
+    if tipo_registro == "divida":
+        descricao = (mov.get("descricao") or "dívida").capitalize()
+        credor = mov.get("credor") or "não informado"
+        return (
+            "⚠️ Confirma apagar esta dívida?\n"
+            f"• #{mov['id']} {descricao} — {formatar_real(mov['valor'])} (credor: {credor})\n\n"
+            "Manda *sim* pra confirmar ou *não* pra cancelar."
+        )
+
+    tipo_nome = "entrada" if mov.get("tipo") == "entrada" else "gasto"
     descricao = (mov.get("descricao") or mov.get("categoria") or "movimentação").capitalize()
     return (
         f"⚠️ Confirma apagar este {tipo_nome}?\n"
-        f"• #{mov['id']} {descricao} — {formatar_real(mov['valor'])} ({mov['categoria']})\n\n"
+        f"• #{mov['id']} {descricao} — {formatar_real(mov['valor'])} ({mov.get('categoria', 'sem categoria')})\n\n"
         "Manda *sim* pra confirmar ou *não* pra cancelar."
     )
 
 
-def _montar_confirmacao_editar(mov: dict, novo_valor: float) -> str:
+def _montar_confirmacao_editar(mov: dict, novo_valor: float, tipo_registro: str = "movimentacao") -> str:
     """Monta mensagem de confirmação antes de editar valor."""
+    if tipo_registro == "divida":
+        descricao = (mov.get("descricao") or "dívida").capitalize()
+        credor = mov.get("credor") or "não informado"
+        return (
+            "⚠️ Confirma editar esta dívida?\n"
+            f"• #{mov['id']} {descricao} (credor: {credor})\n"
+            f"• Valor atual: {formatar_real(mov['valor'])}\n"
+            f"• Novo valor: {formatar_real(novo_valor)}\n\n"
+            "Manda *sim* pra confirmar ou *não* pra cancelar."
+        )
+
     descricao = (mov.get("descricao") or mov.get("categoria") or "movimentação").capitalize()
     return (
         "⚠️ Confirma editar este lançamento?\n"
@@ -1061,16 +1179,32 @@ def _montar_desambiguacao_editar(movimentacoes: list[dict], descricao: str, novo
     )
 
     for i, mov in enumerate(movimentacoes, 1):
-        emoji = "💚" if mov["tipo"] == "entrada" else "🔴"
-        desc = mov.get("descricao") or mov.get("categoria", "")
+        if mov.get("_tipo_registro") == "divida":
+            emoji = "🧾"
+            desc = mov.get("descricao") or "dívida"
+        else:
+            emoji = "💚" if mov.get("tipo") == "entrada" else "🔴"
+            desc = mov.get("descricao") or mov.get("categoria", "")
         resposta += f"*{i}.* {emoji} {desc} — {formatar_real(mov['valor'])} _(#{mov['id']})_\n"
 
     resposta += "\nManda o *número* (ou *#ID*) da opção ou *cancelar*."
     return resposta
 
 
-def _montar_resposta_edicao(mov: dict) -> str:
+def _montar_resposta_edicao(mov: dict, tipo_registro: str = "movimentacao") -> str:
     """Confirmação de edição concluída com valor antes/depois."""
+    if tipo_registro == "divida":
+        descricao = (mov.get("descricao") or "dívida").capitalize()
+        credor = mov.get("credor") or "não informado"
+        valor_anterior = mov.get("valor_anterior", mov.get("valor", 0.0))
+        valor_novo = mov.get("valor", 0.0)
+        return (
+            "✅ Dívida atualizada com sucesso!\n"
+            f"• #{mov['id']} {descricao} (credor: {credor})\n"
+            f"• Antes: {formatar_real(valor_anterior)}\n"
+            f"• Agora: {formatar_real(valor_novo)}"
+        )
+
     descricao = (mov.get("descricao") or mov.get("categoria") or "movimentação").capitalize()
     valor_anterior = mov.get("valor_anterior", mov.get("valor", 0.0))
     valor_novo = mov.get("valor", 0.0)

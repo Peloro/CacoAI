@@ -43,6 +43,14 @@
     "despesa", "despesas"
   ],
 
+  "divida": [
+    "dívida", "divida", "dívidas", "dividas",
+    "devo", "devendo", "fiquei devendo", "to devendo", "tô devendo",
+    "empréstimo", "emprestimo", "peguei emprestado",
+    "parcela", "parcelas", "prestação", "prestacao",
+    "fatura atrasada", "conta em aberto", "atrasado"
+  ],
+
   "resumo": [
     "resumo", "como tá o mês", "como ta o mes", "como está o mês",
     "como estou", "meu mês", "meu mes", "relatório", "relatorio",

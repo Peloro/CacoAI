@@ -39,6 +39,7 @@ _PALAVRAS: dict[str, list[str]] = _carregar_json(_PALAVRAS_JSON, "palavras_chave
 # Palavras-chave carregadas do JSON (com fallback vazio)
 PALAVRAS_ENTRADA: list[str] = _PALAVRAS.get("entrada", [])
 PALAVRAS_SAIDA: list[str] = _PALAVRAS.get("saida", [])
+PALAVRAS_DIVIDA: list[str] = _PALAVRAS.get("divida", [])
 PALAVRAS_RESUMO: list[str] = _PALAVRAS.get("resumo", [])
 PALAVRAS_SALDO: list[str] = _PALAVRAS.get("saldo", [])
 PALAVRAS_APAGAR: list[str] = _PALAVRAS.get("apagar", [])
@@ -433,6 +434,35 @@ def extrair_novo_valor_edicao(texto: str, id_movimentacao: Optional[int] = None)
     return None
 
 
+def extrair_credor_divida(texto: str) -> Optional[str]:
+    """
+    Tenta extrair para quem o usuário está devendo.
+    Ex.: "devo 200 pro João" -> "joão"
+          "fiquei devendo 300 para nubank" -> "nubank"
+    """
+    texto_norm = texto.strip()
+
+    # padrões com preposição para/pro/pra
+    m = re.search(
+        r'\b(?:para|pra|pro|a)\s+([\wÀ-ÿ][\wÀ-ÿ\s\.-]{1,50})\b',
+        texto_norm,
+        re.IGNORECASE,
+    )
+    if m:
+        credor = m.group(1).strip(" .,!?:;-")
+        # limpa sufixos comuns que podem vir após o credor
+        credor = re.sub(r'\b(?:hoje|ontem|anteontem)\b.*$', '', credor, flags=re.IGNORECASE).strip()
+        if credor:
+            return credor
+
+    # fallback: "devo para X" / "devendo X" simplificado
+    m2 = re.search(r'\b(?:devo|devendo|d[ií]vida|d[ií]vidas?)\b.*?\b([\wÀ-ÿ]{2,})$', texto_norm, re.IGNORECASE)
+    if m2:
+        return m2.group(1).strip(" .,!?:;-")
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Extração de descrição
 # ---------------------------------------------------------------------------
@@ -555,6 +585,7 @@ def detectar_intencao(texto: str) -> dict:
     descricao = extrair_descricao(texto)
     data_ref = extrair_data(texto)
     mes_referencia = extrair_mes_referencia(texto)
+    credor_divida = extrair_credor_divida(texto)
     categoria_regra, keyword_encontrada = categorizar_por_regras(texto_lower)
 
     # Se achou a keyword da categoria, usa ela como descrição limpa
@@ -806,7 +837,19 @@ def detectar_intencao(texto: str) -> dict:
             "mes_referencia": mes_referencia,
         }
 
-    # 9. Registrar saída
+    # 9. Registrar dívida
+    if _texto_contem(texto_lower, PALAVRAS_DIVIDA) and valor:
+        return {
+            "intencao": "registrar_divida",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+            "credor_divida": credor_divida,
+        }
+
+    # 10. Registrar saída
     if _texto_contem(texto_lower, PALAVRAS_SAIDA) and valor:
         return {
             "intencao": "registrar_saida",
@@ -817,7 +860,7 @@ def detectar_intencao(texto: str) -> dict:
             "mes_referencia": mes_referencia,
         }
 
-    # 10. Se tem valor mas não identificou direção, assume saída
+    # 11. Se tem valor mas não identificou direção, assume saída
     #    (maioria das mensagens com valor é gasto)
     if valor and descricao:
         return {
@@ -829,7 +872,7 @@ def detectar_intencao(texto: str) -> dict:
             "mes_referencia": mes_referencia,
         }
 
-    # 11. Conversa geral — nenhuma regra bateu
+    # 12. Conversa geral — nenhuma regra bateu
     return {
         "intencao": "conversa_geral",
         "valor": valor,
