@@ -24,6 +24,10 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 logger = logging.getLogger("caco")
 
+# --- Ambiente ---
+APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+IS_PRODUCTION = APP_ENV in {"prod", "production"}
+
 # --- Provedor de IA ---
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
 
@@ -43,7 +47,7 @@ OPENROUTER_APP_NAME = os.getenv("OPENROUTER_APP_NAME", "CacoAI")
 # Obtenha em: https://developers.facebook.com → Seu App → WhatsApp → API Setup
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN", "")              # Token de acesso permanente
 WHATSAPP_PHONE_ID = os.getenv("WHATSAPP_PHONE_ID", "")        # ID do número de telefone
-WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "caco-verify-token-2026")  # Token de verificação do webhook
+WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "")  # Token de verificação do webhook
 WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")    # App Secret para validar assinatura
 
 # --- Telegram Bot API ---
@@ -60,6 +64,7 @@ DATABASE_PATH = os.getenv("DATABASE_PATH", "financeiro.db")
 WA_MAX_MSG_LENGTH = 4096          # Limite de caracteres por mensagem do WhatsApp
 WA_DEDUP_TTL_SECONDS = int(os.getenv("WA_DEDUP_TTL", "300"))  # TTL para deduplicação de msgs (5 min)
 WA_SEND_TYPING = os.getenv("WA_SEND_TYPING", "true").lower() == "true"  # Indicador "digitando..."
+BOT_RESPONSE_DELAY_SECONDS = float(os.getenv("BOT_RESPONSE_DELAY_SECONDS", "0"))
 
 # --- App ---
 APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
@@ -67,10 +72,16 @@ APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
 APP_PORT = int(os.getenv("PORT", os.getenv("APP_PORT", "8000")))
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
+# --- CORS ---
+_cors_raw = os.getenv("CORS_ALLOW_ORIGINS", "*")
+CORS_ALLOW_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+if not CORS_ALLOW_ORIGINS:
+    CORS_ALLOW_ORIGINS = ["*"] if not IS_PRODUCTION else []
+
 # --- API de teste (proteger em uso real) ---
 API_TEST_ENABLED = os.getenv("API_TEST_ENABLED", "false").lower() == "true"
 API_TEST_TOKEN = os.getenv("API_TEST_TOKEN", "")
 
 # --- Logs de teste de requisicoes do bot ---
-BOT_REQUEST_LOG_ENABLED = os.getenv("BOT_REQUEST_LOG_ENABLED", "true").lower() == "true"
+BOT_REQUEST_LOG_ENABLED = os.getenv("BOT_REQUEST_LOG_ENABLED", "false").lower() == "true"
 BOT_REQUEST_LOG_PATH = os.getenv("BOT_REQUEST_LOG_PATH", "logs/bot_requests.log")

@@ -68,6 +68,11 @@ from app.database import (
     sessao_valida,
     renovar_sessao,
     invalidar_sessao,
+    # Estado conversacional persistido
+    set_estado_conversa,
+    get_estado_conversa,
+    clear_estado_conversa,
+    clear_todos_estados_conversa,
 )
 from app.parser import detectar_intencao, CATEGORIAS_KEYWORDS
 from app.responder import (
@@ -86,7 +91,7 @@ from app.financeiro import (
     formatar_real,
     detectar_gasto_fora_do_padrao,
 )
-from app.config import BOT_REQUEST_LOG_ENABLED, BOT_REQUEST_LOG_PATH
+from app.config import BOT_REQUEST_LOG_ENABLED, BOT_REQUEST_LOG_PATH, BOT_RESPONSE_DELAY_SECONDS
 
 
 log = logging.getLogger("caco.chatbot")
@@ -146,39 +151,61 @@ def _registrar_requisicao_teste(telefone: str, mensagem: str, resposta: str, err
 
 _configurar_logger_requisicoes()
 
-# Delay padrão para todas as respostas (incluindo IA)
-_DELAY_LOCAL_SECONDS = 3.0
+# Delay opcional para respostas (útil apenas em simulação local)
+_DELAY_LOCAL_SECONDS = max(0.0, BOT_RESPONSE_DELAY_SECONDS)
 # Flag por contexto de execução para saber se houve uso de IA nesta mensagem
 _usou_ia_ctx: ContextVar[bool] = ContextVar("usou_ia_ctx", default=False)
 
 
-# Armazena temporariamente a senha digitada no passo 1 (antes da confirmação)
-# Chave: usuario_id, valor: senha em texto
-_senha_temporaria: dict[int, str] = {}
+class _EstadoMap:
+    """Map-like simples persistido em banco para estado conversacional por usuário."""
 
-# Armazena movimentações pendentes de desambiguação para deleção
-# Chave: usuario_id, valor: lista de dicts das movimentações candidatas
-_pendente_desambiguacao: dict[int, list[dict]] = {}
+    def __init__(self, chave: str):
+        self._chave = chave
 
-# Armazena movimentações pendentes de desambiguação para edição
-# Chave: usuario_id, valor: dict com lista de candidatas e novo valor
-_pendente_desambiguacao_editar: dict[int, dict] = {}
+    def __contains__(self, usuario_id: int) -> bool:
+        return get_estado_conversa(usuario_id, self._chave) is not None
 
-# Armazena confirmação pendente de apagar movimentação específica
-# Chave: usuario_id, valor: dict com movimentacao alvo
-_pendente_confirmacao_apagar: dict[int, dict] = {}
+    def __setitem__(self, usuario_id: int, valor) -> None:
+        set_estado_conversa(usuario_id, self._chave, valor)
 
-# Armazena confirmação pendente de edição de valor
-# Chave: usuario_id, valor: dict com movimentacao alvo e novo valor
-_pendente_confirmacao_editar: dict[int, dict] = {}
+    def get(self, usuario_id: int, default=None):
+        valor = get_estado_conversa(usuario_id, self._chave)
+        return default if valor is None else valor
 
-# Armazena confirmação pendente de limpeza de movimentações
-# Chave: usuario_id, valor: tupla (tipo_limpar, mes_ref) onde tipo é 'entrada', 'saida' ou None
-_pendente_confirmacao_limpar: dict[int, tuple[str | None, str | None]] = {}
+    def pop(self, usuario_id: int, default=None):
+        valor = get_estado_conversa(usuario_id, self._chave)
+        clear_estado_conversa(usuario_id, self._chave)
+        return default if valor is None else valor
 
-# Armazena registro pendente quando faltou apenas o valor.
-# Chave: usuario_id, valor: dict com intencao, descricao e metadados.
-_pendente_valor_registro: dict[int, dict] = {}
+
+class _EstadoSet:
+    """Set-like persistido em banco para flags booleanas por usuário."""
+
+    def __init__(self, chave: str):
+        self._chave = chave
+
+    def __contains__(self, usuario_id: int) -> bool:
+        return get_estado_conversa(usuario_id, self._chave) is not None
+
+    def add(self, usuario_id: int) -> None:
+        set_estado_conversa(usuario_id, self._chave, True)
+
+    def discard(self, usuario_id: int) -> None:
+        clear_estado_conversa(usuario_id, self._chave)
+
+
+# Estados pendentes persistidos (sobrevivem reinício e múltiplos workers).
+_senha_temporaria = _EstadoMap("senha_temporaria")
+_pendente_desambiguacao = _EstadoMap("pendente_desambiguacao")
+_pendente_desambiguacao_editar = _EstadoMap("pendente_desambiguacao_editar")
+_pendente_confirmacao_apagar = _EstadoMap("pendente_confirmacao_apagar")
+_pendente_confirmacao_editar = _EstadoMap("pendente_confirmacao_editar")
+_pendente_confirmacao_limpar = _EstadoMap("pendente_confirmacao_limpar")
+_pendente_valor_registro = _EstadoMap("pendente_valor_registro")
+_pendente_confirmacao_intencao = _EstadoMap("pendente_confirmacao_intencao")
+_pendente_descricao_registro = _EstadoMap("pendente_descricao_registro")
+_aguardando_senha_login = _EstadoSet("aguardando_senha_login")
 
 # Nomes de meses para respostas amigáveis
 _NOMES_MES = {
@@ -546,6 +573,150 @@ def _deve_forcar_extracao_ia(mensagem: str, parsed: dict) -> bool:
     return sinais_complexidade >= 2
 
 
+def _rotulo_intencao(intencao: str) -> str:
+    rotulos = {
+        "registrar_entrada": "registrar entrada",
+        "registrar_saida": "registrar gasto",
+        "registrar_divida": "registrar dívida",
+        "consultar_resumo": "mostrar resumo",
+        "consultar_saldo": "mostrar saldo",
+        "listar_movimentacoes": "listar movimentações",
+        "apagar_movimentacao": "apagar lançamento",
+        "editar_movimentacao": "editar lançamento",
+        "limpar_movimentacoes": "limpar lançamentos",
+        "posso_gastar": "avaliar compra",
+    }
+    return rotulos.get(intencao, intencao.replace("_", " "))
+
+
+def _calcular_confianca_intencao(mensagem: str, parsed: dict) -> dict:
+    """Gera top-2 intenções candidatas para reduzir execução errada em ambiguidades."""
+    texto = (mensagem or "").strip().lower()
+    scores: dict[str, float] = {
+        "registrar_entrada": 0.0,
+        "registrar_saida": 0.0,
+        "registrar_divida": 0.0,
+        "consultar_resumo": 0.0,
+        "consultar_saldo": 0.0,
+        "listar_movimentacoes": 0.0,
+        "apagar_movimentacao": 0.0,
+        "editar_movimentacao": 0.0,
+        "limpar_movimentacoes": 0.0,
+        "posso_gastar": 0.0,
+        "conversa_geral": 0.0,
+    }
+
+    if _RE_ENTRADA_ACAO.search(texto):
+        scores["registrar_entrada"] += 0.5
+    if _RE_SAIDA_ACAO.search(texto):
+        scores["registrar_saida"] += 0.5
+    if _RE_DIVIDA_ACAO.search(texto):
+        scores["registrar_divida"] += 0.55
+
+    if _RE_COMANDO_RESUMO.search(texto):
+        scores["consultar_resumo"] += 0.6
+    if _RE_COMANDO_SALDO.search(texto):
+        scores["consultar_saldo"] += 0.6
+    if _RE_COMANDO_LISTAR.search(texto):
+        scores["listar_movimentacoes"] += 0.45
+    if _RE_COMANDO_APAGAR.search(texto):
+        scores["apagar_movimentacao"] += 0.6
+    if _RE_COMANDO_EDITAR.search(texto):
+        scores["editar_movimentacao"] += 0.6
+    if _RE_COMANDO_LIMPAR.search(texto):
+        scores["limpar_movimentacoes"] += 0.6
+
+    if "posso gastar" in texto or "vale a pena" in texto or "da pra gastar" in texto or "dá pra gastar" in texto:
+        scores["posso_gastar"] += 0.6
+
+    if _RE_VALOR_MENSAGEM.search(texto):
+        for k in ("registrar_entrada", "registrar_saida", "registrar_divida", "posso_gastar"):
+            scores[k] += 0.08
+
+    intencao_parser = parsed.get("intencao", "conversa_geral")
+    if intencao_parser in scores:
+        scores[intencao_parser] += 0.42
+    else:
+        scores["conversa_geral"] += 0.35
+
+    ranking = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    top = ranking[0]
+    segundo = ranking[1]
+
+    return {
+        "top_intencao": top[0],
+        "top_score": min(1.0, top[1]),
+        "segunda_intencao": segundo[0],
+        "segunda_score": min(1.0, segundo[1]),
+    }
+
+
+def _deve_confirmar_intencao(parsed: dict, confianca: dict) -> bool:
+    """Confirma com o usuário quando a classificação é ambígua em ações sensíveis."""
+    intencao = parsed.get("intencao", "")
+    sensiveis = {
+        "registrar_entrada",
+        "registrar_saida",
+        "registrar_divida",
+        "apagar_movimentacao",
+        "editar_movimentacao",
+        "limpar_movimentacoes",
+        "posso_gastar",
+    }
+    if intencao not in sensiveis:
+        return False
+
+    top_score = float(confianca.get("top_score", 0.0) or 0.0)
+    segunda = confianca.get("segunda_intencao")
+    segunda_score = float(confianca.get("segunda_score", 0.0) or 0.0)
+    margem = top_score - segunda_score
+
+    if top_score < 0.58:
+        return True
+    if segunda in sensiveis and margem < 0.14:
+        return True
+    return False
+
+
+def _montar_pergunta_confirmacao_intencao(op1: str, op2: str) -> str:
+    return (
+        "Quero confirmar rapidinho pra não executar errado. 👀\n"
+        "O que você quis dizer?\n\n"
+        f"*1.* {_rotulo_intencao(op1)}\n"
+        f"*2.* {_rotulo_intencao(op2)}\n\n"
+        "Responde com *1* ou *2* (ou *cancelar*)."
+    )
+
+
+def _resolver_confirmacao_intencao(usuario_id: int, mensagem: str) -> tuple[dict | None, str | None]:
+    """Processa escolha da desambiguação de intenção pendente."""
+    pend = _pendente_confirmacao_intencao.get(usuario_id)
+    if not pend:
+        return None, None
+
+    texto = (mensagem or "").strip().lower()
+    if texto in ("cancelar", "cancela", "nao", "não", "n"):
+        _pendente_confirmacao_intencao.pop(usuario_id, None)
+        return None, "Beleza, cancelei essa ação."
+
+    op1 = pend.get("op1")
+    op2 = pend.get("op2")
+    parsed_base = pend.get("parsed") or {}
+
+    escolha = None
+    if texto in ("1", "opcao 1", "opção 1"):
+        escolha = op1
+    elif texto in ("2", "opcao 2", "opção 2"):
+        escolha = op2
+
+    if not escolha:
+        return None, "Responde com *1* ou *2* (ou *cancelar*)."
+
+    _pendente_confirmacao_intencao.pop(usuario_id, None)
+    parsed_base["intencao"] = escolha
+    return parsed_base, None
+
+
 def _aplicar_extracao_ia_financeira(mensagem: str, parsed: dict) -> dict:
     """Tenta enriquecer/ajustar a interpretação financeira usando extração estruturada da IA."""
     try:
@@ -717,7 +888,8 @@ def processar_mensagem(telefone: str, mensagem: str) -> str:
 
     resposta = _garantir_hint_ajuda(resposta)
     _registrar_requisicao_teste(telefone=telefone, mensagem=mensagem, resposta=resposta, erro=erro_msg)
-    time.sleep(_DELAY_LOCAL_SECONDS)
+    if _DELAY_LOCAL_SECONDS > 0:
+        time.sleep(_DELAY_LOCAL_SECONDS)
     return resposta
 
 
@@ -836,10 +1008,6 @@ def _fluxo_cadastro(usuario_id: int, mensagem: str) -> str:
 # Fluxo de login (sessão expirada)
 # ---------------------------------------------------------------------------
 
-# Controla quem está no fluxo de login
-_aguardando_senha_login: set[int] = set()
-
-
 def _fluxo_login(usuario_id: int, mensagem: str) -> str:
     """Pede a senha quando a sessão expirou."""
     texto = mensagem.strip()
@@ -874,18 +1042,40 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     msg_lower = mensagem.strip().lower()
     if msg_lower in ("sair", "logout", "bloquear", "trancar", "encerrar sessão",
                      "encerrar sessao", "travar"):
-        _pendente_desambiguacao.pop(usuario_id, None)
-        _pendente_desambiguacao_editar.pop(usuario_id, None)
-        _pendente_confirmacao_apagar.pop(usuario_id, None)
-        _pendente_confirmacao_editar.pop(usuario_id, None)
-        _pendente_confirmacao_limpar.pop(usuario_id, None)
-        _pendente_valor_registro.pop(usuario_id, None)
+        clear_todos_estados_conversa(usuario_id)
         invalidar_sessao(usuario_id)
         nome = get_nome_usuario(usuario_id) or "amigo"
         return (
             f"🔒 Sessão encerrada, *{nome}*!\n"
             "Seus dados estão protegidos. Até a próxima! 👋"
         )
+
+    # --- Verifica se há confirmação pendente de intenção ambígua ---
+    if usuario_id in _pendente_confirmacao_intencao:
+        parsed_confirmado, resposta_confirmacao = _resolver_confirmacao_intencao(usuario_id, mensagem)
+        if resposta_confirmacao:
+            return resposta_confirmacao
+        if parsed_confirmado:
+            parsed = parsed_confirmado
+            intencao = parsed["intencao"]
+            valor = parsed["valor"]
+            descricao = parsed["descricao"]
+            data_ref = parsed["data"] or date.today().isoformat()
+            mes_ref = parsed.get("mes_referencia")
+        else:
+            parsed = None
+            intencao = ""
+            valor = None
+            descricao = ""
+            data_ref = date.today().isoformat()
+            mes_ref = None
+    else:
+        parsed = None
+        intencao = ""
+        valor = None
+        descricao = ""
+        data_ref = date.today().isoformat()
+        mes_ref = None
 
     # --- Verifica se há desambiguação pendente (escolha de qual movimentação apagar) ---
     if usuario_id in _pendente_desambiguacao:
@@ -911,6 +1101,10 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     if usuario_id in _pendente_valor_registro:
         return _processar_pendente_valor_registro(usuario_id, mensagem)
 
+    # --- Verifica se faltou descrição de um lançamento ---
+    if usuario_id in _pendente_descricao_registro:
+        return _processar_pendente_descricao_registro(usuario_id, mensagem)
+
     # Evita executar mensagens com múltiplos comandos na mesma frase.
     if _detectar_multiplos_comandos(mensagem):
         return (
@@ -922,12 +1116,13 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         )
 
     # 2. Parser interpreta a mensagem (100% código, sem LLM)
-    parsed = detectar_intencao(mensagem)
-    intencao = parsed["intencao"]
-    valor = parsed["valor"]
-    descricao = parsed["descricao"]
-    data_ref = parsed["data"] or date.today().isoformat()
-    mes_ref = parsed.get("mes_referencia")  # YYYY-MM ou None (mês atual)
+    if parsed is None:
+        parsed = detectar_intencao(mensagem)
+        intencao = parsed["intencao"]
+        valor = parsed["valor"]
+        descricao = parsed["descricao"]
+        data_ref = parsed["data"] or date.today().isoformat()
+        mes_ref = parsed.get("mes_referencia")  # YYYY-MM ou None (mês atual)
 
     # Mensagens financeiras ambíguas/complexas passam por IA para
     # extrair tipo, valor, descrição, categoria e credor quando aplicável.
@@ -937,6 +1132,18 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         valor = parsed["valor"]
         descricao = parsed["descricao"]
         data_ref = parsed["data"] or date.today().isoformat()
+
+    confianca = _calcular_confianca_intencao(mensagem, parsed)
+    if _deve_confirmar_intencao(parsed, confianca):
+        op1 = confianca["top_intencao"]
+        op2 = confianca["segunda_intencao"]
+        if op1 != op2:
+            _pendente_confirmacao_intencao[usuario_id] = {
+                "op1": op1,
+                "op2": op2,
+                "parsed": parsed,
+            }
+            return _montar_pergunta_confirmacao_intencao(op1, op2)
 
     # 3. Categorização: só resolve quando realmente precisa (registro)
     #    NÃO chama LLM pra resumo, saldo, saudação, etc.
@@ -1002,18 +1209,36 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         )
 
     if intencao == "registrar_entrada" and valor and _descricao_insuficiente_para_registro(descricao):
+        _pendente_descricao_registro[usuario_id] = {
+            "intencao": "registrar_entrada",
+            "valor": float(valor),
+            "data_ref": data_ref,
+            "categoria_regra": categoria_regra,
+        }
         return (
             "Entendi o valor da *entrada* 💚, mas faltou dizer *de onde veio* esse dinheiro.\n"
             "Exemplos: \"ganhei 300 de salário\", \"recebi 150 de pix do João\""
         )
 
     if intencao == "registrar_saida" and valor and _descricao_insuficiente_para_registro(descricao):
+        _pendente_descricao_registro[usuario_id] = {
+            "intencao": "registrar_saida",
+            "valor": float(valor),
+            "data_ref": data_ref,
+            "categoria_regra": categoria_regra,
+        }
         return (
             "Entendi o valor do *gasto* 💸, mas faltou dizer *com o que foi*.\n"
             "Exemplos: \"gastei 200 com ifood\", \"paguei 80 de gasolina\""
         )
 
     if intencao == "registrar_divida" and valor and _descricao_insuficiente_para_registro(descricao):
+        _pendente_descricao_registro[usuario_id] = {
+            "intencao": "registrar_divida",
+            "valor": float(valor),
+            "data_ref": data_ref,
+            "credor_divida": (parsed.get("credor_divida") or "").strip(),
+        }
         return (
             "Entendi o valor da *dívida* 🧾, mas faltou dizer *de quê* ou *com quem*.\n"
             "Exemplos: \"fiquei devendo 300 no cartão\", \"devo 200 pro João\""
@@ -1634,6 +1859,76 @@ def _processar_pendente_valor_registro(usuario_id: int, mensagem: str) -> str:
         )
 
     # fallback: registrar_saida
+    categoria = _resolver_categoria(categoria_regra, descricao)
+    registrar_movimentacao(
+        usuario_id=usuario_id,
+        tipo="saida",
+        valor=valor,
+        categoria=categoria,
+        descricao=descricao,
+        data_ref=data_ref,
+    )
+    alerta = detectar_gasto_fora_do_padrao(usuario_id, categoria, valor)
+    return _montar_resposta_registro("saida", valor, descricao, categoria, usuario_id, alerta, data_ref=data_ref)
+
+
+def _processar_pendente_descricao_registro(usuario_id: int, mensagem: str) -> str:
+    """Completa um registro pendente quando faltou descrição/contexto."""
+    pendente = _pendente_descricao_registro.get(usuario_id)
+    if not pendente:
+        return "Ops, perdi o contexto. Me manda o lançamento de novo."
+
+    texto = (mensagem or "").strip()
+    if texto.lower() in ("cancelar", "cancela", "nao", "não", "deixa", "esquece"):
+        _pendente_descricao_registro.pop(usuario_id, None)
+        return "Beleza, cancelei esse lançamento."
+
+    descricao = texto
+    if _descricao_insuficiente_para_registro(descricao):
+        return (
+            "Ainda faltou uma descrição mais específica.\n"
+            "Exemplos: `mercado`, `almoço`, `salário`, `pix do João` (ou `cancelar`)."
+        )
+
+    intencao = pendente.get("intencao")
+    valor = float(pendente.get("valor", 0.0) or 0.0)
+    if valor <= 0:
+        _pendente_descricao_registro.pop(usuario_id, None)
+        return "Perdi o valor desse lançamento. Me manda tudo novamente em uma frase."
+
+    data_ref = pendente.get("data_ref") or date.today().isoformat()
+    categoria_regra = pendente.get("categoria_regra")
+    credor = (pendente.get("credor_divida") or "").strip()
+    _pendente_descricao_registro.pop(usuario_id, None)
+
+    if intencao == "registrar_entrada":
+        categoria = _resolver_categoria(categoria_regra, descricao)
+        registrar_movimentacao(
+            usuario_id=usuario_id,
+            tipo="entrada",
+            valor=valor,
+            categoria=categoria,
+            descricao=descricao,
+            data_ref=data_ref,
+        )
+        return _montar_resposta_registro("entrada", valor, descricao, categoria, usuario_id, data_ref=data_ref)
+
+    if intencao == "registrar_divida":
+        registrar_divida(
+            usuario_id=usuario_id,
+            valor=valor,
+            credor=credor,
+            descricao=descricao,
+            data_ref=data_ref,
+        )
+        return _montar_resposta_registro_divida(
+            valor=valor,
+            descricao=descricao,
+            credor=credor,
+            usuario_id=usuario_id,
+            data_ref=data_ref,
+        )
+
     categoria = _resolver_categoria(categoria_regra, descricao)
     registrar_movimentacao(
         usuario_id=usuario_id,

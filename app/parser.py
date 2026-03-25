@@ -65,6 +65,15 @@ _RE_TODOS_GANHOS = re.compile(
 _RE_TODOS_MOVS = re.compile(
     r'\btod[oa]s?\b.*?\b(?:movimentações|movimentacoes|movimentação|movimentacao)\b', re.IGNORECASE)
 
+_RE_LIMPAR_GASTOS_DIRETO = re.compile(
+    r'\b(?:limpar|limpa|apagar|apaga|deletar|deleta|remover|remove|excluir|exclui|zerar|zera)\b.*\b(?:todos?|todas?|meus|minhas|os|as)?\s*(?:gastos|despesas|sa[ií]das|saidas)\b',
+    re.IGNORECASE,
+)
+_RE_LIMPAR_GANHOS_DIRETO = re.compile(
+    r'\b(?:limpar|limpa|apagar|apaga|deletar|deleta|remover|remove|excluir|exclui|zerar|zera)\b.*\b(?:todos?|todas?|meus|minhas|os|as)?\s*(?:ganhos|entradas|receitas)\b',
+    re.IGNORECASE,
+)
+
 # Padrões de pergunta no final da mensagem (indica dúvida, não ação)
 _PERGUNTA_POSSO = re.compile(
     r'(?:eu\s+)?(?:posso|consigo|dá|da|rola|tá tranquilo|ta tranquilo)\s*\??\s*$',
@@ -72,14 +81,20 @@ _PERGUNTA_POSSO = re.compile(
 )
 
 _RE_PEDIDO_LISTAGEM_EXPLICITA = re.compile(
-    r'\b(?:listar|lista|mostra|mostrar|ver|veja|quero ver|citar|cite|me cita|me mostre)\b',
+    r'\b(?:listar|lista|liste|citar|cite|cita|me cita|quero listar|quero ver a lista)\b',
+    re.IGNORECASE,
+)
+
+_RE_VER_MOSTRAR = re.compile(r'\b(?:mostrar|mostra|mostre|ver|veja|quero ver)\b', re.IGNORECASE)
+_RE_CONTEXTO_LISTAGEM = re.compile(
+    r'\b(?:movimenta(?:ç(?:ã|a)o|cao|ções|coes)|extrato|hist[oó]rico|gastos?|entradas?|sa[ií]das?|d[ií]vidas?)\b',
     re.IGNORECASE,
 )
 
 _RE_COMANDO_EDITAR_VALOR = re.compile(
     r'\b(?:editar|edita|edite|alterar|altera|altere|atualizar|atualiza|atualize|'
     r'corrigir|corrige|corrija|mudar|muda|mude|trocar|troca|troque|'
-    r'ajustar|ajusta|ajuste)\b.*\bvalor\b',
+    r'ajustar|ajusta|ajuste)\b.*(?:\bvalor\b|(?:para|pra|por)\s+(?:R\$\s*)?\d+(?:[.,]\d{1,2})?|#?\d+\s+(?:para|pra|por)\s+(?:R\$\s*)?\d+(?:[.,]\d{1,2})?)',
     re.IGNORECASE,
 )
 
@@ -88,7 +103,7 @@ _RE_PLANEJAMENTO_COMPRA_DUVIDA = re.compile(
     re.IGNORECASE,
 )
 _RE_ACAO_FUTURA_COMPRA = re.compile(
-    r'\b(?:vou\s+comprar|quero\s+comprar|pretendo\s+comprar|compraria|comprar|parcelar|parcela)\b',
+    r'\b(?:vou\s+comprar|quero\s+comprar|pretendo\s+comprar|compraria|comprar|parcelar|parcela|gastar|vou\s+gastar|quero\s+gastar)\b',
     re.IGNORECASE,
 )
 
@@ -488,7 +503,8 @@ def extrair_categoria_mencionada(texto: str) -> Optional[str]:
 
     # 3. Verifica variações / sinônimos normalizados
     for palavra, categoria in _NORMALIZACOES_CATEGORIA.items():
-        if palavra in texto_lower:
+        pattern = r'(?<!\w)' + re.escape(palavra) + r'(?!\w)'
+        if re.search(pattern, texto_lower):
             return categoria
 
     return None
@@ -711,6 +727,26 @@ def _texto_contem(texto: str, palavras: list[str]) -> bool:
     return False
 
 
+def _normalizar_texto_intencao(texto: str) -> str:
+    """Normaliza ruído comum de conversa (vogal repetida e abreviações)."""
+    t = (texto or "").lower().strip()
+    t = re.sub(r'([aeiouáéíóúãõ])\1+', r'\1', t)  # resumoo -> resumo, recebiii -> recebi
+
+    substituicoes = {
+        r'\bqnt\b': 'quanto',
+        r'\bpq\b': 'porque',
+        r'\bpf\b': 'por favor',
+        r'\bhj\b': 'hoje',
+        r'\bfds\b': 'fim de semana',
+        r'\bvc\b': 'voce',
+        r'\bp\b': 'pra',
+    }
+    for pattern, repl in substituicoes.items():
+        t = re.sub(pattern, repl, t)
+
+    return t
+
+
 def detectar_intencao(texto: str) -> dict:
     """
     Detecta a intenção do usuário usando regras.
@@ -723,7 +759,7 @@ def detectar_intencao(texto: str) -> dict:
       - categoria_regra: str | None (se conseguiu categorizar por regras)
       - mes_referencia: str | None (YYYY-MM, mês mencionado na msg)
     """
-    texto_lower = texto.lower().strip()
+    texto_lower = _normalizar_texto_intencao(texto)
 
     valor = extrair_valor(texto)
     descricao = extrair_descricao(texto)
@@ -732,13 +768,14 @@ def detectar_intencao(texto: str) -> dict:
     credor_divida = extrair_credor_divida(texto)
     categoria_regra, keyword_encontrada = categorizar_por_regras(texto_lower)
     tipo_contexto = _detectar_tipo_contexto(texto_lower)
+    categoria_mencionada = extrair_categoria_mencionada(texto_lower)
 
     # Se achou a keyword da categoria, usa ela como descrição limpa
     if keyword_encontrada:
         descricao = keyword_encontrada.capitalize()
 
     # 0a. Limpar movimentações (prioridade máxima — é destrutivo)
-    if _texto_contem(texto_lower, PALAVRAS_LIMPAR_GASTOS):
+    if _texto_contem(texto_lower, PALAVRAS_LIMPAR_GASTOS) or bool(_RE_LIMPAR_GASTOS_DIRETO.search(texto_lower)):
         return {
             "intencao": "limpar_movimentacoes",
             "valor": valor,
@@ -748,7 +785,7 @@ def detectar_intencao(texto: str) -> dict:
             "mes_referencia": mes_referencia,
             "tipo_limpar": "saida",
         }
-    if _texto_contem(texto_lower, PALAVRAS_LIMPAR_GANHOS):
+    if _texto_contem(texto_lower, PALAVRAS_LIMPAR_GANHOS) or bool(_RE_LIMPAR_GANHOS_DIRETO.search(texto_lower)):
         return {
             "intencao": "limpar_movimentacoes",
             "valor": valor,
@@ -804,7 +841,8 @@ def detectar_intencao(texto: str) -> dict:
             }
 
     # 0b. Quanto ganhei / quanto gastei (consulta de totais)
-    if _texto_contem(texto_lower, PALAVRAS_QUANTO_GANHEI):
+    # Se houver categoria explícita, trata como consultar_categoria adiante.
+    if _texto_contem(texto_lower, PALAVRAS_QUANTO_GANHEI) and not categoria_mencionada:
         return {
             "intencao": "consultar_total",
             "valor": valor,
@@ -814,7 +852,7 @@ def detectar_intencao(texto: str) -> dict:
             "mes_referencia": mes_referencia,
             "tipo_total": "entrada",
         }
-    if _texto_contem(texto_lower, PALAVRAS_QUANTO_GASTEI):
+    if _texto_contem(texto_lower, PALAVRAS_QUANTO_GASTEI) and not categoria_mencionada:
         return {
             "intencao": "consultar_total",
             "valor": valor,
@@ -890,7 +928,27 @@ def detectar_intencao(texto: str) -> dict:
             "mes_referencia": mes_referencia,
         }
 
-    # 2. Apagar movimentação
+    # 2. Editar valor de movimentação (prioridade sobre apagar para evitar
+    # frases como "corrigir ... para 32,50" cairem em remoção)
+    eh_comando_editar = _texto_contem(texto_lower, PALAVRAS_EDITAR)
+    if not eh_comando_editar and _RE_COMANDO_EDITAR_VALOR.search(texto_lower):
+        eh_comando_editar = True
+
+    if eh_comando_editar:
+        id_mov = extrair_id_movimentacao(texto)
+        novo_valor = extrair_novo_valor_edicao(texto, id_mov)
+        return {
+            "intencao": "editar_movimentacao",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+            "id_movimentacao": id_mov,
+            "novo_valor": novo_valor,
+        }
+
+    # 3. Apagar movimentação
     if _texto_contem(texto_lower, PALAVRAS_APAGAR):
         # Detecta se é específico (entrada/saída) ou genérico
         tipo_apagar = None
@@ -913,27 +971,74 @@ def detectar_intencao(texto: str) -> dict:
             "id_movimentacao": id_mov,
         }
 
-    # 2b. Editar valor de movimentação
-    eh_comando_editar = _texto_contem(texto_lower, PALAVRAS_EDITAR)
-    if not eh_comando_editar and _RE_COMANDO_EDITAR_VALOR.search(texto_lower):
-        eh_comando_editar = True
-
-    if eh_comando_editar:
-        id_mov = extrair_id_movimentacao(texto)
-        novo_valor = extrair_novo_valor_edicao(texto, id_mov)
+    # 4. Listar categorias de entradas/saídas
+    # Só lista categorias quando não há categoria específica mencionada.
+    if (
+        _RE_VER_CATEGORIAS.search(texto_lower)
+        and (_RE_ACAO_VER.search(texto_lower) or _texto_contem(texto_lower, PALAVRAS_LISTAR))
+        and not categoria_mencionada
+    ):
         return {
-            "intencao": "editar_movimentacao",
+            "intencao": "listar_categorias",
             "valor": valor,
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
             "mes_referencia": mes_referencia,
-            "id_movimentacao": id_mov,
-            "novo_valor": novo_valor,
+            "tipo_categoria": tipo_contexto,
         }
 
-    # 3. Listar movimentações recentes (inclui frases como "citar minhas entradas")
-    pedido_listagem = _texto_contem(texto_lower, PALAVRAS_LISTAR) or bool(_RE_PEDIDO_LISTAGEM_EXPLICITA.search(texto_lower))
+    # 5. Consultar categoria específica
+    if _texto_contem(texto_lower, PALAVRAS_CONSULTAR_CAT) and categoria_mencionada:
+        return {
+            "intencao": "consultar_categoria",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+            "categoria_consulta": categoria_mencionada,
+            "tipo_consulta": tipo_contexto,
+        }
+    if categoria_mencionada and not valor:
+        _PALAVRAS_CONTEXTO_CONSULTA = [
+            "sobre", "detalh", "fala", "diz", "conta", "explica",
+            "quero saber", "quero ver", "como ta", "como está", "como anda",
+        ]
+        if any(p in texto_lower for p in _PALAVRAS_CONTEXTO_CONSULTA):
+            return {
+                "intencao": "consultar_categoria",
+                "valor": valor,
+                "descricao": descricao,
+                "data": data_ref,
+                "categoria_regra": categoria_regra,
+                "mes_referencia": mes_referencia,
+                "categoria_consulta": categoria_mencionada,
+                "tipo_consulta": tipo_contexto,
+            }
+
+    # 6. Consulta de resumo
+    # "mostrar/ver" com contexto de listagem deve ir para listar_movimentacoes,
+    # exceto quando houver termo claro de resumo/extrato/historico.
+    pedido_ver_lista = bool(_RE_VER_MOSTRAR.search(texto_lower)) and bool(_RE_CONTEXTO_LISTAGEM.search(texto_lower))
+    if _texto_contem(texto_lower, PALAVRAS_RESUMO) and not (
+        pedido_ver_lista and not re.search(r'\b(resumo|extrato|hist[oó]rico)\b', texto_lower)
+    ):
+        return {
+            "intencao": "consultar_resumo",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+        }
+
+    # 7. Listar movimentações recentes (inclui frases como "citar minhas entradas")
+    pedido_listagem = (
+        _texto_contem(texto_lower, PALAVRAS_LISTAR)
+        or bool(_RE_PEDIDO_LISTAGEM_EXPLICITA.search(texto_lower))
+        or (bool(_RE_VER_MOSTRAR.search(texto_lower)) and bool(_RE_CONTEXTO_LISTAGEM.search(texto_lower)))
+    )
     tipo_listar = None
     if _RE_TIPO_LISTAR_DIVIDA.search(texto_lower):
         tipo_listar = "divida"
@@ -955,56 +1060,7 @@ def detectar_intencao(texto: str) -> dict:
             "tipo_listar": tipo_listar,
         }
 
-    # 3b. Listar categorias de entradas/saídas
-    if _RE_VER_CATEGORIAS.search(texto_lower) and _RE_ACAO_VER.search(texto_lower):
-        return {
-            "intencao": "listar_categorias",
-            "valor": valor,
-            "descricao": descricao,
-            "data": data_ref,
-            "categoria_regra": categoria_regra,
-            "mes_referencia": mes_referencia,
-            "tipo_categoria": tipo_contexto,
-        }
-
-    # 4. Consultar categoria específica
-    #    Detecta de duas formas:
-    #    a) Keyword de consulta + categoria mencionada ("quanto gastei em transporte")
-    #    b) Categoria mencionada + contexto de consulta ("me diz mais sobre outros")
-    categoria_mencionada = extrair_categoria_mencionada(texto)
-    if _texto_contem(texto_lower, PALAVRAS_CONSULTAR_CAT) and categoria_mencionada:
-        return {
-            "intencao": "consultar_categoria",
-            "valor": valor,
-            "descricao": descricao,
-            "data": data_ref,
-            "categoria_regra": categoria_regra,
-            "mes_referencia": mes_referencia,
-            "categoria_consulta": categoria_mencionada,
-            "tipo_consulta": tipo_contexto,
-        }
-    # Se mencionou uma categoria válida sem valor e sem outra intenção clara,
-    # assume que quer consultar (ex: "me fala sobre transporte")
-    if categoria_mencionada and not valor:
-        # Verifica se tem alguma palavra de "quero saber mais" / contexto conversacional
-        _PALAVRAS_CONTEXTO_CONSULTA = [
-            "sobre", "detalh", "fala", "diz", "conta", "explica",
-            "quero saber", "quero ver", "como tá", "como ta",
-            "como está", "como anda",
-        ]
-        if any(p in texto_lower for p in _PALAVRAS_CONTEXTO_CONSULTA):
-            return {
-                "intencao": "consultar_categoria",
-                "valor": valor,
-                "descricao": descricao,
-                "data": data_ref,
-                "categoria_regra": categoria_regra,
-                "mes_referencia": mes_referencia,
-                "categoria_consulta": categoria_mencionada,
-                "tipo_consulta": tipo_contexto,
-            }
-
-    # 5. Consulta de resumo
+    # 8. Pedido de dica
     if _texto_contem(texto_lower, PALAVRAS_DICA):
         return {
             "intencao": "pedir_dica",
@@ -1015,40 +1071,7 @@ def detectar_intencao(texto: str) -> dict:
             "mes_referencia": mes_referencia,
         }
 
-    # 6. Consulta de resumo
-    if _texto_contem(texto_lower, PALAVRAS_RESUMO):
-        return {
-            "intencao": "consultar_resumo",
-            "valor": valor,
-            "descricao": descricao,
-            "data": data_ref,
-            "categoria_regra": categoria_regra,
-            "mes_referencia": mes_referencia,
-        }
-
-    # 7. Consulta de saldo
-    if _texto_contem(texto_lower, PALAVRAS_SALDO):
-        return {
-            "intencao": "consultar_saldo",
-            "valor": valor,
-            "descricao": descricao,
-            "data": data_ref,
-            "categoria_regra": categoria_regra,
-            "mes_referencia": mes_referencia,
-        }
-
-    # 8. Registrar entrada
-    if _texto_contem(texto_lower, PALAVRAS_ENTRADA) and valor:
-        return {
-            "intencao": "registrar_entrada",
-            "valor": valor,
-            "descricao": descricao,
-            "data": data_ref,
-            "categoria_regra": categoria_regra,
-            "mes_referencia": mes_referencia,
-        }
-
-    # 9. Registrar dívida
+    # 9. Registrar dívida antes do saldo para evitar "to devendo 35..."
     if _texto_contem(texto_lower, PALAVRAS_DIVIDA) and valor:
         return {
             "intencao": "registrar_divida",
@@ -1060,7 +1083,29 @@ def detectar_intencao(texto: str) -> dict:
             "credor_divida": credor_divida,
         }
 
-    # 10. Registrar saída
+    # 10. Consulta de saldo
+    if _texto_contem(texto_lower, PALAVRAS_SALDO):
+        return {
+            "intencao": "consultar_saldo",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+        }
+
+    # 11. Ações explícitas de entrada (ex.: "entrou 890 na conta")
+    if _RE_ACAO_REGISTRO_ENTRADA.search(texto_lower) and valor:
+        return {
+            "intencao": "registrar_entrada",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+        }
+
+    # 12. Registrar saída antes de entrada para reduzir ambiguidade com "pix de"
     if _texto_contem(texto_lower, PALAVRAS_SAIDA) and valor:
         return {
             "intencao": "registrar_saida",
@@ -1071,7 +1116,18 @@ def detectar_intencao(texto: str) -> dict:
             "mes_referencia": mes_referencia,
         }
 
-    # 10b. Registro explícito sem valor informado
+    # 13. Registrar entrada
+    if _texto_contem(texto_lower, PALAVRAS_ENTRADA) and valor:
+        return {
+            "intencao": "registrar_entrada",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+        }
+
+    # 14. Registro explícito sem valor informado
     # Ex.: "comprei o tenis", "recebi de pix", "fiquei devendo no cartao"
     if _RE_ACAO_REGISTRO_ENTRADA.search(texto_lower):
         return {

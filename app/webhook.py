@@ -15,11 +15,12 @@ import hmac
 import json
 import logging
 import time
+import asyncio
 from collections import OrderedDict
 
 from fastapi import APIRouter, BackgroundTasks, Request, Response, Query
 
-from app.config import WHATSAPP_VERIFY_TOKEN, WHATSAPP_APP_SECRET, DEBUG, WA_DEDUP_TTL_SECONDS
+from app.config import WHATSAPP_VERIFY_TOKEN, WHATSAPP_APP_SECRET, DEBUG, IS_PRODUCTION, WA_DEDUP_TTL_SECONDS
 from app.chatbot import processar_mensagem
 from app.whatsapp_api import enviar_mensagem, marcar_como_lida, enviar_indicador_digitando
 
@@ -77,12 +78,12 @@ _dedup = _MessageDedup()
 
 def _validar_assinatura(request: Request, body: bytes) -> bool:
     """Valida que a requisição veio da Meta usando X-Hub-Signature-256."""
-    if DEBUG:
+    if DEBUG and not IS_PRODUCTION:
         return True
 
     if not WHATSAPP_APP_SECRET:
-        log.warning("WHATSAPP_APP_SECRET não configurado — pulando validação")
-        return True
+        log.error("WHATSAPP_APP_SECRET não configurado — rejeitando webhook")
+        return False
 
     signature = request.headers.get("X-Hub-Signature-256", "")
     if not signature.startswith("sha256="):
@@ -114,8 +115,8 @@ async def _processar_e_responder(telefone: str, mensagem: str, message_id: str):
         if message_id:
             await marcar_como_lida(message_id)
 
-        # Processa a mensagem (síncrono — usa DB e potencialmente LLM)
-        resposta = processar_mensagem(f"+{telefone}", mensagem)
+        # Processa a mensagem em thread para não bloquear o event loop.
+        resposta = await asyncio.to_thread(processar_mensagem, f"+{telefone}", mensagem)
 
         log.info("MSG %s: %s → %s", telefone[-4:], mensagem[:60], resposta[:80])
 

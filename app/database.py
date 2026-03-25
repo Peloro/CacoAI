@@ -6,9 +6,13 @@ import logging
 import sqlite3
 import hashlib
 import secrets
+import json
 from contextlib import contextmanager
 from datetime import datetime, date, timedelta
 from typing import Optional
+
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError, InvalidHash
 
 from app.config import DATABASE_PATH
 
@@ -16,6 +20,9 @@ log = logging.getLogger("caco.db")
 
 # Tempo de expiração da sessão (em minutos)
 SESSAO_EXPIRACAO_MIN = 60
+ESTADO_CONVERSA_EXPIRACAO_MIN = 30
+
+_password_hasher = PasswordHasher()
 
 
 # ---------------------------------------------------------------------------
@@ -88,11 +95,25 @@ def init_db():
             FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
         );
 
+        CREATE TABLE IF NOT EXISTS conversa_estado (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id      INTEGER NOT NULL,
+            chave           TEXT    NOT NULL,
+            valor_json      TEXT    NOT NULL,
+            criado_em       TEXT    NOT NULL DEFAULT (datetime('now')),
+            expira_em       TEXT    NOT NULL,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
+            UNIQUE(usuario_id, chave)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_mov_usuario
             ON movimentacoes(usuario_id, data_ref);
 
         CREATE INDEX IF NOT EXISTS idx_div_usuario
             ON dividas(usuario_id, data_ref);
+
+        CREATE INDEX IF NOT EXISTS idx_conversa_estado_expira
+            ON conversa_estado(expira_em);
         """)
 
         # Migração: adiciona colunas novas se ainda não existem
@@ -1054,11 +1075,95 @@ def listar_categorias_por_tipo(
 
 
 # ---------------------------------------------------------------------------
+# Estado conversacional pendente
+# ---------------------------------------------------------------------------
+
+def set_estado_conversa(
+    usuario_id: int,
+    chave: str,
+    valor,
+    expira_minutos: int = ESTADO_CONVERSA_EXPIRACAO_MIN,
+) -> None:
+    """Salva estado conversacional por usuário/chave com expiração."""
+    expira = (datetime.now() + timedelta(minutes=expira_minutos)).strftime("%Y-%m-%d %H:%M:%S")
+    valor_json = json.dumps(valor, ensure_ascii=False)
+
+    with _db() as conn:
+        conn.execute(
+            """
+            INSERT INTO conversa_estado (usuario_id, chave, valor_json, expira_em)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(usuario_id, chave) DO UPDATE SET
+                valor_json = excluded.valor_json,
+                criado_em = datetime('now'),
+                expira_em = excluded.expira_em
+            """,
+            (usuario_id, chave, valor_json, expira),
+        )
+        conn.commit()
+
+
+def get_estado_conversa(usuario_id: int, chave: str):
+    """Lê estado conversacional ativo. Remove automaticamente se expirado."""
+    with _db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT valor_json
+            FROM conversa_estado
+            WHERE usuario_id = ? AND chave = ? AND expira_em > datetime('now', 'localtime')
+            """,
+            (usuario_id, chave),
+        )
+        row = cur.fetchone()
+
+        # Limpeza lazy de estado expirado para essa chave
+        cur.execute(
+            """
+            DELETE FROM conversa_estado
+            WHERE usuario_id = ? AND chave = ? AND expira_em <= datetime('now', 'localtime')
+            """,
+            (usuario_id, chave),
+        )
+        conn.commit()
+
+    if not row:
+        return None
+
+    try:
+        return json.loads(row["valor_json"])
+    except Exception:
+        return None
+
+
+def clear_estado_conversa(usuario_id: int, chave: str) -> None:
+    """Remove um estado conversacional específico."""
+    with _db() as conn:
+        conn.execute(
+            "DELETE FROM conversa_estado WHERE usuario_id = ? AND chave = ?",
+            (usuario_id, chave),
+        )
+        conn.commit()
+
+
+def clear_todos_estados_conversa(usuario_id: int) -> None:
+    """Remove todos os estados conversacionais do usuário."""
+    with _db() as conn:
+        conn.execute("DELETE FROM conversa_estado WHERE usuario_id = ?", (usuario_id,))
+        conn.commit()
+
+
+# ---------------------------------------------------------------------------
 # Autenticação e Sessões
 # ---------------------------------------------------------------------------
 
 def _hash_senha(senha: str) -> str:
-    """Gera hash SHA-256 da senha com salt fixo por simplicidade."""
+    """Gera hash Argon2id para a senha."""
+    return _password_hasher.hash(senha)
+
+
+def _hash_senha_legado(senha: str) -> str:
+    """Hash legado (mantido para migração transparente de usuários antigos)."""
     return hashlib.sha256(f"caco_salt_{senha}".encode()).hexdigest()
 
 
@@ -1114,7 +1219,27 @@ def verificar_senha(usuario_id: int, senha: str) -> bool:
         row = cur.fetchone()
     if not row or not row["senha_hash"]:
         return False
-    return row["senha_hash"] == _hash_senha(senha)
+
+    senha_hash = row["senha_hash"]
+
+    # Formato novo (argon2)
+    if isinstance(senha_hash, str) and senha_hash.startswith("$argon2"):
+        try:
+            return bool(_password_hasher.verify(senha_hash, senha))
+        except (VerifyMismatchError, InvalidHash):
+            return False
+        except Exception:
+            return False
+
+    # Formato legado (sha256): aceita e migra para argon2 no login bem-sucedido.
+    if senha_hash == _hash_senha_legado(senha):
+        try:
+            salvar_senha(usuario_id, senha)
+        except Exception:
+            log.warning("Falha ao migrar hash legado para Argon2 (usuario_id=%s)", usuario_id)
+        return True
+
+    return False
 
 
 def get_nome_usuario(usuario_id: int) -> Optional[str]:
