@@ -102,7 +102,7 @@ _RE_ACAO_REGISTRO_SAIDA = re.compile(
     re.IGNORECASE,
 )
 _RE_ACAO_REGISTRO_DIVIDA = re.compile(
-    r'\b(devo|devendo|fiquei\s+devendo|peguei\s+emprestado|tenho\s+uma\s+d[ií]vida)\b',
+    r'\b(devo|devendo|fiquei\s+devendo|me\s+endividei|endividei|peguei\s+emprestado|tenho\s+uma\s+d[ií]vida)\b',
     re.IGNORECASE,
 )
 

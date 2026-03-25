@@ -379,7 +379,7 @@ _RE_TERMO_FINANCEIRO = re.compile(
 _RE_VALOR_MENSAGEM = re.compile(r'\b\d+(?:[.,]\d{1,2})?\b')
 _RE_ENTRADA_ACAO = re.compile(r'\b(recebi|ganhei|entrou|faturei|depositaram|pix\s+recebido)\b', re.IGNORECASE)
 _RE_SAIDA_ACAO = re.compile(r'\b(gastei|paguei|comprei|torrei|despesa|despesas|saiu)\b', re.IGNORECASE)
-_RE_DIVIDA_ACAO = re.compile(r'\b(devo|devendo|d[ií]vida|d[ií]vidas|fiquei\s+devendo|emprestimo|empr[eé]stimo)\b', re.IGNORECASE)
+_RE_DIVIDA_ACAO = re.compile(r'\b(devo|devendo|d[ií]vida|d[ií]vidas|fiquei\s+devendo|me\s+endividei|endividei|emprestimo|empr[eé]stimo)\b', re.IGNORECASE)
 _RE_COMANDO_RESUMO = re.compile(r'\b(resumo|extrato|historico|histórico)\b', re.IGNORECASE)
 _RE_COMANDO_SALDO = re.compile(r'\b(saldo|quanto\s+sobra|quanto\s+tenho|quanto\s+falta)\b', re.IGNORECASE)
 _RE_COMANDO_LISTAR = re.compile(r'\b(listar|lista|mostrar|mostra|ver)\b', re.IGNORECASE)
@@ -412,11 +412,17 @@ def _detectar_multiplos_comandos(mensagem: str) -> bool:
             comandos.add("registrar_divida")
 
     # Comandos de consulta/acao sem valor.
-    if _RE_COMANDO_RESUMO.search(texto):
+    tem_resumo = bool(_RE_COMANDO_RESUMO.search(texto))
+    tem_saldo = bool(_RE_COMANDO_SALDO.search(texto))
+
+    if tem_resumo:
         comandos.add("consultar_resumo")
-    if _RE_COMANDO_SALDO.search(texto):
+    if tem_saldo:
         comandos.add("consultar_saldo")
-    if _RE_COMANDO_LISTAR.search(texto):
+
+    # "mostrar/ver" pode ser apenas forma de pedir resumo/saldo;
+    # só conta como listar quando não há um desses comandos mais específicos.
+    if _RE_COMANDO_LISTAR.search(texto) and not (tem_resumo or tem_saldo):
         comandos.add("listar")
     if _RE_COMANDO_APAGAR.search(texto):
         comandos.add("apagar")
