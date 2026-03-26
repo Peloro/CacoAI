@@ -66,6 +66,11 @@ WA_DEDUP_TTL_SECONDS = int(os.getenv("WA_DEDUP_TTL", "300"))  # TTL para dedupli
 WA_SEND_TYPING = os.getenv("WA_SEND_TYPING", "true").lower() == "true"  # Indicador "digitando..."
 BOT_RESPONSE_DELAY_SECONDS = float(os.getenv("BOT_RESPONSE_DELAY_SECONDS", "0"))
 
+# --- Limites de entrada / segurança básica ---
+INBOUND_MAX_MESSAGE_CHARS = int(os.getenv("INBOUND_MAX_MESSAGE_CHARS", "1200"))
+INBOUND_MAX_PHONE_CHARS = int(os.getenv("INBOUND_MAX_PHONE_CHARS", "40"))
+INBOUND_MAX_PAYLOAD_BYTES = int(os.getenv("INBOUND_MAX_PAYLOAD_BYTES", "65536"))
+
 # --- App ---
 APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
 # Render e outros PaaS injetam a variável PORT automaticamente

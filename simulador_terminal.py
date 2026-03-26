@@ -5,6 +5,7 @@ Uso:
     python simulador_terminal.py
 """
 from app.chatbot import processar_mensagem
+from app.input_guard import InputValidationError, validate_message_or_raise
 
 
 def _mostrar_ajuda() -> None:
@@ -48,6 +49,12 @@ def main() -> None:
                 continue
             telefone = novo_telefone
             print(f"Caco: telefone da sessao alterado para {telefone}")
+            continue
+
+        try:
+            mensagem = validate_message_or_raise(mensagem)
+        except InputValidationError as e:
+            print(f"Caco: {e}\n")
             continue
 
         resposta = processar_mensagem(telefone=telefone, mensagem=mensagem)

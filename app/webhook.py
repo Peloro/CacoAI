@@ -16,6 +16,7 @@ import json
 import logging
 import time
 import asyncio
+from uuid import uuid4
 from collections import OrderedDict
 
 from fastapi import APIRouter, BackgroundTasks, Request, Response, Query
@@ -23,6 +24,13 @@ from fastapi import APIRouter, BackgroundTasks, Request, Response, Query
 from app.config import WHATSAPP_VERIFY_TOKEN, WHATSAPP_APP_SECRET, DEBUG, IS_PRODUCTION, WA_DEDUP_TTL_SECONDS
 from app.chatbot import processar_mensagem
 from app.whatsapp_api import enviar_mensagem, marcar_como_lida, enviar_indicador_digitando
+from app.input_guard import (
+    InputValidationError,
+    validate_message_or_raise,
+    validate_payload_size_or_raise,
+    validate_phone_or_raise,
+    validate_whatsapp_payload_shape_or_raise,
+)
 
 router = APIRouter()
 log = logging.getLogger("caco.webhook")
@@ -102,7 +110,7 @@ def _validar_assinatura(request: Request, body: bytes) -> bool:
 # Background task — processa mensagem e envia resposta
 # ---------------------------------------------------------------------------
 
-async def _processar_e_responder(telefone: str, mensagem: str, message_id: str):
+async def _processar_e_responder(telefone: str, mensagem: str, message_id: str, trace_id: str):
     """
     Processa a mensagem do usuário e envia resposta via WhatsApp.
     Executado como background task para não bloquear o webhook.
@@ -116,9 +124,9 @@ async def _processar_e_responder(telefone: str, mensagem: str, message_id: str):
             await marcar_como_lida(message_id)
 
         # Processa a mensagem em thread para não bloquear o event loop.
-        resposta = await asyncio.to_thread(processar_mensagem, f"+{telefone}", mensagem)
+        resposta = await asyncio.to_thread(processar_mensagem, f"+{telefone}", mensagem, trace_id)
 
-        log.info("MSG %s: %s → %s", telefone[-4:], mensagem[:60], resposta[:80])
+        log.info("[%s] MSG %s: %s → %s", trace_id, telefone[-4:], mensagem[:60], resposta[:80])
 
         # Envia resposta via API da Meta
         await enviar_mensagem(telefone, resposta)
@@ -165,6 +173,12 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
     """
     body = await request.body()
 
+    try:
+        validate_payload_size_or_raise(body)
+    except InputValidationError as e:
+        log.warning("Payload rejeitado: %s", e)
+        return Response(status_code=413, content="Payload too large")
+
     # Valida assinatura da Meta
     if not _validar_assinatura(request, body):
         return Response(status_code=403, content="Forbidden")
@@ -172,6 +186,12 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
         data = json.loads(body)
     except json.JSONDecodeError:
+        return Response(status_code=400, content="Bad Request")
+
+    try:
+        validate_whatsapp_payload_shape_or_raise(data)
+    except InputValidationError as e:
+        log.warning("Payload invalido: %s", e)
         return Response(status_code=400, content="Bad Request")
 
     # Meta envia vários tipos de notificação; filtra só mensagens
@@ -196,8 +216,16 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
                 telefone = msg.get("from", "")
                 mensagem = msg.get("text", {}).get("body", "").strip()
                 message_id = msg.get("id", "")
+                trace_id = request.headers.get("X-Trace-Id", "").strip() or message_id[:12] or uuid4().hex[:12]
 
                 if not mensagem or not telefone:
+                    continue
+
+                try:
+                    telefone = validate_phone_or_raise(f"+{telefone}").lstrip("+")
+                    mensagem = validate_message_or_raise(mensagem)
+                except InputValidationError as e:
+                    log.warning("[%s] Mensagem rejeitada para ...%s: %s", trace_id, str(telefone)[-4:], e)
                     continue
 
                 # ─── Deduplicação ───
@@ -207,7 +235,7 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
 
                 # ─── Agenda processamento em background ───
                 background_tasks.add_task(
-                    _processar_e_responder, telefone, mensagem, message_id
+                    _processar_e_responder, telefone, mensagem, message_id, trace_id
                 )
 
     # Sempre retorna 200 IMEDIATAMENTE para a Meta

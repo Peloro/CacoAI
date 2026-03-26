@@ -8,12 +8,14 @@ import logging
 import time
 import re
 import html
+from uuid import uuid4
 
 import httpx
 
 from app.chatbot import processar_mensagem
 from app.config import TELEGRAM_BOT_TOKEN, TG_POLL_TIMEOUT, TG_SEND_TYPING
 from app.database import init_db
+from app.input_guard import InputValidationError, validate_message_or_raise
 
 
 log = logging.getLogger("caco.telegram")
@@ -188,7 +190,19 @@ def main() -> None:
                         _send_typing(client, base_url, chat_id)
 
                     telefone_virtual = f"telegram:{chat_id}"
-                    resposta = processar_mensagem(telefone_virtual, text)
+                    try:
+                        text = validate_message_or_raise(text)
+                    except InputValidationError:
+                        _send_message(
+                            client,
+                            base_url,
+                            chat_id,
+                            "Mensagem inválida. Envie até 1200 caracteres e sem conteúdo vazio.",
+                        )
+                        continue
+
+                    trace_id = uuid4().hex[:12]
+                    resposta = processar_mensagem(telefone_virtual, text, trace_id=trace_id)
                     _send_message(client, base_url, chat_id, resposta)
 
             except KeyboardInterrupt:

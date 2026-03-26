@@ -31,6 +31,7 @@ import json
 import unicodedata
 from pathlib import Path
 from contextvars import ContextVar
+from uuid import uuid4
 from datetime import date, datetime
 from app.database import (
     get_or_create_user,
@@ -105,6 +106,11 @@ from app.config import (
     UNDO_WINDOW_SECONDS,
 )
 from app.metrics import inc_counter, observe_latency_ms
+from app.input_guard import (
+    InputValidationError,
+    validate_message_or_raise,
+    validate_phone_or_raise,
+)
 
 
 log = logging.getLogger("caco.chatbot")
@@ -150,6 +156,7 @@ def _registrar_requisicao_teste(telefone: str, mensagem: str, resposta: str, err
     try:
         payload = {
             "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "trace_id": _trace_id_ctx.get() or "",
             "telefone": telefone,
             "mensagem": mensagem,
             "resposta": resposta,
@@ -169,6 +176,12 @@ _DELAY_LOCAL_SECONDS = max(0.0, BOT_RESPONSE_DELAY_SECONDS)
 # Flag por contexto de execução para saber se houve uso de IA nesta mensagem
 _usou_ia_ctx: ContextVar[bool] = ContextVar("usou_ia_ctx", default=False)
 _ultima_intencao_ctx: ContextVar[str] = ContextVar("ultima_intencao", default="")
+_fallback_acionado_ctx: ContextVar[bool] = ContextVar("fallback_acionado", default=False)
+_trace_id_ctx: ContextVar[str] = ContextVar("trace_id", default="")
+
+
+def _new_trace_id() -> str:
+    return uuid4().hex[:12]
 
 
 class _EstadoMap:
@@ -216,6 +229,7 @@ _pendente_desambiguacao_editar = _EstadoMap("pendente_desambiguacao_editar")
 _pendente_confirmacao_apagar = _EstadoMap("pendente_confirmacao_apagar")
 _pendente_confirmacao_editar = _EstadoMap("pendente_confirmacao_editar")
 _pendente_confirmacao_limpar = _EstadoMap("pendente_confirmacao_limpar")
+_pendente_confirmacao_quitar = _EstadoMap("pendente_confirmacao_quitar")
 _pendente_valor_registro = _EstadoMap("pendente_valor_registro")
 _pendente_confirmacao_intencao = _EstadoMap("pendente_confirmacao_intencao")
 _pendente_confirmacao_titulo = _EstadoMap("pendente_confirmacao_titulo")
@@ -1351,6 +1365,8 @@ def _resposta_chat_com_fallback(mensagem: str, contexto: dict | None = None) -> 
         log.debug("Resposta LOCAL")
         return resp
 
+    _fallback_acionado_ctx.set(True)
+
     # 2. Tenta OpenRouter como fallback
     try:
         _usou_ia_ctx.set(True)
@@ -1410,7 +1426,7 @@ def _mensagem_comando_onboarding(texto: str) -> str | None:
     return None
 
 
-def processar_mensagem(telefone: str, mensagem: str) -> str:
+def processar_mensagem(telefone: str, mensagem: str, trace_id: str | None = None) -> str:
     """
     Pipeline principal (híbrido):
     0. Verifica cadastro e sessão
@@ -1425,6 +1441,8 @@ def processar_mensagem(telefone: str, mensagem: str) -> str:
     """
     _usou_ia_ctx.set(False)
     _ultima_intencao_ctx.set("")
+    _fallback_acionado_ctx.set(False)
+    _trace_id_ctx.set((trace_id or "").strip() or _new_trace_id())
     resposta = ""
     erro_msg: str | None = None
     inicio = time.perf_counter()
@@ -1432,6 +1450,9 @@ def processar_mensagem(telefone: str, mensagem: str) -> str:
     aplicar_hint_ajuda = False
 
     try:
+        telefone = validate_phone_or_raise(telefone)
+        mensagem = validate_message_or_raise(mensagem)
+
         # 0. Identifica / cria usuário
         usuario = get_or_create_user(telefone)
         usuario_id = usuario["id"]
@@ -1450,9 +1471,14 @@ def processar_mensagem(telefone: str, mensagem: str) -> str:
             resposta = _processar_mensagem_interna(usuario_id, mensagem)
             aplicar_hint_ajuda = True
 
+    except InputValidationError as e:
+        erro_msg = str(e)
+        resposta = f"⚠️ {e}\n\nExemplos: `gastei 50 no mercado`, `listar movimentações`, `ajuda`."
+        inc_counter("messages.error")
+
     except Exception as e:
         erro_msg = str(e)
-        log.exception("Erro fatal ao processar mensagem: %s", e)
+        log.exception("[%s] Erro fatal ao processar mensagem: %s", _trace_id_ctx.get() or "sem-trace", e)
         resposta = "Opa, tive um problema aqui. 😅 Tenta de novo?"
         inc_counter("messages.error")
 
@@ -1463,9 +1489,13 @@ def processar_mensagem(telefone: str, mensagem: str) -> str:
         inc_counter("messages.success")
     if _usou_ia_ctx.get():
         inc_counter("messages.used_ai")
+    if _fallback_acionado_ctx.get():
+        inc_counter("fallback.used")
 
     intencao_final = _ultima_intencao_ctx.get() or "desconhecida"
     inc_counter(f"intent.{intencao_final}")
+    if erro_msg is not None:
+        inc_counter(f"intent_error.{intencao_final}")
     observe_latency_ms((time.perf_counter() - inicio) * 1000.0)
 
     if _DELAY_LOCAL_SECONDS > 0:
@@ -1736,6 +1766,10 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     if usuario_id in _pendente_confirmacao_limpar:
         return _processar_confirmacao_limpar(usuario_id, mensagem)
 
+    # --- Verifica se há confirmação pendente de quitação geral de dívidas ---
+    if usuario_id in _pendente_confirmacao_quitar:
+        return _processar_confirmacao_quitar(usuario_id, mensagem)
+
     # --- Verifica se ficou faltando apenas o valor de um lançamento ---
     if usuario_id in _pendente_valor_registro:
         return _processar_pendente_valor_registro(usuario_id, mensagem)
@@ -1957,6 +1991,25 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
 
     elif intencao == "quitar_dividas":
         credor = (parsed.get("credor_divida") or "").strip()
+        if not credor:
+            totais_div = totais_dividas(usuario_id, ano_mes=mes_ref)
+            qtd = int(totais_div.get("qtd_dividas", 0) or 0)
+            total = float(totais_div.get("total_dividas", 0.0) or 0.0)
+            if qtd == 0:
+                return f"Você não tem dívidas para quitar{sufixo_dividas}."
+
+            _pendente_confirmacao_quitar[usuario_id] = {
+                "credor": "",
+                "ano_mes": mes_ref,
+            }
+            return (
+                "⚠️ *Ação de alto risco*\n\n"
+                f"Isso vai quitar *todas* as suas dívidas{sufixo_dividas}:\n"
+                f"• Quantidade: {qtd}\n"
+                f"• Total: {formatar_real(total)}\n\n"
+                "Confirma? Responda *sim* para continuar ou *não* para cancelar."
+            )
+
         resultado = quitar_dividas(usuario_id, credor=credor, ano_mes=mes_ref)
         qtd = int(resultado.get("qtd_quitadas", 0) or 0)
         total = float(resultado.get("valor_quitado", 0.0) or 0.0)
@@ -2035,7 +2088,10 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             if div:
                 _pendente_confirmacao_apagar[usuario_id] = {"movimentacao": div, "tipo_registro": "divida"}
                 return _montar_confirmacao_apagar(div, "divida")
-            return f"🤷 Não encontrei lançamento com o ID #{id_mov}. Confere se tá certo!"
+            return (
+                f"🤷 Não encontrei lançamento com o ID #{id_mov}.\n"
+                "💡 Use *listar movimentações* para ver os IDs válidos e tente: *apagar #ID*."
+            )
         
         # Se a descrição é apenas referência genérica ("última", "esse", "essa"),
         # não é uma busca real — vai direto pro apagar última
@@ -2072,7 +2128,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             # Nenhum match por descrição → avisa o usuário
             return (
                 f"🤷 Não encontrei nenhuma movimentação com \"{descricao_real}\" neste mês.\n"
-                "Confere se escreveu certinho ou manda *listar gastos* pra ver suas movimentações!"
+                "💡 Tente *listar movimentações* para ver IDs e depois use: *apagar #ID*."
             )
         
         # Sem descrição real e sem ID → apaga última movimentação
@@ -2112,7 +2168,10 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
                 }
                 return _montar_confirmacao_editar(div, float(novo_valor), "divida")
 
-            return f"🤷 Não encontrei lançamento com o ID #{id_mov}."
+            return (
+                f"🤷 Não encontrei lançamento com o ID #{id_mov}.\n"
+                "💡 Rode *listar movimentações* e tente novamente com *editar #ID para VALOR*."
+            )
 
         import re as _re
         descricao_edit_raw = (descricao or "").strip()
@@ -2162,7 +2221,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         if len(matches) == 0:
             return (
                 f"🤷 Não encontrei lançamento com \"{descricao_escolhida}\" neste mês.\n"
-                "Manda *listar movimentações* pra ver os IDs."
+                "💡 Use *listar movimentações* para ver os IDs e envie: *editar #ID para 49,90*."
             )
         if len(matches) == 1:
             mov = matches[0]
@@ -2341,12 +2400,18 @@ def _processar_confirmacao_apagar(usuario_id: int, mensagem: str) -> str:
         if tipo_registro == "divida":
             apagada = apagar_divida_por_id(usuario_id, mov["id"])
             if not apagada:
-                return "🤷 Não consegui apagar a dívida. Talvez já tenha sido removida."
+                return (
+                    "🤷 Não consegui apagar a dívida. Ela pode já ter sido removida.\n"
+                    "💡 Use *listar dívidas* para confirmar os IDs atuais."
+                )
             return _montar_resposta_apagar_divida(apagada)
 
         apagada = apagar_movimentacao_por_id(usuario_id, mov["id"])
         if not apagada:
-            return "🤷 Não consegui apagar. Talvez já tenha sido removida."
+            return (
+                "🤷 Não consegui apagar. Esse item pode já ter sido removido.\n"
+                "💡 Use *listar movimentações* para confirmar os IDs atuais."
+            )
         return gerar_resposta_apagar_com_id(apagada)
 
     if texto in ("nao", "não", "n", "cancelar", "cancela", "deixa", "esquece"):
@@ -2402,12 +2467,18 @@ def _processar_confirmacao_editar(usuario_id: int, mensagem: str) -> str:
         if tipo_registro == "divida":
             atualizada = atualizar_valor_divida(usuario_id, mov["id"], novo_valor)
             if not atualizada:
-                return "🤷 Não consegui editar a dívida. Talvez ela não exista mais."
+                return (
+                    "🤷 Não consegui editar a dívida. Ela pode não existir mais.\n"
+                    "💡 Use *listar dívidas* para confirmar o ID antes de editar."
+                )
             return _montar_resposta_edicao(atualizada, "divida")
 
         atualizada = atualizar_valor_movimentacao(usuario_id, mov["id"], novo_valor)
         if not atualizada:
-            return "🤷 Não consegui editar. Talvez a movimentação não exista mais."
+            return (
+                "🤷 Não consegui editar. Essa movimentação pode não existir mais.\n"
+                "💡 Use *listar movimentações* para confirmar o ID antes de editar."
+            )
         return _montar_resposta_edicao(atualizada, "movimentacao")
 
     if texto in ("nao", "não", "n", "cancelar", "cancela", "deixa", "esquece"):
@@ -2467,6 +2538,36 @@ def _processar_confirmacao_limpar(usuario_id: int, mensagem: str) -> str:
 
     # Não entendeu
     return "🤔 Manda *sim* pra confirmar ou *não* pra cancelar."
+
+
+def _processar_confirmacao_quitar(usuario_id: int, mensagem: str) -> str:
+    """Confirma a quitação geral de dívidas (ação de alto risco)."""
+    texto = (mensagem or "").strip().lower()
+
+    if texto in ("sim", "s", "confirmar", "confirma", "pode", "ok", "beleza"):
+        pendente = _pendente_confirmacao_quitar.pop(usuario_id, None)
+        if not pendente:
+            return "Ops, perdi o contexto. Me pede para quitar novamente."
+
+        credor = (pendente.get("credor") or "").strip()
+        ano_mes = pendente.get("ano_mes")
+        resultado = quitar_dividas(usuario_id, credor=credor or None, ano_mes=ano_mes)
+        qtd = int(resultado.get("qtd_quitadas", 0) or 0)
+        total = float(resultado.get("valor_quitado", 0.0) or 0.0)
+        if qtd == 0:
+            return "Não encontrei dívidas para quitar neste momento."
+
+        return (
+            "✅ Dívidas quitadas com sucesso!\n"
+            f"🧾 Removidas: {qtd}\n"
+            f"💰 Total quitado: {formatar_real(total)}"
+        )
+
+    if texto in ("nao", "não", "n", "cancelar", "cancela", "deixa", "esquece"):
+        _pendente_confirmacao_quitar.pop(usuario_id, None)
+        return "Perfeito, cancelei a quitação geral."
+
+    return "Responda *sim* para confirmar a quitação geral ou *não* para cancelar."
 
 
 def _processar_confirmacao_titulo(usuario_id: int, mensagem: str) -> str:

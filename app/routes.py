@@ -2,12 +2,19 @@
 Rotas REST auxiliares — para testes e integração direta (sem WhatsApp).
 Útil para testar o chatbot via Postman, curl ou frontend.
 """
+from uuid import uuid4
+
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from app.chatbot import processar_mensagem
 from app.database import resumo_mes, get_or_create_user
 from app.config import API_TEST_ENABLED, API_TEST_TOKEN
 from app.metrics import get_metrics_snapshot
+from app.input_guard import (
+    InputValidationError,
+    validate_message_or_raise,
+    validate_phone_or_raise,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -31,6 +38,16 @@ class MensagemRequest(BaseModel):
     telefone: str          # ex: "+5511999999999"
     mensagem: str
 
+    @field_validator("telefone")
+    @classmethod
+    def _validar_telefone(cls, value: str) -> str:
+        return validate_phone_or_raise(value)
+
+    @field_validator("mensagem")
+    @classmethod
+    def _validar_mensagem(cls, value: str) -> str:
+        return validate_message_or_raise(value)
+
     model_config = {
         "json_schema_extra": {
             "examples": [
@@ -44,6 +61,7 @@ class MensagemRequest(BaseModel):
 
 class MensagemResponse(BaseModel):
     resposta: str
+    trace_id: str
 
 
 # ---------------------------------------------------------------------------
@@ -62,8 +80,15 @@ def enviar_mensagem(req: MensagemRequest, request: Request):
         -d '{"telefone": "+5511999999999", "mensagem": "Gastei 50 no almoço"}'
     """
     _autorizar_api_teste(request)
-    resposta = processar_mensagem(req.telefone, req.mensagem)
-    return MensagemResponse(resposta=resposta)
+    trace_id = request.headers.get("X-Trace-Id", "").strip() or uuid4().hex[:12]
+    try:
+        telefone = validate_phone_or_raise(req.telefone)
+        mensagem = validate_message_or_raise(req.mensagem)
+    except InputValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    resposta = processar_mensagem(telefone, mensagem, trace_id=trace_id)
+    return MensagemResponse(resposta=resposta, trace_id=trace_id)
 
 
 @router.get("/resumo/{telefone}")
