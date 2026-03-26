@@ -23,6 +23,7 @@ from app.config import (
     LLM_PROVIDER,
     GROQ_API_KEY,
     GROQ_BASE_URL,
+    GROQ_MODEL_FAST,
     GROQ_MODEL,
     OPENROUTER_API_KEY,
     OPENROUTER_BASE_URL,
@@ -119,7 +120,11 @@ _provedor_ativo = LLM_PROVIDER
 
 if LLM_PROVIDER == "groq" and _api_key_groq_valida(_GROQ_API_KEY):
     _llm_disponivel = True
-    log.info("Groq configurado como fallback (modelo: %s)", GROQ_MODEL)
+    log.info(
+        "Groq configurado como fallback (fast=%s, quality=%s)",
+        GROQ_MODEL_FAST,
+        GROQ_MODEL,
+    )
 elif LLM_PROVIDER == "groq" and GROQ_API_KEY:
     log.warning("GROQ_API_KEY parece invalida (formato inesperado).")
 elif LLM_PROVIDER == "openrouter" and _api_key_openrouter_valida(_OPENROUTER_API_KEY):
@@ -146,6 +151,7 @@ def _headers_groq() -> dict:
 def _chat_groq(
     user_prompt: str,
     *,
+    model: Optional[str] = None,
     system_prompt: Optional[str] = None,
     temperature: float = 0.7,
     max_tokens: int = 300,
@@ -159,7 +165,7 @@ def _chat_groq(
     endpoint = f"{base}/chat/completions" if not base.endswith("/chat/completions") else base
 
     payload = {
-        "model": GROQ_MODEL,
+        "model": model or GROQ_MODEL,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
@@ -348,13 +354,16 @@ def _chat_openrouter(
 def _chat_llm(
     user_prompt: str,
     *,
+    task: str = "quality",
     system_prompt: Optional[str] = None,
     temperature: float = 0.7,
     max_tokens: int = 300,
 ) -> str:
     if _provedor_ativo == "groq":
+        model = GROQ_MODEL_FAST if task == "fast" else GROQ_MODEL
         return _chat_groq(
             user_prompt,
+            model=model,
             system_prompt=system_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -390,6 +399,7 @@ def categorizar_transacao(descricao: str) -> str:
     try:
         categoria = _chat_llm(
             prompt,
+            task="quality",
             temperature=0.0,
             max_tokens=_MAX_TOKENS_CATEGORIZACAO,
         ).lower()
@@ -435,6 +445,7 @@ def gerar_resposta_chat(
     try:
         resposta = _chat_llm(
             prompt,
+            task="fast",
             system_prompt=SYSTEM_PROMPT_CHAT,
             temperature=0.6,
             max_tokens=_MAX_TOKENS_CHAT,
@@ -488,6 +499,7 @@ def gerar_dica_financeira(mensagem: str, contexto: dict | None = None) -> str:
     try:
         resposta = _chat_llm(
             prompt,
+            task="fast",
             system_prompt=SYSTEM_PROMPT_CHAT,
             temperature=0.7,
             max_tokens=_MAX_TOKENS_CHAT,
@@ -515,6 +527,7 @@ def gerar_observacao_resumo(contexto: str) -> str:
     try:
         resposta = _chat_llm(
             prompt,
+            task="fast",
             system_prompt=SYSTEM_PROMPT_CHAT,
             temperature=0.5,
             max_tokens=_MAX_TOKENS_OBSERVACAO_RESUMO,
@@ -587,6 +600,7 @@ def classificar_intencao_financeira(mensagem: str) -> dict:
     try:
         bruto = _chat_llm(
             prompt,
+            task="quality",
             temperature=0.0,
             max_tokens=_MAX_TOKENS_CLASSIFICACAO,
         )
@@ -686,6 +700,7 @@ def extrair_movimentacao_estruturada(mensagem: str) -> dict:
     try:
         bruto = _chat_llm(
             prompt,
+            task="quality",
             temperature=0.0,
             max_tokens=_MAX_TOKENS_EXTRACAO,
         )
@@ -773,6 +788,7 @@ def gerar_titulo_canonico(mensagem: str, descricao: str = "", categoria: str = "
     try:
         bruto = _chat_llm(
             prompt,
+            task="quality",
             temperature=0.0,
             max_tokens=_MAX_TOKENS_TITULO,
         )
