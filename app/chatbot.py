@@ -557,7 +557,7 @@ def _normalizar_rotulo_curto(
     base = re.sub(r"\s+", " ", base)
     if remover_artigos_inicio:
         base = re.sub(
-            r"^(?:o|a|os|as|um|uma|uns|umas|do|da|dos|das|de|no|na|nos|nas|ao|aos|a|as|pro|pra|para|com)\s+",
+            r"^(?:o|a|os|as|um|uma|uns|umas|meu|minha|meus|minhas|do|da|dos|das|de|no|na|nos|nas|ao|aos|a|as|pro|pra|para|com)\s+",
             "",
             base,
             flags=re.IGNORECASE,
@@ -648,7 +648,67 @@ def _tokens_titulo_base(texto: str) -> list[str]:
 
 def _finalizar_titulo_canonico(texto: str) -> str:
     """Aplica formato canônico final para reduzir variação lexical."""
-    return _normalizar_descricao_registro(_ascii_lower(texto or ""))
+    base = _normalizar_descricao_registro(_ascii_lower(texto or ""))
+    if not base:
+        return ""
+
+    token_map = {
+        "busao": "onibus",
+        "ônibus": "onibus",
+    }
+    ruido_contexto = {
+        "esquina", "atacadao", "shopping", "centro", "firma",
+        "fim", "semana", "online", "casa", "indo", "volta", "voltando",
+    }
+
+    tokens_raw = [t for t in re.findall(r"[\wÀ-ÿ]+", base.lower()) if t]
+    tokens = []
+    for t in tokens_raw:
+        a = _ascii_lower(t)
+        if not a:
+            continue
+        a = token_map.get(a, a)
+        if a in _VERBOS_TITULO_GENERICOS or a in _VERBOS_PEDIDO_AJUDA:
+            continue
+        tokens.append(a)
+
+    if not tokens:
+        return ""
+
+    if "mercado" in tokens:
+        return "mercado"
+    if "ifood" in tokens:
+        return "ifood"
+    if "reembolso" in tokens:
+        return "reembolso"
+    if "estacionamento" in tokens:
+        return "estacionamento"
+    if "curso" in tokens:
+        return "curso"
+    if "cafe" in tokens:
+        return "cafe"
+    if "delivery" in tokens:
+        return "delivery"
+
+    if "lanche" in tokens and "tarde" in tokens:
+        return "lanche tarde"
+
+    if "presente" in tokens:
+        alvo = next((p for p in ("mae", "pai") if p in tokens), "")
+        return f"presente {alvo}".strip()
+
+    if "freela" in tokens:
+        complemento = next((t for t in tokens if t not in {"freela"} | ruido_contexto), "")
+        return f"freela {complemento}".strip()
+
+    if "uber" in tokens and "trampo" in tokens:
+        return "uber trampo"
+
+    tokens = [t for t in tokens if t not in ruido_contexto]
+    if not tokens:
+        return ""
+
+    return _normalizar_descricao_registro(" ".join(tokens))
 
 
 def _extrair_parte_apos_pix(mensagem: str) -> str:
@@ -707,8 +767,10 @@ def _gerar_titulo_regra(
         return _titulo_padrao_para_contexto(intencao, categoria)
 
     # registrar_saida
-    if re.search(r"\bsai(?:r)?\s+com\s+(?:meu|minha|um|uma|o|a)?\s*amig", msg_low):
-        return "sair com amigo"
+    m_sair = re.search(r"\bsai(?:r)?\s+com\s+(?:meu|minha|um|uma|o|a)?\s*amig([oa])", msg_low)
+    if m_sair:
+        sufixo = "amiga" if m_sair.group(1) == "a" else "amigo"
+        return f"sair com {sufixo}"
 
     if any(_tem_token_msg(msg_low, k) for k in ("energia", "agua", "internet", "luz", "gas")):
         if _tem_token_msg(msg_low, "energia"):
@@ -721,6 +783,18 @@ def _gerar_titulo_regra(
             return "conta luz"
         if _tem_token_msg(msg_low, "gas"):
             return "conta gas"
+
+    if _tem_token_msg(msg_low, "mercado"):
+        return "mercado"
+
+    if _tem_token_msg(msg_low, "ifood"):
+        return "ifood"
+
+    if _tem_token_msg(msg_low, "reembolso"):
+        return "reembolso"
+
+    if _tem_token_msg(msg_low, "curso"):
+        return "curso"
 
     if any(k in msg_low for k in ("comprei", "comprar", "compra")) and desc_tokens:
         return _finalizar_titulo_canonico(f"compra {' '.join(desc_tokens[:2])}")
