@@ -85,3 +85,11 @@ API_TEST_TOKEN = os.getenv("API_TEST_TOKEN", "")
 # --- Logs de teste de requisicoes do bot ---
 BOT_REQUEST_LOG_ENABLED = os.getenv("BOT_REQUEST_LOG_ENABLED", "false").lower() == "true"
 BOT_REQUEST_LOG_PATH = os.getenv("BOT_REQUEST_LOG_PATH", "logs/bot_requests.log")
+
+# --- NLU / Confirmacao de intencao ---
+INTENT_CONFIRM_MIN_SCORE = float(os.getenv("INTENT_CONFIRM_MIN_SCORE", "0.52"))
+INTENT_CONFIRM_MIN_MARGIN = float(os.getenv("INTENT_CONFIRM_MIN_MARGIN", "0.07"))
+
+# --- NLU / Confirmacao de titulo ---
+TITLE_CONFIRM_MIN_SCORE = float(os.getenv("TITLE_CONFIRM_MIN_SCORE", "0.73"))
+TITLE_CONFIRM_MIN_MARGIN = float(os.getenv("TITLE_CONFIRM_MIN_MARGIN", "0.10"))

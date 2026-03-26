@@ -109,7 +109,7 @@ _RE_ACAO_FUTURA_COMPRA = re.compile(
 
 # Ações explícitas de registro (mesmo sem valor informado)
 _RE_ACAO_REGISTRO_ENTRADA = re.compile(
-    r'\b(ganhei|recebi|entrou|caiu\s+na\s+conta|me\s+pagaram|pagaram\s+pra\s+mim|pix\s+recebido)\b',
+    r'\b(ganhei|recebi|entrou|caiu\s+na\s+conta|me\s+pagaram|pagaram\s+pra\s+mim|pix\s+recebido|transferiram\s+pra\s+mim|me\s+transferiram|pingou|creditaram)\b',
     re.IGNORECASE,
 )
 _RE_ACAO_REGISTRO_SAIDA = re.compile(
@@ -157,14 +157,20 @@ _RE_TIPO_SAIDA_CTX = re.compile(
 )
 
 _RE_QUITAR_DIVIDAS = re.compile(
-    r'\b(?:quitei|quitar|quitei|liquidei|liquidar|zerei|zerar|paguei\s+todas?)\b.*\b(?:d[ií]vida|divida|d[ií]vidas|dividas)\b',
+    r'\b(?:quitei|quitar|quitei|liquidei|liquidar|zerei|zerar|paguei\s+todas?)\b.*\b(?:d[ií]vida|divida|d[ií]vidas|dividas|devia|devendo|devo)\b',
     re.IGNORECASE,
 )
 _RE_PAGAMENTO_DIVIDA = re.compile(
-    r'(?:\b(?:paguei|pagar|pagamento|abati|amortizei|quitei|liquidei)\b.*\b(?:d[ií]vida|divida|parcela|empr[eé]stimo|emprestimo)\b)|'
-    r'(?:\b(?:d[ií]vida|divida|parcela|empr[eé]stimo|emprestimo)\b.*\b(?:paguei|pagar|pagamento|abati|amortizei|quitei|liquidei)\b)',
+    r'(?:\b(?:paguei|pagar|pagamento|abati|amortizei|quitei|liquidei)\b.*\b(?:d[ií]vida|divida|parcela|empr[eé]stimo|emprestimo|devo|devendo|devia)\b)|'
+    r'(?:\b(?:d[ií]vida|divida|parcela|empr[eé]stimo|emprestimo|devo|devendo|devia)\b.*\b(?:paguei|pagar|pagamento|abati|amortizei|quitei|liquidei)\b)',
     re.IGNORECASE,
 )
+
+_RE_PIX_SAIDA = re.compile(r'\bpix\s+de\s+\d+(?:[.,]\d{1,2})?\s+(?:pro|pra|para)\b', re.IGNORECASE)
+_RE_PIX_ENTRADA = re.compile(r'\b(?:me\s+transferiram|transferiram\s+pra\s+mim|pix\s+(?:de|do|da)|pix\s+recebido)\b', re.IGNORECASE)
+_RE_DIVIDA_FORTE = re.compile(r'\b(?:peguei\s+\d+\s+emprestado|peguei\s+emprestado|devo\s+\d+|fiquei\s+devendo|devendo)\b', re.IGNORECASE)
+_RE_LIMPAR_MOVIMENTACOES = re.compile(r'\b(?:zerar|zera|limpar|limpa|apagar|apaga)\b.*\bmovimenta(?:ç(?:ã|a)o|cao|ções|coes)\b', re.IGNORECASE)
+_RE_DICA_DIRETA = re.compile(r'\b(?:como\s+reduzir|reduzir\s+gastos|economizar\s+mais|organizar\s+melhor)\b', re.IGNORECASE)
 
 # Regex de valor pre-compiladas para evitar recompilacao em cada mensagem.
 _RE_VALOR_POR = re.compile(
@@ -510,6 +516,22 @@ def extrair_categoria_mencionada(texto: str) -> Optional[str]:
     return None
 
 
+def _extrair_categoria_apos_token(texto: str) -> Optional[str]:
+    """Tenta capturar categoria após a palavra 'categoria'."""
+    m = re.search(r'\bcategoria\s+(?:de\s+)?([\wÀ-ÿ]+)\b', texto.lower())
+    if not m:
+        return None
+
+    token = m.group(1)
+    if token in _NORMALIZACOES_CATEGORIA:
+        return _NORMALIZACOES_CATEGORIA[token]
+    if token in _CATEGORIAS_VALIDAS:
+        return token
+    if token in CATEGORIAS_KEYWORDS:
+        return token
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Extração de ID de movimentação
 # ---------------------------------------------------------------------------
@@ -635,6 +657,16 @@ def extrair_descricao(texto: str) -> str:
     """
     t = texto.strip()
 
+    # Remove pedidos conversacionais no início para focar no fato financeiro.
+    t = re.sub(
+        r'^(?:me\s+ajuda(?:\s+a)?|me\s+ajude(?:\s+a)?|pode\s+me\s+ajudar(?:\s+a)?|'
+        r'por\s+favor\s+|pf\s+|quero\s+registrar\s+|registrar\s+|anota(?:r)?\s+|'
+        r'lanca(?:r)?\s+|lança(?:r)?\s+)+',
+        '',
+        t,
+        flags=re.IGNORECASE,
+    )
+
     # Remove prefixos comuns de ação (incluindo frases compostas)
     t = re.sub(
         r'^(tenho que |preciso |vou |quero |fui |tive que |tive de |'
@@ -734,6 +766,7 @@ def _normalizar_texto_intencao(texto: str) -> str:
 
     substituicoes = {
         r'\bqnt\b': 'quanto',
+        r'\bq\b': 'que',
         r'\bpq\b': 'porque',
         r'\bpf\b': 'por favor',
         r'\bhj\b': 'hoje',
@@ -766,15 +799,29 @@ def detectar_intencao(texto: str) -> dict:
     data_ref = extrair_data(texto)
     mes_referencia = extrair_mes_referencia(texto)
     credor_divida = extrair_credor_divida(texto)
-    categoria_regra, keyword_encontrada = categorizar_por_regras(texto_lower)
+    # Primeiro categoriza pela descrição limpa; se falhar, tenta o texto completo.
+    categoria_regra, keyword_encontrada = categorizar_por_regras(descricao)
+    if not categoria_regra:
+        categoria_regra, keyword_encontrada = categorizar_por_regras(texto_lower)
     tipo_contexto = _detectar_tipo_contexto(texto_lower)
     categoria_mencionada = extrair_categoria_mencionada(texto_lower)
 
-    # Se achou a keyword da categoria, usa ela como descrição limpa
-    if keyword_encontrada:
+    # Só usa a keyword como descrição quando a descrição ficou vazia.
+    if keyword_encontrada and not descricao:
         descricao = keyword_encontrada.capitalize()
 
     # 0a. Limpar movimentações (prioridade máxima — é destrutivo)
+    if _RE_LIMPAR_MOVIMENTACOES.search(texto_lower):
+        return {
+            "intencao": "limpar_movimentacoes",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+            "tipo_limpar": None,
+        }
+
     if _texto_contem(texto_lower, PALAVRAS_LIMPAR_GASTOS) or bool(_RE_LIMPAR_GASTOS_DIRETO.search(texto_lower)):
         return {
             "intencao": "limpar_movimentacoes",
@@ -886,6 +933,52 @@ def detectar_intencao(texto: str) -> dict:
             "credor_divida": credor_divida,
         }
 
+    # 0d. Casos fortes de divida e pix para evitar inversões entrada/saída
+    if valor and _RE_DIVIDA_FORTE.search(texto_lower):
+        return {
+            "intencao": "registrar_divida",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+            "credor_divida": credor_divida,
+        }
+
+    if valor and _RE_PIX_SAIDA.search(texto_lower):
+        return {
+            "intencao": "registrar_saida",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+        }
+
+    if valor and _RE_PIX_ENTRADA.search(texto_lower) and not _RE_PIX_SAIDA.search(texto_lower):
+        return {
+            "intencao": "registrar_entrada",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+        }
+
+    if valor and _RE_ACAO_REGISTRO_ENTRADA.search(texto_lower) and _RE_ACAO_REGISTRO_SAIDA.search(texto_lower):
+        # Em mensagens mistas, prioriza o último evento financeiro citado.
+        idx_ent = max((m.start() for m in _RE_ACAO_REGISTRO_ENTRADA.finditer(texto_lower)), default=-1)
+        idx_sai = max((m.start() for m in _RE_ACAO_REGISTRO_SAIDA.finditer(texto_lower)), default=-1)
+        intencao_mista = "registrar_saida" if idx_sai >= idx_ent else "registrar_entrada"
+        return {
+            "intencao": intencao_mista,
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+        }
+
     # 1. "Posso gastar" — prioridade alta (contém valor e pergunta)
     #    Detecta: "posso gastar 200", "quero gastar 200, eu posso?",
     #    "deveria gastar 200 em uber hoje?", qualquer frase com valor + "?"
@@ -895,6 +988,9 @@ def detectar_intencao(texto: str) -> dict:
         or (valor and texto.strip().endswith("?") and _texto_contem(texto_lower, ["posso", "consigo", "dá pra", "da pra", "rola"]))
         or (valor and texto.strip().endswith("?") and _texto_contem(texto_lower, _PALAVRAS_DUVIDA))
     )
+    if _texto_contem(texto_lower, PALAVRAS_DIVIDA):
+        eh_pergunta_posso = False
+
     if eh_pergunta_posso:
         return {
             "intencao": "posso_gastar",
@@ -972,6 +1068,21 @@ def detectar_intencao(texto: str) -> dict:
         }
 
     # 4. Listar categorias de entradas/saídas
+    categoria_pos_categoria = _extrair_categoria_apos_token(texto_lower)
+    categoria_consulta_direta = categoria_mencionada or categoria_pos_categoria
+
+    if _RE_VER_CATEGORIAS.search(texto_lower) and categoria_consulta_direta:
+        return {
+            "intencao": "consultar_categoria",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+            "categoria_consulta": categoria_consulta_direta,
+            "tipo_consulta": tipo_contexto,
+        }
+
     # Só lista categorias quando não há categoria específica mencionada.
     if (
         _RE_VER_CATEGORIAS.search(texto_lower)
@@ -1018,6 +1129,16 @@ def detectar_intencao(texto: str) -> dict:
             }
 
     # 6. Consulta de resumo
+    if _RE_DICA_DIRETA.search(texto_lower):
+        return {
+            "intencao": "pedir_dica",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+        }
+
     # "mostrar/ver" com contexto de listagem deve ir para listar_movimentacoes,
     # exceto quando houver termo claro de resumo/extrato/historico.
     pedido_ver_lista = bool(_RE_VER_MOSTRAR.search(texto_lower)) and bool(_RE_CONTEXTO_LISTAGEM.search(texto_lower))
@@ -1084,6 +1205,16 @@ def detectar_intencao(texto: str) -> dict:
         }
 
     # 10. Consulta de saldo
+    if "sobro" in texto_lower:
+        return {
+            "intencao": "consultar_saldo",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+        }
+
     if _texto_contem(texto_lower, PALAVRAS_SALDO):
         return {
             "intencao": "consultar_saldo",

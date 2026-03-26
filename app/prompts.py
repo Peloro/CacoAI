@@ -134,3 +134,34 @@ Regras importantes:
 - Categoria deve ser curta e util para agrupamento (snake_case quando possivel).
 - Nao invente dados ausentes.
 """
+
+
+# ---------------------------------------------------------------------------
+# Prompt de TITULO CANONICO
+# ---------------------------------------------------------------------------
+
+TITLE_GENERATION_PROMPT = """Voce gera um titulo curto e objetivo para um lancamento financeiro.
+
+Mensagem do usuario:
+"{mensagem}"
+
+Descricao extraida (pode estar vazia):
+"{descricao}"
+
+Categoria sugerida:
+"{categoria}"
+
+Retorne APENAS JSON valido (sem markdown):
+{{
+  "titulo": "",
+  "confianca": 0.0,
+  "justificativa": "curta"
+}}
+
+Regras:
+- Titulo com 2 a 4 palavras quando possivel.
+- Nao usar artigos no inicio (o, a, os, as, um, uma, de, do, da, no, na, para, com).
+- Evitar termos vagos: ajuda, coisa, negocio, item, gasto.
+- Focar no motivo principal do lancamento.
+- Nao inventar informacoes nao citadas.
+"""

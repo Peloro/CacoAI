@@ -38,6 +38,7 @@ from app.prompts import (
     CATEGORIZATION_PROMPT,
     INTENT_CLASSIFICATION_PROMPT,
     TRANSACTION_EXTRACTION_PROMPT,
+    TITLE_GENERATION_PROMPT,
 )
 
 log = logging.getLogger("caco.llm")
@@ -48,12 +49,14 @@ _MAX_TOKENS_CHAT = 140
 _MAX_TOKENS_CLASSIFICACAO = 90
 _MAX_TOKENS_EXTRACAO = 150
 _MAX_TOKENS_OBSERVACAO_RESUMO = 90
+_MAX_TOKENS_TITULO = 80
 
 _MAX_CHARS_DESC_CATEGORIZACAO = 220
 _MAX_CHARS_MSG_CHAT = 900
 _MAX_CHARS_MSG_CLASSIFICACAO = 700
 _MAX_CHARS_MSG_EXTRACAO = 900
 _MAX_CHARS_CTX_OBSERVACAO = 700
+_MAX_CHARS_MSG_TITULO = 700
 
 
 def _compactar_texto(texto: str, limite_chars: int) -> str:
@@ -740,3 +743,64 @@ def extrair_movimentacao_estruturada(mensagem: str) -> dict:
         log.warning("Erro LLM (%s) em extracao_movimentacao: %s", _provedor_ativo, e)
         vazio["justificativa"] = "erro_llm"
         return vazio
+
+
+def gerar_titulo_canonico(mensagem: str, descricao: str = "", categoria: str = "") -> dict:
+    """Gera titulo curto para lancamento com score de confianca."""
+    vazio = {
+        "titulo": "",
+        "confianca": 0.0,
+        "justificativa": "llm_indisponivel",
+    }
+
+    if not mensagem or not mensagem.strip():
+        vazio["justificativa"] = "mensagem_vazia"
+        return vazio
+
+    if not _llm_disponivel:
+        return vazio
+
+    msg_compacta = _compactar_texto(mensagem, _MAX_CHARS_MSG_TITULO)
+    desc_compacta = _compactar_texto(descricao or "", _MAX_CHARS_DESC_CATEGORIZACAO)
+    cat_compacta = _compactar_texto(categoria or "", 60)
+
+    prompt = TITLE_GENERATION_PROMPT.format(
+        mensagem=msg_compacta,
+        descricao=desc_compacta,
+        categoria=cat_compacta,
+    )
+
+    try:
+        bruto = _chat_llm(
+            prompt,
+            temperature=0.0,
+            max_tokens=_MAX_TOKENS_TITULO,
+        )
+
+        data = None
+        try:
+            data = json.loads(bruto)
+        except Exception:
+            match = re.search(r'\{[\s\S]*\}', bruto)
+            if match:
+                data = json.loads(match.group(0))
+
+        if not isinstance(data, dict):
+            return {"titulo": "", "confianca": 0.0, "justificativa": "json_invalido"}
+
+        titulo = str(data.get("titulo", "") or "").strip()
+        try:
+            confianca = float(data.get("confianca", 0.0))
+        except (TypeError, ValueError):
+            confianca = 0.0
+        confianca = max(0.0, min(1.0, confianca))
+        justificativa = str(data.get("justificativa", "") or "").strip()
+
+        return {
+            "titulo": titulo,
+            "confianca": confianca,
+            "justificativa": justificativa,
+        }
+    except Exception as e:
+        log.warning("Erro LLM (%s) em gerar_titulo_canonico: %s", _provedor_ativo, e)
+        return {"titulo": "", "confianca": 0.0, "justificativa": "erro_llm"}

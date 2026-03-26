@@ -7,6 +7,7 @@ import sqlite3
 import hashlib
 import secrets
 import json
+import re
 from contextlib import contextmanager
 from datetime import datetime, date, timedelta
 from typing import Optional
@@ -106,6 +107,18 @@ def init_db():
             UNIQUE(usuario_id, chave)
         );
 
+        CREATE TABLE IF NOT EXISTS titulo_aprendizado (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id      INTEGER NOT NULL,
+            mensagem_norm   TEXT    NOT NULL,
+            categoria       TEXT    NOT NULL DEFAULT '',
+            titulo          TEXT    NOT NULL,
+            usos            INTEGER NOT NULL DEFAULT 1,
+            atualizado_em   TEXT    NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
+            UNIQUE(usuario_id, mensagem_norm, categoria)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_mov_usuario
             ON movimentacoes(usuario_id, data_ref);
 
@@ -114,6 +127,9 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_conversa_estado_expira
             ON conversa_estado(expira_em);
+
+        CREATE INDEX IF NOT EXISTS idx_titulo_aprendizado_usuario
+            ON titulo_aprendizado(usuario_id, atualizado_em);
         """)
 
         # Migração: adiciona colunas novas se ainda não existem
@@ -258,23 +274,32 @@ def buscar_dividas_por_descricao(
     ano_mes: Optional[str] = None,
 ) -> list[dict]:
     """Busca dívidas por descrição/credor (case-insensitive)."""
-    if ano_mes is None:
-        ano_mes = date.today().strftime("%Y-%m")
-
     with _db() as conn:
         cur = conn.cursor()
         desc_lower = descricao.lower().strip()
-        cur.execute(
-            """
-            SELECT id, valor, credor, descricao, data_ref
-            FROM dividas
-            WHERE usuario_id = ?
-              AND data_ref LIKE ?
-              AND (LOWER(descricao) LIKE ? OR LOWER(credor) LIKE ?)
-            ORDER BY data_ref DESC, id DESC
-            """,
-            (usuario_id, f"{ano_mes}%", f"%{desc_lower}%", f"%{desc_lower}%"),
-        )
+        if ano_mes:
+            cur.execute(
+                """
+                SELECT id, valor, credor, descricao, data_ref
+                FROM dividas
+                WHERE usuario_id = ?
+                  AND data_ref LIKE ?
+                  AND (LOWER(descricao) LIKE ? OR LOWER(credor) LIKE ?)
+                ORDER BY data_ref DESC, id DESC
+                """,
+                (usuario_id, f"{ano_mes}%", f"%{desc_lower}%", f"%{desc_lower}%"),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id, valor, credor, descricao, data_ref
+                FROM dividas
+                WHERE usuario_id = ?
+                  AND (LOWER(descricao) LIKE ? OR LOWER(credor) LIKE ?)
+                ORDER BY data_ref DESC, id DESC
+                """,
+                (usuario_id, f"%{desc_lower}%", f"%{desc_lower}%"),
+            )
         return [dict(row) for row in cur.fetchall()]
 
 
@@ -372,20 +397,28 @@ def limpar_dividas(usuario_id: int, ano_mes: Optional[str] = None) -> int:
 
 
 def totais_dividas(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
-    """Retorna total e quantidade de dívidas do mês."""
-    if ano_mes is None:
-        ano_mes = date.today().strftime("%Y-%m")
+    """Retorna total e quantidade de dívidas (mês específico ou em aberto geral)."""
 
     with _db() as conn:
         cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT COUNT(*) as qtd, SUM(valor) as total
-            FROM dividas
-            WHERE usuario_id = ? AND data_ref LIKE ?
-            """,
-            (usuario_id, f"{ano_mes}%"),
-        )
+        if ano_mes:
+            cur.execute(
+                """
+                SELECT COUNT(*) as qtd, SUM(valor) as total
+                FROM dividas
+                WHERE usuario_id = ? AND data_ref LIKE ?
+                """,
+                (usuario_id, f"{ano_mes}%"),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT COUNT(*) as qtd, SUM(valor) as total
+                FROM dividas
+                WHERE usuario_id = ?
+                """,
+                (usuario_id,),
+            )
         row = cur.fetchone()
 
     return {
@@ -400,11 +433,12 @@ def quitar_dividas(
     ano_mes: Optional[str] = None,
 ) -> dict:
     """Quita (remove) dívidas em aberto do usuário, opcionalmente por credor e mês."""
-    if ano_mes is None:
-        ano_mes = date.today().strftime("%Y-%m")
+    filtros = ["usuario_id = ?"]
+    params: list = [usuario_id]
 
-    filtros = ["usuario_id = ?", "data_ref LIKE ?"]
-    params: list = [usuario_id, f"{ano_mes}%"]
+    if ano_mes:
+        filtros.append("data_ref LIKE ?")
+        params.append(f"{ano_mes}%")
 
     if credor and credor.strip():
         filtros.append("LOWER(credor) LIKE ?")
@@ -452,9 +486,6 @@ def pagar_divida(
     Aplica pagamento parcial/total em dívidas do usuário.
     O pagamento é aplicado das dívidas mais antigas para as mais novas.
     """
-    if ano_mes is None:
-        ano_mes = date.today().strftime("%Y-%m")
-
     valor_restante = float(valor_pago or 0.0)
     if valor_restante <= 0:
         return {
@@ -464,8 +495,11 @@ def pagar_divida(
             "qtd_atualizadas": 0,
         }
 
-    filtros = ["usuario_id = ?", "data_ref LIKE ?"]
-    params: list = [usuario_id, f"{ano_mes}%"]
+    filtros = ["usuario_id = ?"]
+    params: list = [usuario_id]
+    if ano_mes:
+        filtros.append("data_ref LIKE ?")
+        params.append(f"{ano_mes}%")
     if credor and credor.strip():
         filtros.append("LOWER(credor) LIKE ?")
         params.append(f"%{credor.strip().lower()}%")
@@ -1072,6 +1106,146 @@ def listar_categorias_por_tipo(
             )
 
         return [dict(row) for row in cur.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# Aprendizado de titulo por usuario
+# ---------------------------------------------------------------------------
+
+def _normalizar_texto_aprendizado(texto: str) -> str:
+    t = (texto or "").strip().lower()
+    t = re.sub(r"[^\w\sÀ-ÿ]", " ", t)
+    t = re.sub(r"\s+", " ", t)
+    return t.strip()
+
+
+def _tokens_aprendizado(texto: str) -> set[str]:
+    return {tok for tok in _normalizar_texto_aprendizado(texto).split() if tok}
+
+
+def _similaridade_jaccard(a: str, b: str) -> float:
+    ta = _tokens_aprendizado(a)
+    tb = _tokens_aprendizado(b)
+    if not ta or not tb:
+        return 0.0
+    inter = len(ta & tb)
+    uniao = len(ta | tb)
+    return float(inter / uniao) if uniao else 0.0
+
+
+def _ensure_titulo_aprendizado_table(conn: sqlite3.Connection) -> None:
+    """Garante a existência da tabela de aprendizado em bancos antigos."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS titulo_aprendizado (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id      INTEGER NOT NULL,
+            mensagem_norm   TEXT    NOT NULL,
+            categoria       TEXT    NOT NULL DEFAULT '',
+            titulo          TEXT    NOT NULL,
+            usos            INTEGER NOT NULL DEFAULT 1,
+            atualizado_em   TEXT    NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
+            UNIQUE(usuario_id, mensagem_norm, categoria)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_titulo_aprendizado_usuario
+            ON titulo_aprendizado(usuario_id, atualizado_em)
+        """
+    )
+    conn.commit()
+
+
+def registrar_titulo_aprendido(
+    usuario_id: int,
+    mensagem: str,
+    titulo: str,
+    categoria: Optional[str] = None,
+) -> None:
+    """Registra titulo final para reaproveitar em mensagens parecidas."""
+    msg_norm = _normalizar_texto_aprendizado(mensagem)
+    titulo_limpo = (titulo or "").strip()
+    categoria_norm = (categoria or "").strip().lower()
+
+    if not msg_norm or not titulo_limpo:
+        return
+
+    with _db() as conn:
+        _ensure_titulo_aprendizado_table(conn)
+        conn.execute(
+            """
+            INSERT INTO titulo_aprendizado (usuario_id, mensagem_norm, categoria, titulo)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(usuario_id, mensagem_norm, categoria) DO UPDATE SET
+                titulo = excluded.titulo,
+                usos = titulo_aprendizado.usos + 1,
+                atualizado_em = datetime('now')
+            """,
+            (usuario_id, msg_norm, categoria_norm, titulo_limpo),
+        )
+        conn.commit()
+
+
+def buscar_titulo_aprendido(
+    usuario_id: int,
+    mensagem: str,
+    categoria: Optional[str] = None,
+    similaridade_minima: float = 0.56,
+) -> dict | None:
+    """Sugere titulo com base em historico do proprio usuario."""
+    msg_norm = _normalizar_texto_aprendizado(mensagem)
+    if not msg_norm:
+        return None
+
+    categoria_norm = (categoria or "").strip().lower()
+
+    with _db() as conn:
+        _ensure_titulo_aprendizado_table(conn)
+        cur = conn.cursor()
+        if categoria_norm:
+            cur.execute(
+                """
+                SELECT mensagem_norm, titulo, categoria, usos
+                FROM titulo_aprendizado
+                WHERE usuario_id = ? AND (categoria = ? OR categoria = '')
+                ORDER BY atualizado_em DESC
+                LIMIT 120
+                """,
+                (usuario_id, categoria_norm),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT mensagem_norm, titulo, categoria, usos
+                FROM titulo_aprendizado
+                WHERE usuario_id = ?
+                ORDER BY atualizado_em DESC
+                LIMIT 120
+                """,
+                (usuario_id,),
+            )
+        candidatos = [dict(row) for row in cur.fetchall()]
+
+    melhor = None
+    melhor_score = 0.0
+    for cand in candidatos:
+        score = _similaridade_jaccard(msg_norm, cand.get("mensagem_norm") or "")
+        if score > melhor_score:
+            melhor_score = score
+            melhor = cand
+
+    if not melhor or melhor_score < similaridade_minima:
+        return None
+
+    return {
+        "titulo": melhor.get("titulo") or "",
+        "categoria": melhor.get("categoria") or "",
+        "similaridade": float(melhor_score),
+        "usos": int(melhor.get("usos") or 0),
+    }
 
 
 # ---------------------------------------------------------------------------

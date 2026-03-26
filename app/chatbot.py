@@ -28,6 +28,7 @@ import logging
 import re
 import time
 import json
+import unicodedata
 from pathlib import Path
 from contextvars import ContextVar
 from datetime import date, datetime
@@ -73,6 +74,8 @@ from app.database import (
     get_estado_conversa,
     clear_estado_conversa,
     clear_todos_estados_conversa,
+    buscar_titulo_aprendido,
+    registrar_titulo_aprendido,
 )
 from app.parser import detectar_intencao, CATEGORIAS_KEYWORDS
 from app.responder import (
@@ -91,7 +94,15 @@ from app.financeiro import (
     formatar_real,
     detectar_gasto_fora_do_padrao,
 )
-from app.config import BOT_REQUEST_LOG_ENABLED, BOT_REQUEST_LOG_PATH, BOT_RESPONSE_DELAY_SECONDS
+from app.config import (
+    BOT_REQUEST_LOG_ENABLED,
+    BOT_REQUEST_LOG_PATH,
+    BOT_RESPONSE_DELAY_SECONDS,
+    INTENT_CONFIRM_MIN_SCORE,
+    INTENT_CONFIRM_MIN_MARGIN,
+    TITLE_CONFIRM_MIN_SCORE,
+    TITLE_CONFIRM_MIN_MARGIN,
+)
 
 
 log = logging.getLogger("caco.chatbot")
@@ -204,6 +215,7 @@ _pendente_confirmacao_editar = _EstadoMap("pendente_confirmacao_editar")
 _pendente_confirmacao_limpar = _EstadoMap("pendente_confirmacao_limpar")
 _pendente_valor_registro = _EstadoMap("pendente_valor_registro")
 _pendente_confirmacao_intencao = _EstadoMap("pendente_confirmacao_intencao")
+_pendente_confirmacao_titulo = _EstadoMap("pendente_confirmacao_titulo")
 _pendente_descricao_registro = _EstadoMap("pendente_descricao_registro")
 _aguardando_senha_login = _EstadoSet("aguardando_senha_login")
 
@@ -506,18 +518,462 @@ def _duvida_posso_gastar_e_complexa(mensagem: str) -> bool:
     return len(texto.split()) >= 18
 
 
-def _normalizar_credor_texto(credor: str) -> str:
-    """Normaliza credor extraído pela IA para evitar artigos/preposições no início."""
-    c = (credor or "").strip(" .,!?:;-")
-    if not c:
+def _normalizar_rotulo_curto(
+    texto: str,
+    max_palavras: int = 4,
+    remover_artigos_inicio: bool = True,
+) -> str:
+    """Limpa rótulos livres para ficarem objetivos e curtos."""
+    base = (texto or "").strip(" .,!?:;-")
+    if not base:
         return ""
-    c = re.sub(
-        r"^(?:d[aeo]s?|n[oa]s?|pr[ao]s?|para|com|aos?|as|o|a)\s+",
-        "",
-        c,
-        flags=re.IGNORECASE,
+
+    base = re.sub(r"\s+", " ", base)
+    if remover_artigos_inicio:
+        base = re.sub(
+            r"^(?:o|a|os|as|um|uma|uns|umas|do|da|dos|das|de|no|na|nos|nas|ao|aos|a|as|pro|pra|para|com)\s+",
+            "",
+            base,
+            flags=re.IGNORECASE,
+        )
+
+    palavras_brutas = [p.strip(" .,!?:;-") for p in base.split(" ") if p.strip(" .,!?:;-")]
+    palavras = []
+    for p in palavras_brutas:
+        # Evita que números virem parte do título (ex.: "devo nubank 300").
+        if re.fullmatch(r"\d+(?:[.,]\d+)?", p):
+            continue
+        palavras.append(p)
+    if not palavras:
+        return ""
+
+    return " ".join(palavras[:max_palavras]).strip(" .,!?:;-")
+
+
+def _normalizar_descricao_registro(descricao: str) -> str:
+    """Normaliza descrição de entrada/saída/dívida para no máximo 4 palavras."""
+    normalizada = _normalizar_rotulo_curto(descricao, max_palavras=4, remover_artigos_inicio=True)
+    if normalizada:
+        return normalizada
+    return _normalizar_rotulo_curto(descricao, max_palavras=4, remover_artigos_inicio=False)
+
+
+_TERMOS_TITULO_GENERICO = {
+    "ajuda", "coisa", "negocio", "item", "lancamento", "movimentacao", "gasto", "entrada", "divida"
+}
+
+_VERBOS_TITULO_GENERICOS = {
+    "comprei", "paguei", "gastei", "ganhei", "recebi", "devo", "fiquei", "pagamento", "gasto", "receita"
+}
+
+_VERBOS_PEDIDO_AJUDA = {
+    "ajuda", "ajudar", "anota", "anotar", "registra", "registrar", "registrando"
+}
+
+_STOPWORDS_TITULO = {
+    "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas", "com", "para", "pra", "pro",
+    "por", "meu", "minha", "meus", "minhas", "um", "uma", "uns", "umas", "o", "a", "os", "as",
+    "quando", "que", "ele", "ela", "isso", "hoje", "ontem", "amanha", "sexta", "sabado", "domingo",
+}
+
+_TITULO_PADRAO_CATEGORIA = {
+    "alimentacao": "refeicao",
+    "transporte": "deslocamento",
+    "lazer": "lazer",
+    "moradia": "casa",
+    "saude": "saude",
+    "educacao": "estudo",
+    "compras": "compra",
+    "servicos": "servico",
+    "salario": "salario",
+    "freelas": "freela",
+    "dividas": "divida",
+    "outros": "lancamento",
+}
+
+
+def _titulo_padrao_para_contexto(intencao: str, categoria: str | None) -> str:
+    cat = (categoria or "outros").strip().lower()
+    if intencao == "registrar_divida":
+        return "divida"
+    return _TITULO_PADRAO_CATEGORIA.get(cat, "lancamento")
+
+
+def _ascii_lower(texto: str) -> str:
+    t = unicodedata.normalize("NFKD", (texto or "").strip().lower()).encode("ascii", "ignore").decode("ascii")
+    t = re.sub(r"([a-z])\1{2,}", r"\1", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def _tokens_titulo_base(texto: str) -> list[str]:
+    tokens = re.findall(r"[\wÀ-ÿ]+", (texto or "").lower())
+    limpos: list[str] = []
+    for tok in tokens:
+        a = _ascii_lower(tok)
+        if not a:
+            continue
+        if a in _STOPWORDS_TITULO:
+            continue
+        if a in _VERBOS_TITULO_GENERICOS or a in _VERBOS_PEDIDO_AJUDA:
+            continue
+        limpos.append(tok)
+    return limpos
+
+
+def _finalizar_titulo_canonico(texto: str) -> str:
+    """Aplica formato canônico final para reduzir variação lexical."""
+    return _normalizar_descricao_registro(_ascii_lower(texto or ""))
+
+
+def _extrair_parte_apos_pix(mensagem: str) -> str:
+    msg = _ascii_lower(mensagem)
+    m = re.search(r"pix\s+(?:de|do|da|pro|pra|para)\s+([a-z0-9_\s]+)", msg)
+    if not m:
+        return ""
+    nome = " ".join([p for p in m.group(1).split() if p][:2]).strip()
+    return nome
+
+
+def _tem_token_msg(msg_ascii: str, token_ascii: str) -> bool:
+    return bool(re.search(rf"(?<!\w){re.escape(token_ascii)}(?!\w)", msg_ascii))
+
+
+def _gerar_titulo_regra(
+    intencao: str,
+    mensagem_original: str,
+    descricao: str,
+    categoria: str | None,
+    credor: str = "",
+) -> str:
+    """Gera titulo canônico determinístico para reduzir variação da IA."""
+    desc_tokens = _tokens_titulo_base(descricao)
+    msg_low = _ascii_lower(mensagem_original)
+    credor_limpo = _normalizar_credor_texto(credor or "")
+
+    if intencao == "registrar_divida":
+        if re.search(r"\bpeguei\s+\d+\s+emprestado\s+com\s+([a-z0-9_\s]+)", msg_low):
+            m = re.search(r"\bpeguei\s+\d+\s+emprestado\s+com\s+([a-z0-9_\s]+)", msg_low)
+            partes = [p for p in (m.group(1) if m else "").split() if p]
+            if partes and partes[0] in {"a", "o", "as", "os", "um", "uma"}:
+                partes = partes[1:]
+            alvo = " ".join(partes[:1]).strip()
+            return _finalizar_titulo_canonico(f"divida {alvo}" if alvo else "divida")
+        if credor_limpo:
+            return _finalizar_titulo_canonico(f"divida {credor_limpo}")
+        if "cartao" in msg_low or "cartao" in _ascii_lower(descricao):
+            return "divida cartao"
+        if desc_tokens:
+            return _finalizar_titulo_canonico(f"divida {' '.join(desc_tokens[:2])}")
+        return "divida"
+
+    if intencao == "registrar_entrada":
+        if _tem_token_msg(msg_low, "cashback"):
+            return "cashback"
+        if "pix" in msg_low:
+            alvo = _extrair_parte_apos_pix(mensagem_original)
+            return _finalizar_titulo_canonico(f"pix {alvo}" if alvo else "pix")
+        if "transferiram" in msg_low and "pix" in msg_low:
+            return "pix"
+        if (categoria or "").lower() == "salario":
+            return "salario"
+        if desc_tokens:
+            return _finalizar_titulo_canonico(" ".join(desc_tokens[:2]))
+        return _titulo_padrao_para_contexto(intencao, categoria)
+
+    # registrar_saida
+    if re.search(r"\bsai(?:r)?\s+com\s+(?:meu|minha|um|uma|o|a)?\s*amig", msg_low):
+        return "sair com amigo"
+
+    if any(_tem_token_msg(msg_low, k) for k in ("energia", "agua", "internet", "luz", "gas")):
+        if _tem_token_msg(msg_low, "energia"):
+            return "conta energia"
+        if _tem_token_msg(msg_low, "agua"):
+            return "conta agua"
+        if _tem_token_msg(msg_low, "internet"):
+            return "conta internet"
+        if _tem_token_msg(msg_low, "luz"):
+            return "conta luz"
+        if _tem_token_msg(msg_low, "gas"):
+            return "conta gas"
+
+    if any(k in msg_low for k in ("comprei", "comprar", "compra")) and desc_tokens:
+        return _finalizar_titulo_canonico(f"compra {' '.join(desc_tokens[:2])}")
+
+    if _tem_token_msg(msg_low, "uber") and _tem_token_msg(msg_low, "festa"):
+        return "uber festa"
+    if _tem_token_msg(msg_low, "uber") and (_tem_token_msg(msg_low, "volta") or _tem_token_msg(msg_low, "voltando")):
+        return "uber volta"
+
+    if _tem_token_msg(msg_low, "cinema"):
+        return "cinema"
+    if _tem_token_msg(msg_low, "lanche"):
+        return "lanche"
+
+    if _tem_token_msg(msg_low, "show"):
+        return "show"
+
+    if desc_tokens:
+        return _finalizar_titulo_canonico(" ".join(desc_tokens[:3]))
+
+    return _titulo_padrao_para_contexto(intencao, categoria)
+
+
+def _score_titulo_local(titulo: str, mensagem: str, categoria: str | None) -> float:
+    """Score heuristico de qualidade do titulo gerado localmente."""
+    t = (titulo or "").strip().lower()
+    if not t:
+        return 0.0
+
+    tokens = re.findall(r"[\wÀ-ÿ]+", t)
+    if not tokens:
+        return 0.0
+
+    score = 0.48
+    if 2 <= len(tokens) <= 4:
+        score += 0.22
+    elif len(tokens) == 1:
+        score += 0.08
+
+    if any(tok in _TERMOS_TITULO_GENERICO for tok in tokens):
+        score -= 0.22
+
+    if tokens and _ascii_lower(tokens[0]) in _VERBOS_TITULO_GENERICOS:
+        score -= 0.18
+
+    msg_low = (mensagem or "").lower()
+    if t in msg_low:
+        score += 0.08
+
+    cat = (categoria or "").strip().lower()
+    if cat and cat in _TITULO_PADRAO_CATEGORIA:
+        if _TITULO_PADRAO_CATEGORIA[cat] in tokens:
+            score += 0.05
+
+    return max(0.0, min(1.0, score))
+
+
+def _sugerir_titulo_registro(
+    usuario_id: int,
+    mensagem_original: str,
+    intencao: str,
+    descricao: str,
+    categoria: str | None,
+    credor: str = "",
+) -> dict:
+    """Gera melhor sugestao de titulo com fallback local + aprendizado + IA."""
+    categoria_ref = "dividas" if intencao == "registrar_divida" else (categoria or "outros")
+    titulo_regra = _gerar_titulo_regra(
+        intencao=intencao,
+        mensagem_original=mensagem_original,
+        descricao=descricao,
+        categoria=categoria_ref,
+        credor=credor,
     )
-    return re.sub(r"\s+", " ", c).strip(" .,!?:;-")
+    titulo_local = _normalizar_descricao_registro(descricao) or _titulo_padrao_para_contexto(intencao, categoria_ref)
+
+    candidatos: list[dict] = [{
+        "titulo": titulo_regra,
+        "score": _score_titulo_local(titulo_regra, mensagem_original, categoria_ref) + 0.18,
+        "fonte": "regra",
+    }, {
+        "titulo": titulo_local,
+        "score": _score_titulo_local(titulo_local, mensagem_original, categoria_ref),
+        "fonte": "local",
+    }]
+
+    aprendido = buscar_titulo_aprendido(usuario_id, mensagem_original, categoria_ref)
+    if aprendido and aprendido.get("titulo"):
+        titulo_aprendido = _normalizar_descricao_registro(aprendido.get("titulo") or "")
+        if titulo_aprendido:
+            sim = float(aprendido.get("similaridade", 0.0) or 0.0)
+            score_aprendido = max(0.0, min(1.0, 0.78 + (sim * 0.2)))
+            candidatos.append({
+                "titulo": titulo_aprendido,
+                "score": score_aprendido,
+                "fonte": "aprendizado",
+            })
+
+    melhor_local = max(float(c.get("score", 0.0) or 0.0) for c in candidatos)
+    if melhor_local < 0.70:
+        try:
+            from app.llm_service import gerar_titulo_canonico
+
+            titulo_ia = gerar_titulo_canonico(
+                mensagem=mensagem_original,
+                descricao=descricao,
+                categoria=categoria_ref,
+            )
+            titulo_ia_txt = _normalizar_descricao_registro(titulo_ia.get("titulo") or "")
+            if titulo_ia_txt:
+                conf_ia = float(titulo_ia.get("confianca", 0.0) or 0.0)
+                score_heur = _score_titulo_local(titulo_ia_txt, mensagem_original, categoria_ref)
+                score_ia = max(0.0, min(0.74, 0.10 + (conf_ia * 0.25) + (score_heur * 0.35)))
+                candidatos.append({
+                    "titulo": titulo_ia_txt,
+                    "score": score_ia,
+                    "fonte": "ia",
+                })
+        except Exception:
+            pass
+
+    dedup: dict[str, dict] = {}
+    for c in candidatos:
+        key = (c.get("titulo") or "").strip().lower()
+        if not key:
+            continue
+        antigo = dedup.get(key)
+        if antigo is None or float(c.get("score", 0.0)) > float(antigo.get("score", 0.0)):
+            dedup[key] = c
+
+    ordenados = sorted(dedup.values(), key=lambda x: float(x.get("score", 0.0)), reverse=True)
+    if not ordenados:
+        titulo_fallback = _titulo_padrao_para_contexto(intencao, categoria_ref)
+        return {
+            "titulo": titulo_fallback,
+            "score": 0.35,
+            "fonte": "fallback",
+            "alternativa": "",
+            "margem": 0.0,
+            "categoria_ref": categoria_ref,
+        }
+
+    melhor = ordenados[0]
+    segunda = ordenados[1] if len(ordenados) > 1 else None
+    score_melhor = float(melhor.get("score", 0.0) or 0.0)
+    score_segunda = float(segunda.get("score", 0.0) or 0.0) if segunda else 0.0
+
+    return {
+        "titulo": melhor.get("titulo") or _titulo_padrao_para_contexto(intencao, categoria_ref),
+        "score": score_melhor,
+        "fonte": melhor.get("fonte") or "local",
+        "alternativa": (segunda.get("titulo") if segunda else "") or "",
+        "margem": max(0.0, score_melhor - score_segunda),
+        "categoria_ref": categoria_ref,
+    }
+
+
+def _deve_confirmar_titulo(sugestao: dict) -> bool:
+    score = float(sugestao.get("score", 0.0) or 0.0)
+    margem = float(sugestao.get("margem", 0.0) or 0.0)
+    return score < TITLE_CONFIRM_MIN_SCORE or margem < TITLE_CONFIRM_MIN_MARGIN
+
+
+def _montar_pergunta_confirmacao_titulo(titulo: str, alternativa: str = "") -> str:
+    alt = alternativa or "lancamento"
+    return (
+        "📝 Quero confirmar o *titulo* deste lancamento:\n"
+        f"1. {titulo}\n"
+        f"2. {alt}\n\n"
+        "Responda com *1* ou *2*.\n"
+        "Se preferir, escreva outro titulo (maximo 4 palavras)."
+    )
+
+
+def _executar_registro_por_payload(usuario_id: int, payload: dict) -> str:
+    """Executa registro financeiro com payload padronizado e grava aprendizado."""
+    intencao = payload.get("intencao")
+    valor = float(payload.get("valor", 0.0) or 0.0)
+    descricao = _normalizar_descricao_registro(payload.get("descricao") or "")
+    data_ref = payload.get("data_ref") or date.today().isoformat()
+    categoria_regra = payload.get("categoria_regra")
+    credor = _normalizar_credor_texto(payload.get("credor_divida") or "")
+    mensagem_original = payload.get("mensagem_original") or descricao
+
+    if intencao == "registrar_entrada":
+        categoria = _resolver_categoria(categoria_regra, descricao)
+        registrar_movimentacao(
+            usuario_id=usuario_id,
+            tipo="entrada",
+            valor=valor,
+            categoria=categoria,
+            descricao=descricao,
+            data_ref=data_ref,
+        )
+        registrar_titulo_aprendido(usuario_id, mensagem_original, descricao, categoria)
+        return _montar_resposta_registro("entrada", valor, descricao, categoria, usuario_id, data_ref=data_ref)
+
+    if intencao == "registrar_divida":
+        registrar_divida(
+            usuario_id=usuario_id,
+            valor=valor,
+            credor=credor,
+            descricao=descricao or "Divida",
+            data_ref=data_ref,
+        )
+        registrar_titulo_aprendido(usuario_id, mensagem_original, descricao or "divida", "dividas")
+        return _montar_resposta_registro_divida(
+            valor=valor,
+            descricao=descricao or "Divida",
+            credor=credor,
+            usuario_id=usuario_id,
+            data_ref=data_ref,
+        )
+
+    categoria = _resolver_categoria(categoria_regra, descricao)
+    registrar_movimentacao(
+        usuario_id=usuario_id,
+        tipo="saida",
+        valor=valor,
+        categoria=categoria,
+        descricao=descricao,
+        data_ref=data_ref,
+    )
+    registrar_titulo_aprendido(usuario_id, mensagem_original, descricao, categoria)
+    alerta = detectar_gasto_fora_do_padrao(usuario_id, categoria, valor)
+    return _montar_resposta_registro("saida", valor, descricao, categoria, usuario_id, alerta, data_ref=data_ref)
+
+
+def _processar_fluxo_titulo_ou_registro(
+    usuario_id: int,
+    mensagem_original: str,
+    intencao: str,
+    valor: float,
+    descricao: str,
+    categoria_regra: str | None,
+    data_ref: str,
+    credor_divida: str = "",
+) -> str:
+    """Resolve titulo com confianca; confirma quando ambiguo; registra em seguida."""
+    categoria_preview = None
+    if intencao in ("registrar_entrada", "registrar_saida"):
+        categoria_preview = _resolver_categoria(categoria_regra, descricao)
+
+    sugestao = _sugerir_titulo_registro(
+        usuario_id=usuario_id,
+        mensagem_original=mensagem_original,
+        intencao=intencao,
+        descricao=descricao,
+        categoria=categoria_preview,
+        credor=credor_divida,
+    )
+
+    payload = {
+        "intencao": intencao,
+        "valor": float(valor),
+        "descricao": sugestao.get("titulo") or descricao,
+        "categoria_regra": categoria_regra,
+        "data_ref": data_ref,
+        "credor_divida": credor_divida,
+        "mensagem_original": mensagem_original,
+    }
+
+    if _deve_confirmar_titulo(sugestao):
+        _pendente_confirmacao_titulo[usuario_id] = {
+            "payload": payload,
+            "op1": sugestao.get("titulo") or _titulo_padrao_para_contexto(intencao, categoria_preview),
+            "op2": sugestao.get("alternativa") or _titulo_padrao_para_contexto(intencao, categoria_preview),
+        }
+        return _montar_pergunta_confirmacao_titulo(
+            titulo=_pendente_confirmacao_titulo.get(usuario_id, {}).get("op1", "lancamento"),
+            alternativa=_pendente_confirmacao_titulo.get(usuario_id, {}).get("op2", "lancamento"),
+        )
+
+    return _executar_registro_por_payload(usuario_id, payload)
+
+
+def _normalizar_credor_texto(credor: str) -> str:
+    """Normaliza credor para no máximo 4 palavras e sem prefixos genéricos."""
+    return _normalizar_rotulo_curto(credor, max_palavras=4, remover_artigos_inicio=True)
 
 
 def _deve_forcar_extracao_ia(mensagem: str, parsed: dict) -> bool:
@@ -671,9 +1127,10 @@ def _deve_confirmar_intencao(parsed: dict, confianca: dict) -> bool:
     segunda_score = float(confianca.get("segunda_score", 0.0) or 0.0)
     margem = top_score - segunda_score
 
-    if top_score < 0.58:
+    # Gate configurável via .env para calibrar rigor por ambiente.
+    if top_score < INTENT_CONFIRM_MIN_SCORE:
         return True
-    if segunda in sensiveis and margem < 0.14:
+    if segunda in sensiveis and margem < INTENT_CONFIRM_MIN_MARGIN:
         return True
     return False
 
@@ -695,6 +1152,7 @@ def _resolver_confirmacao_intencao(usuario_id: int, mensagem: str) -> tuple[dict
         return None, None
 
     texto = (mensagem or "").strip().lower()
+    texto_limpo = re.sub(r"[\s\.!,:;_-]+", " ", texto).strip()
     if texto in ("cancelar", "cancela", "nao", "não", "n"):
         _pendente_confirmacao_intencao.pop(usuario_id, None)
         return None, "Beleza, cancelei essa ação."
@@ -704,16 +1162,26 @@ def _resolver_confirmacao_intencao(usuario_id: int, mensagem: str) -> tuple[dict
     parsed_base = pend.get("parsed") or {}
 
     escolha = None
-    if texto in ("1", "opcao 1", "opção 1"):
+    if texto in ("1", "1.") or texto_limpo in ("1", "opcao 1", "opção 1"):
         escolha = op1
-    elif texto in ("2", "opcao 2", "opção 2"):
+    elif texto in ("2", "2.") or texto_limpo in ("2", "opcao 2", "opção 2"):
         escolha = op2
+
+    # Também aceita resposta textual com o rótulo mostrado ao usuário.
+    if not escolha:
+        rotulo1 = _rotulo_intencao(op1)
+        rotulo2 = _rotulo_intencao(op2)
+        if texto_limpo == rotulo1:
+            escolha = op1
+        elif texto_limpo == rotulo2:
+            escolha = op2
 
     if not escolha:
         return None, "Responde com *1* ou *2* (ou *cancelar*)."
 
     _pendente_confirmacao_intencao.pop(usuario_id, None)
     parsed_base["intencao"] = escolha
+    parsed_base["_confirmacao_manual"] = True
     return parsed_base, None
 
 
@@ -893,6 +1361,32 @@ def processar_mensagem(telefone: str, mensagem: str) -> str:
     return resposta
 
 
+def prever_titulo_lancamento(mensagem: str) -> dict:
+    """Retorna sugestao de titulo canônico para avaliações offline."""
+    parsed = detectar_intencao(mensagem)
+    intencao = parsed.get("intencao") or "registrar_saida"
+    if intencao not in {"registrar_entrada", "registrar_saida", "registrar_divida"}:
+        intencao = "registrar_saida"
+
+    descricao = _normalizar_descricao_registro(parsed.get("descricao") or "")
+    categoria = parsed.get("categoria_regra")
+    sugestao = _sugerir_titulo_registro(
+        usuario_id=0,
+        mensagem_original=mensagem,
+        intencao=intencao,
+        descricao=descricao,
+        categoria=categoria,
+        credor=parsed.get("credor_divida") or "",
+    )
+
+    return {
+        "intencao": intencao,
+        "titulo": sugestao.get("titulo") or "",
+        "score": float(sugestao.get("score", 0.0) or 0.0),
+        "fonte": sugestao.get("fonte") or "local",
+    }
+
+
 def _montar_contexto_observacao_resumo(
     resumo: dict,
     totais_div: dict,
@@ -1051,12 +1545,17 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         )
 
     # --- Verifica se há confirmação pendente de intenção ambígua ---
+    confirmou_intencao_manual = False
+    if usuario_id in _pendente_confirmacao_titulo:
+        return _processar_confirmacao_titulo(usuario_id, mensagem)
+
     if usuario_id in _pendente_confirmacao_intencao:
         parsed_confirmado, resposta_confirmacao = _resolver_confirmacao_intencao(usuario_id, mensagem)
         if resposta_confirmacao:
             return resposta_confirmacao
         if parsed_confirmado:
             parsed = parsed_confirmado
+            confirmou_intencao_manual = bool(parsed.get("_confirmacao_manual"))
             intencao = parsed["intencao"]
             valor = parsed["valor"]
             descricao = parsed["descricao"]
@@ -1126,15 +1625,19 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
 
     # Mensagens financeiras ambíguas/complexas passam por IA para
     # extrair tipo, valor, descrição, categoria e credor quando aplicável.
-    if _deve_forcar_extracao_ia(mensagem, parsed):
+    if (not confirmou_intencao_manual) and _deve_forcar_extracao_ia(mensagem, parsed):
         parsed = _aplicar_extracao_ia_financeira(mensagem, parsed)
         intencao = parsed["intencao"]
         valor = parsed["valor"]
         descricao = parsed["descricao"]
         data_ref = parsed["data"] or date.today().isoformat()
 
+    descricao = _normalizar_descricao_registro(descricao)
+    parsed["descricao"] = descricao
+    parsed["credor_divida"] = _normalizar_credor_texto(parsed.get("credor_divida") or "")
+
     confianca = _calcular_confianca_intencao(mensagem, parsed)
-    if _deve_confirmar_intencao(parsed, confianca):
+    if (not confirmou_intencao_manual) and _deve_confirmar_intencao(parsed, confianca):
         op1 = confianca["top_intencao"]
         op2 = confianca["segunda_intencao"]
         if op1 != op2:
@@ -1247,23 +1750,23 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     # Helper: label do mês para mensagens
     label_mes = _nome_mes(mes_ref)
     sufixo_mes = f" em *{label_mes}*" if mes_ref else ""
+    label_dividas = label_mes if mes_ref else "em aberto"
+    sufixo_dividas = f" em *{label_dividas}*"
 
     # 4. Executa ação no banco e monta resposta com dados reais
     #    TODAS as respostas financeiras são montadas por código.
     #    O LLM NUNCA vê nem gera valores.
 
     if intencao == "registrar_entrada" and valor and valor > 0:
-        categoria = _resolver_categoria(categoria_regra, descricao)
-
-        registrar_movimentacao(
+        return _processar_fluxo_titulo_ou_registro(
             usuario_id=usuario_id,
-            tipo="entrada",
-            valor=valor,
-            categoria=categoria,
+            mensagem_original=mensagem,
+            intencao="registrar_entrada",
+            valor=float(valor),
             descricao=descricao,
+            categoria_regra=categoria_regra,
             data_ref=data_ref,
         )
-        return _montar_resposta_registro("entrada", valor, descricao, categoria, usuario_id, data_ref=data_ref)
 
     elif intencao == "registrar_saldo_inicial" and valor and valor > 0:
         registrar_movimentacao(
@@ -1285,35 +1788,26 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         )
 
     elif intencao == "registrar_saida" and valor and valor > 0:
-        categoria = _resolver_categoria(categoria_regra, descricao)
-
-        registrar_movimentacao(
+        return _processar_fluxo_titulo_ou_registro(
             usuario_id=usuario_id,
-            tipo="saida",
-            valor=valor,
-            categoria=categoria,
+            mensagem_original=mensagem,
+            intencao="registrar_saida",
+            valor=float(valor),
             descricao=descricao,
+            categoria_regra=categoria_regra,
             data_ref=data_ref,
         )
-        alerta = detectar_gasto_fora_do_padrao(usuario_id, categoria, valor)
-        return _montar_resposta_registro("saida", valor, descricao, categoria, usuario_id, alerta, data_ref=data_ref)
 
     elif intencao == "registrar_divida" and valor and valor > 0:
-        descricao_divida = descricao or "Divida"
-        credor = (parsed.get("credor_divida") or "").strip()
-        registrar_divida(
+        return _processar_fluxo_titulo_ou_registro(
             usuario_id=usuario_id,
-            valor=valor,
-            credor=credor,
-            descricao=descricao_divida,
+            mensagem_original=mensagem,
+            intencao="registrar_divida",
+            valor=float(valor),
+            descricao=descricao or "Divida",
+            categoria_regra=categoria_regra,
             data_ref=data_ref,
-        )
-        return _montar_resposta_registro_divida(
-            valor=valor,
-            descricao=descricao_divida,
-            credor=credor,
-            usuario_id=usuario_id,
-            data_ref=data_ref,
+            credor_divida=(parsed.get("credor_divida") or ""),
         )
 
     elif intencao == "quitar_dividas":
@@ -1323,8 +1817,8 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         total = float(resultado.get("valor_quitado", 0.0) or 0.0)
         if qtd == 0:
             if credor:
-                return f"Não encontrei dívidas com *{credor}* para quitar{(sufixo_mes or '')}."
-            return f"Você não tem dívidas para quitar{(sufixo_mes or '')}."
+                return f"Não encontrei dívidas com *{credor}* para quitar{sufixo_dividas}."
+            return f"Você não tem dívidas para quitar{sufixo_dividas}."
 
         alvo = f" com *{credor}*" if credor else ""
         return (
@@ -1343,8 +1837,8 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
 
         if valor_aplicado <= 0:
             if credor:
-                return f"Não encontrei dívidas com *{credor}* para aplicar esse pagamento{(sufixo_mes or '')}."
-            return f"Não encontrei dívidas para aplicar esse pagamento{(sufixo_mes or '')}."
+                return f"Não encontrei dívidas com *{credor}* para aplicar esse pagamento{sufixo_dividas}."
+            return f"Não encontrei dívidas para aplicar esse pagamento{sufixo_dividas}."
 
         alvo = f" com *{credor}*" if credor else ""
         resposta = (
@@ -1517,7 +2011,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         tipo_listar = parsed.get("tipo_listar")  # 'entrada', 'saida' ou None
         if tipo_listar == "divida":
             dividas = listar_dividas_recentes(usuario_id, limite=30, ano_mes=mes_ref)
-            return gerar_resposta_listar_dividas(dividas, label_mes=label_mes)
+            return gerar_resposta_listar_dividas(dividas, label_mes=label_dividas)
 
         if tipo_listar is None:
             movimentacoes = listar_movimentacoes_recentes(
@@ -1802,6 +2296,35 @@ def _processar_confirmacao_limpar(usuario_id: int, mensagem: str) -> str:
     return "🤔 Manda *sim* pra confirmar ou *não* pra cancelar."
 
 
+def _processar_confirmacao_titulo(usuario_id: int, mensagem: str) -> str:
+    """Resolve escolha de titulo sugerido (1/2) ou titulo customizado."""
+    pendente = _pendente_confirmacao_titulo.get(usuario_id)
+    if not pendente:
+        return "Ops, perdi o contexto desse titulo. Me manda o lancamento de novo."
+
+    texto = (mensagem or "").strip()
+    texto_lower = texto.lower()
+    if texto_lower in ("cancelar", "cancela", "nao", "não", "deixa", "esquece"):
+        _pendente_confirmacao_titulo.pop(usuario_id, None)
+        return "Beleza, cancelei esse lancamento."
+
+    op1 = (pendente.get("op1") or "lancamento").strip()
+    op2 = (pendente.get("op2") or op1).strip()
+    payload = pendente.get("payload") or {}
+
+    escolha_num = re.match(r"^\s*([12])(?:[\).\-]\s*)?$", texto)
+    if escolha_num:
+        titulo = op1 if escolha_num.group(1) == "1" else op2
+    else:
+        titulo = _normalizar_descricao_registro(texto)
+        if not titulo:
+            return "Responda com *1* ou *2*, ou escreva um titulo curto (maximo 4 palavras)."
+
+    payload["descricao"] = titulo
+    _pendente_confirmacao_titulo.pop(usuario_id, None)
+    return _executar_registro_por_payload(usuario_id, payload)
+
+
 def _processar_pendente_valor_registro(usuario_id: int, mensagem: str) -> str:
     """Completa um registro pendente quando o usuário envia só o valor."""
     pendente = _pendente_valor_registro.get(usuario_id)
@@ -1822,54 +2345,47 @@ def _processar_pendente_valor_registro(usuario_id: int, mensagem: str) -> str:
         )
 
     intencao = pendente.get("intencao")
-    descricao = pendente.get("descricao") or ""
+    descricao = _normalizar_descricao_registro(pendente.get("descricao") or "")
     categoria_regra = pendente.get("categoria_regra")
     data_ref = pendente.get("data_ref") or date.today().isoformat()
-    credor = (pendente.get("credor_divida") or "").strip()
+    credor = _normalizar_credor_texto((pendente.get("credor_divida") or "").strip())
 
     _pendente_valor_registro.pop(usuario_id, None)
     valor = float(valor)
 
     if intencao == "registrar_entrada":
-        categoria = _resolver_categoria(categoria_regra, descricao)
-        registrar_movimentacao(
+        return _processar_fluxo_titulo_ou_registro(
             usuario_id=usuario_id,
-            tipo="entrada",
+            mensagem_original=mensagem,
+            intencao="registrar_entrada",
             valor=valor,
-            categoria=categoria,
             descricao=descricao,
+            categoria_regra=categoria_regra,
             data_ref=data_ref,
         )
-        return _montar_resposta_registro("entrada", valor, descricao, categoria, usuario_id, data_ref=data_ref)
 
     if intencao == "registrar_divida":
-        registrar_divida(
+        return _processar_fluxo_titulo_ou_registro(
             usuario_id=usuario_id,
-            valor=valor,
-            credor=credor,
-            descricao=descricao or "Divida",
-            data_ref=data_ref,
-        )
-        return _montar_resposta_registro_divida(
+            mensagem_original=mensagem,
+            intencao="registrar_divida",
             valor=valor,
             descricao=descricao or "Divida",
-            credor=credor,
-            usuario_id=usuario_id,
+            categoria_regra=categoria_regra,
             data_ref=data_ref,
+            credor_divida=credor,
         )
 
     # fallback: registrar_saida
-    categoria = _resolver_categoria(categoria_regra, descricao)
-    registrar_movimentacao(
+    return _processar_fluxo_titulo_ou_registro(
         usuario_id=usuario_id,
-        tipo="saida",
+        mensagem_original=mensagem,
+        intencao="registrar_saida",
         valor=valor,
-        categoria=categoria,
         descricao=descricao,
+        categoria_regra=categoria_regra,
         data_ref=data_ref,
     )
-    alerta = detectar_gasto_fora_do_padrao(usuario_id, categoria, valor)
-    return _montar_resposta_registro("saida", valor, descricao, categoria, usuario_id, alerta, data_ref=data_ref)
 
 
 def _processar_pendente_descricao_registro(usuario_id: int, mensagem: str) -> str:
@@ -1883,7 +2399,7 @@ def _processar_pendente_descricao_registro(usuario_id: int, mensagem: str) -> st
         _pendente_descricao_registro.pop(usuario_id, None)
         return "Beleza, cancelei esse lançamento."
 
-    descricao = texto
+    descricao = _normalizar_descricao_registro(texto)
     if _descricao_insuficiente_para_registro(descricao):
         return (
             "Ainda faltou uma descrição mais específica.\n"
@@ -1902,44 +2418,37 @@ def _processar_pendente_descricao_registro(usuario_id: int, mensagem: str) -> st
     _pendente_descricao_registro.pop(usuario_id, None)
 
     if intencao == "registrar_entrada":
-        categoria = _resolver_categoria(categoria_regra, descricao)
-        registrar_movimentacao(
+        return _processar_fluxo_titulo_ou_registro(
             usuario_id=usuario_id,
-            tipo="entrada",
+            mensagem_original=mensagem,
+            intencao="registrar_entrada",
             valor=valor,
-            categoria=categoria,
             descricao=descricao,
+            categoria_regra=categoria_regra,
             data_ref=data_ref,
         )
-        return _montar_resposta_registro("entrada", valor, descricao, categoria, usuario_id, data_ref=data_ref)
 
     if intencao == "registrar_divida":
-        registrar_divida(
+        return _processar_fluxo_titulo_ou_registro(
             usuario_id=usuario_id,
-            valor=valor,
-            credor=credor,
-            descricao=descricao,
-            data_ref=data_ref,
-        )
-        return _montar_resposta_registro_divida(
+            mensagem_original=mensagem,
+            intencao="registrar_divida",
             valor=valor,
             descricao=descricao,
-            credor=credor,
-            usuario_id=usuario_id,
+            categoria_regra=categoria_regra,
             data_ref=data_ref,
+            credor_divida=credor,
         )
 
-    categoria = _resolver_categoria(categoria_regra, descricao)
-    registrar_movimentacao(
+    return _processar_fluxo_titulo_ou_registro(
         usuario_id=usuario_id,
-        tipo="saida",
+        mensagem_original=mensagem,
+        intencao="registrar_saida",
         valor=valor,
-        categoria=categoria,
         descricao=descricao,
+        categoria_regra=categoria_regra,
         data_ref=data_ref,
     )
-    alerta = detectar_gasto_fora_do_padrao(usuario_id, categoria, valor)
-    return _montar_resposta_registro("saida", valor, descricao, categoria, usuario_id, alerta, data_ref=data_ref)
 
 
 # ---------------------------------------------------------------------------
@@ -2037,7 +2546,7 @@ def _montar_resumo(resumo: dict, usuario_id: int, label_mes: str = "este mês") 
         texto += f"🔴 Falta: {formatar_real(abs(saldo))}\n"
 
     # Mostra dívidas em bloco separado e destacado (não mistura com gastos)
-    totais_div = totais_dividas(usuario_id, ano_mes=resumo.get("ano_mes"))
+    totais_div = totais_dividas(usuario_id)
     qtd_dividas = int(totais_div.get("qtd_dividas", 0) or 0)
     total_dividas = float(totais_div.get("total_dividas", 0.0) or 0.0)
 
