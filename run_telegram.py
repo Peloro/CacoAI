@@ -6,6 +6,8 @@ Uso:
 """
 import logging
 import time
+import re
+import html
 
 import httpx
 
@@ -17,6 +19,46 @@ from app.database import init_db
 log = logging.getLogger("caco.telegram")
 
 _MAX_MSG_LENGTH = 4096
+
+
+def _format_for_telegram(text: str) -> str:
+    """Converte markdown simples usado no bot para HTML suportado pelo Telegram."""
+    src = (text or "").replace("\r\n", "\n")
+    placeholders: dict[str, str] = {}
+    idx = 0
+
+    def _put(fragment: str) -> str:
+        nonlocal idx
+        key = f"@@TG{idx}@@"
+        idx += 1
+        placeholders[key] = fragment
+        return key
+
+    def _sub_code(m: re.Match[str]) -> str:
+        content = html.escape(m.group(1).strip())
+        return _put(f"<code>{content}</code>")
+
+    def _sub_bold(m: re.Match[str]) -> str:
+        content = html.escape(m.group(1).strip())
+        return _put(f"<b>{content}</b>")
+
+    def _sub_italic(m: re.Match[str]) -> str:
+        content = html.escape(m.group(1).strip())
+        return _put(f"<i>{content}</i>")
+
+    # 1) Extrai spans formatados para evitar escape indevido.
+    src = re.sub(r"`([^`\n]+)`", _sub_code, src)
+    src = re.sub(r"\*(?=\S)(.+?)(?<=\S)\*", _sub_bold, src)
+    src = re.sub(r"(?<!\w)_(?=\S)(.+?)(?<=\S)_(?!\w)", _sub_italic, src)
+
+    # 2) Escapa texto restante para HTML seguro.
+    out = html.escape(src)
+
+    # 3) Restaura fragmentos HTML já prontos.
+    for key, value in placeholders.items():
+        out = out.replace(key, value)
+
+    return out
 
 
 def _split_text(text: str, limit: int = _MAX_MSG_LENGTH) -> list[str]:
@@ -71,9 +113,11 @@ def _post_with_retry(client: httpx.Client, url: str, payload: dict, retries: int
 def _send_message(client: httpx.Client, base_url: str, chat_id: int, text: str) -> None:
     """Envia mensagem para o chat, lidando com textos longos."""
     for part in _split_text(text):
+        formatted = _format_for_telegram(part)
         payload = {
             "chat_id": chat_id,
-            "text": part,
+            "text": formatted,
+            "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }
         _post_with_retry(client, f"{base_url}/sendMessage", payload)

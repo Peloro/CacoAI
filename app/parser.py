@@ -117,7 +117,7 @@ _RE_ACAO_REGISTRO_SAIDA = re.compile(
     re.IGNORECASE,
 )
 _RE_ACAO_REGISTRO_DIVIDA = re.compile(
-    r'\b(devo|devendo|fiquei\s+devendo|me\s+endividei|endividei|peguei\s+emprestado|tenho\s+uma\s+d[ií]vida)\b',
+    r'\b(devo|devendo|fiquei\s+devendo|me\s+endividei|endividei|peguei\s+emprestado|tenho\s+(?:uma|outra|nova)?\s*d[ií]vida)\b',
     re.IGNORECASE,
 )
 
@@ -171,6 +171,7 @@ _RE_PIX_ENTRADA = re.compile(r'\b(?:me\s+transferiram|transferiram\s+pra\s+mim|p
 _RE_DIVIDA_FORTE = re.compile(r'\b(?:peguei\s+\d+\s+emprestado|peguei\s+emprestado|devo\s+\d+|fiquei\s+devendo|devendo)\b', re.IGNORECASE)
 _RE_LIMPAR_MOVIMENTACOES = re.compile(r'\b(?:zerar|zera|limpar|limpa|apagar|apaga)\b.*\bmovimenta(?:ç(?:ã|a)o|cao|ções|coes)\b', re.IGNORECASE)
 _RE_DICA_DIRETA = re.compile(r'\b(?:como\s+reduzir|reduzir\s+gastos|economizar\s+mais|organizar\s+melhor)\b', re.IGNORECASE)
+_RE_DESFAZER = re.compile(r'\b(?:desfazer|desfaz|desfaca|desfaça|undo|voltar\s+atras|volta\s+atras|cancelar\s+ultimo)\b', re.IGNORECASE)
 
 # Regex de valor pre-compiladas para evitar recompilacao em cada mensagem.
 _RE_VALOR_POR = re.compile(
@@ -609,6 +610,10 @@ def _normalizar_credor_extraido(credor: str) -> str:
         c,
         flags=re.IGNORECASE,
     )
+    c = re.sub(r'^(?:d[ií]vida\s+com\s+)', '', c, flags=re.IGNORECASE)
+    c = re.sub(r'\b(?:no\s+valor\s+de|valor\s+de|de\s+\d+|e\s+no\s+valor\s+de)\b.*$', '', c, flags=re.IGNORECASE)
+    c = re.sub(r'\b(?:porra|arrombado|arrombada|sacana|fdp|otario|otária|otaria)\b', '', c, flags=re.IGNORECASE)
+    c = re.sub(r'\b(?:e|que|aquele|aquela)\s*$', '', c, flags=re.IGNORECASE)
     c = re.sub(r'\s+', ' ', c).strip(" .,!?:;-")
     return c
 
@@ -623,14 +628,14 @@ def extrair_credor_divida(texto: str) -> Optional[str]:
 
     # padrões com preposição para/pro/pra/com
     m = re.search(
-        r'\b(?:para|pra|pro|a|com)\s+([\wÀ-ÿ][\wÀ-ÿ\s\.-]{1,50})\b',
+        r'\b(?:para|pra|pro|a|com)\s+([\wÀ-ÿ][\wÀ-ÿ\s\.-]{1,80})',
         texto_norm,
         re.IGNORECASE,
     )
     if m:
         credor = m.group(1).strip(" .,!?:;-")
         # limpa sufixos comuns que podem vir após o credor
-        credor = re.sub(r'\b(?:hoje|ontem|anteontem)\b.*$', '', credor, flags=re.IGNORECASE).strip()
+        credor = re.split(r'\b(?:hoje|ontem|anteontem|no\s+valor\s+de|valor\s+de|,|\.|!|\?)\b', credor, maxsplit=1, flags=re.IGNORECASE)[0].strip()
         credor = _normalizar_credor_extraido(credor)
         if credor:
             return credor
@@ -811,6 +816,16 @@ def detectar_intencao(texto: str) -> dict:
         descricao = keyword_encontrada.capitalize()
 
     # 0a. Limpar movimentações (prioridade máxima — é destrutivo)
+    if _RE_DESFAZER.search(texto_lower):
+        return {
+            "intencao": "desfazer_ultimo",
+            "valor": valor,
+            "descricao": descricao,
+            "data": data_ref,
+            "categoria_regra": categoria_regra,
+            "mes_referencia": mes_referencia,
+        }
+
     if _RE_LIMPAR_MOVIMENTACOES.search(texto_lower):
         return {
             "intencao": "limpar_movimentacoes",
@@ -1052,6 +1067,8 @@ def detectar_intencao(texto: str) -> dict:
             tipo_apagar = "entrada"
         elif _texto_contem(texto_lower, PALAVRAS_APAGAR_SAIDA):
             tipo_apagar = "saida"
+        else:
+            tipo_apagar = _detectar_tipo_contexto(texto_lower)
         
         # Tenta extrair ID específico
         id_mov = extrair_id_movimentacao(texto)

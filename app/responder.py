@@ -83,6 +83,7 @@ RESPOSTAS_AJUDA = [
         "✏️ *Editar valor:* \"editar #12 para 45\"\n"
         "🗑️ *Apagar lançamento:* \"apagar #12\" _(com confirmação)_\n"
         "🧹 *Limpar tudo:* \"limpar tudo\" _(com confirmação)_\n"
+        "🔒 *Sair da conta:* \"sair\" ou \"logout\"\n"
         "📋 *Ver extrato com IDs:* \"listar movimentações\"\n"
         "📁 *Ver categorias:* \"listar categorias de saídas\"\n"
         "🔎 *Expandir categoria:* \"detalhar categoria transporte de saídas\"\n"

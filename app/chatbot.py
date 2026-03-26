@@ -102,7 +102,9 @@ from app.config import (
     INTENT_CONFIRM_MIN_MARGIN,
     TITLE_CONFIRM_MIN_SCORE,
     TITLE_CONFIRM_MIN_MARGIN,
+    UNDO_WINDOW_SECONDS,
 )
+from app.metrics import inc_counter, observe_latency_ms
 
 
 log = logging.getLogger("caco.chatbot")
@@ -166,6 +168,7 @@ _configurar_logger_requisicoes()
 _DELAY_LOCAL_SECONDS = max(0.0, BOT_RESPONSE_DELAY_SECONDS)
 # Flag por contexto de execução para saber se houve uso de IA nesta mensagem
 _usou_ia_ctx: ContextVar[bool] = ContextVar("usou_ia_ctx", default=False)
+_ultima_intencao_ctx: ContextVar[str] = ContextVar("ultima_intencao", default="")
 
 
 class _EstadoMap:
@@ -218,6 +221,7 @@ _pendente_confirmacao_intencao = _EstadoMap("pendente_confirmacao_intencao")
 _pendente_confirmacao_titulo = _EstadoMap("pendente_confirmacao_titulo")
 _pendente_descricao_registro = _EstadoMap("pendente_descricao_registro")
 _aguardando_senha_login = _EstadoSet("aguardando_senha_login")
+_ultimo_registro = _EstadoMap("ultimo_registro")
 
 # Nomes de meses para respostas amigáveis
 _NOMES_MES = {
@@ -431,12 +435,20 @@ _RE_PLANEJAMENTO_COMPLEXO = re.compile(
     r'no\s+final|a\s+longo\s+prazo|vezes)\b',
     re.IGNORECASE,
 )
+_RE_PAGAMENTO_DIVIDA_FRASE = re.compile(
+    r'\b(?:paguei|abati|amortizei|quitei)\b.*\b(?:d[ií]vida|divida|devo|devendo)\b',
+    re.IGNORECASE,
+)
 
 
 def _detectar_multiplos_comandos(mensagem: str) -> bool:
     """Retorna True quando a mensagem aparenta conter mais de um comando."""
     texto = (mensagem or "").strip().lower()
     if not texto:
+        return False
+
+    # Frases de pagamento de dívida não são múltiplos comandos.
+    if _RE_PAGAMENTO_DIVIDA_FRASE.search(texto):
         return False
 
     comandos: set[str] = set()
@@ -816,10 +828,24 @@ def _sugerir_titulo_registro(
         except Exception:
             pass
 
+    def _candidato_ruim(titulo: str) -> bool:
+        t = _ascii_lower(titulo)
+        if not t:
+            return True
+        if t.endswith((" com", " de", " para", " pra", " no", " na", " e")):
+            return True
+        if t in {"tenho uma divida com", "nova divida com o", "tenho outra divida com"}:
+            return True
+        if "divida divida" in t:
+            return True
+        return False
+
     dedup: dict[str, dict] = {}
     for c in candidatos:
         key = (c.get("titulo") or "").strip().lower()
         if not key:
+            continue
+        if _candidato_ruim(key):
             continue
         antigo = dedup.get(key)
         if antigo is None or float(c.get("score", 0.0)) > float(antigo.get("score", 0.0)):
@@ -881,7 +907,7 @@ def _executar_registro_por_payload(usuario_id: int, payload: dict) -> str:
 
     if intencao == "registrar_entrada":
         categoria = _resolver_categoria(categoria_regra, descricao)
-        registrar_movimentacao(
+        mov_id = registrar_movimentacao(
             usuario_id=usuario_id,
             tipo="entrada",
             valor=valor,
@@ -889,17 +915,27 @@ def _executar_registro_por_payload(usuario_id: int, payload: dict) -> str:
             descricao=descricao,
             data_ref=data_ref,
         )
+        _ultimo_registro[usuario_id] = {
+            "tipo_registro": "movimentacao",
+            "id": int(mov_id),
+            "ts": time.time(),
+        }
         registrar_titulo_aprendido(usuario_id, mensagem_original, descricao, categoria)
         return _montar_resposta_registro("entrada", valor, descricao, categoria, usuario_id, data_ref=data_ref)
 
     if intencao == "registrar_divida":
-        registrar_divida(
+        div_id = registrar_divida(
             usuario_id=usuario_id,
             valor=valor,
             credor=credor,
             descricao=descricao or "Divida",
             data_ref=data_ref,
         )
+        _ultimo_registro[usuario_id] = {
+            "tipo_registro": "divida",
+            "id": int(div_id),
+            "ts": time.time(),
+        }
         registrar_titulo_aprendido(usuario_id, mensagem_original, descricao or "divida", "dividas")
         return _montar_resposta_registro_divida(
             valor=valor,
@@ -910,7 +946,7 @@ def _executar_registro_por_payload(usuario_id: int, payload: dict) -> str:
         )
 
     categoria = _resolver_categoria(categoria_regra, descricao)
-    registrar_movimentacao(
+    mov_id = registrar_movimentacao(
         usuario_id=usuario_id,
         tipo="saida",
         valor=valor,
@@ -918,6 +954,11 @@ def _executar_registro_por_payload(usuario_id: int, payload: dict) -> str:
         descricao=descricao,
         data_ref=data_ref,
     )
+    _ultimo_registro[usuario_id] = {
+        "tipo_registro": "movimentacao",
+        "id": int(mov_id),
+        "ts": time.time(),
+    }
     registrar_titulo_aprendido(usuario_id, mensagem_original, descricao, categoria)
     alerta = detectar_gasto_fora_do_padrao(usuario_id, categoria, valor)
     return _montar_resposta_registro("saida", valor, descricao, categoria, usuario_id, alerta, data_ref=data_ref)
@@ -969,6 +1010,45 @@ def _processar_fluxo_titulo_ou_registro(
         )
 
     return _executar_registro_por_payload(usuario_id, payload)
+
+
+def _processar_desfazer_ultimo(usuario_id: int) -> str:
+    """Desfaz o último registro criado pelo bot dentro da janela configurada."""
+    ult = _ultimo_registro.get(usuario_id)
+    if not ult:
+        return "Não encontrei nenhum registro recente para desfazer."
+
+    ts = float(ult.get("ts", 0.0) or 0.0)
+    if ts <= 0 or (time.time() - ts) > max(1, UNDO_WINDOW_SECONDS):
+        _ultimo_registro.pop(usuario_id, None)
+        return f"Janela de desfazer expirou (>{UNDO_WINDOW_SECONDS}s)."
+
+    reg_id = int(ult.get("id", 0) or 0)
+    tipo_registro = (ult.get("tipo_registro") or "").strip().lower()
+    if reg_id <= 0 or tipo_registro not in {"movimentacao", "divida"}:
+        _ultimo_registro.pop(usuario_id, None)
+        return "Não consegui identificar o último registro para desfazer."
+
+    if tipo_registro == "movimentacao":
+        apagada = apagar_movimentacao_por_id(usuario_id, reg_id)
+        _ultimo_registro.pop(usuario_id, None)
+        if not apagada:
+            return "Esse registro já não está mais disponível para desfazer."
+        return (
+            "↩️ Desfiz o último lançamento.\n"
+            f"🧾 {apagada.get('descricao') or apagada.get('categoria') or 'Movimentação'} — "
+            f"{formatar_real(float(apagada.get('valor') or 0.0))}"
+        )
+
+    apagada_div = apagar_divida_por_id(usuario_id, reg_id)
+    _ultimo_registro.pop(usuario_id, None)
+    if not apagada_div:
+        return "Essa dívida já não está mais disponível para desfazer."
+    return (
+        "↩️ Desfiz a última dívida registrada.\n"
+        f"🧾 {apagada_div.get('descricao') or 'Dívida'} — "
+        f"{formatar_real(float(apagada_div.get('valor') or 0.0))}"
+    )
 
 
 def _normalizar_credor_texto(credor: str) -> str:
@@ -1314,6 +1394,22 @@ def _garantir_hint_ajuda(resposta: str) -> str:
     return f"{texto}\n\n💡 Se precisar, digite *ajuda*."
 
 
+def _mensagem_comando_onboarding(texto: str) -> str | None:
+    """Trata comandos de Telegram durante onboarding/cadastro/login."""
+    cmd = (texto or "").strip().lower()
+    if cmd in {"/start", "start"}:
+        return (
+            "Perfeito, vamos começar! 👋\n\n"
+            "Me diga seu *nome* para criar sua conta."
+        )
+    if cmd in {"/help", "/ajuda", "help", "ajuda"}:
+        return (
+            "Estamos no início do cadastro.\n"
+            "Primeiro me diga seu *nome*, depois você cria sua senha."
+        )
+    return None
+
+
 def processar_mensagem(telefone: str, mensagem: str) -> str:
     """
     Pipeline principal (híbrido):
@@ -1328,8 +1424,12 @@ def processar_mensagem(telefone: str, mensagem: str) -> str:
     NUNCA retorna erro ao usuário — sempre tem fallback local.
     """
     _usou_ia_ctx.set(False)
+    _ultima_intencao_ctx.set("")
     resposta = ""
     erro_msg: str | None = None
+    inicio = time.perf_counter()
+    inc_counter("messages.total")
+    aplicar_hint_ajuda = False
 
     try:
         # 0. Identifica / cria usuário
@@ -1348,14 +1448,26 @@ def processar_mensagem(telefone: str, mensagem: str) -> str:
         else:
             renovar_sessao(usuario_id)
             resposta = _processar_mensagem_interna(usuario_id, mensagem)
+            aplicar_hint_ajuda = True
 
     except Exception as e:
         erro_msg = str(e)
         log.exception("Erro fatal ao processar mensagem: %s", e)
         resposta = "Opa, tive um problema aqui. 😅 Tenta de novo?"
+        inc_counter("messages.error")
 
-    resposta = _garantir_hint_ajuda(resposta)
+    if aplicar_hint_ajuda:
+        resposta = _garantir_hint_ajuda(resposta)
     _registrar_requisicao_teste(telefone=telefone, mensagem=mensagem, resposta=resposta, erro=erro_msg)
+    if erro_msg is None:
+        inc_counter("messages.success")
+    if _usou_ia_ctx.get():
+        inc_counter("messages.used_ai")
+
+    intencao_final = _ultima_intencao_ctx.get() or "desconhecida"
+    inc_counter(f"intent.{intencao_final}")
+    observe_latency_ms((time.perf_counter() - inicio) * 1000.0)
+
     if _DELAY_LOCAL_SECONDS > 0:
         time.sleep(_DELAY_LOCAL_SECONDS)
     return resposta
@@ -1436,9 +1548,17 @@ def _fluxo_cadastro(usuario_id: int, mensagem: str) -> str:
     etapa = get_etapa_cadastro(usuario_id)
     texto = mensagem.strip()
 
+    cmd_msg = _mensagem_comando_onboarding(texto)
+
     # Primeiro contato: ainda não começou o cadastro
     if etapa is None:
         set_etapa_cadastro(usuario_id, "aguardando_nome")
+        if cmd_msg:
+            return (
+                "Oi! 😊 Sou o *Caco*, seu assistente financeiro.\n\n"
+                "Vamos criar sua conta rapidinho!\n\n"
+                "📝 *Qual o seu nome?*"
+            )
         return (
             "Oi! 😊 Sou o *Caco*, seu assistente financeiro.\n\n"
             "Vamos criar sua conta rapidinho!\n\n"
@@ -1447,7 +1567,14 @@ def _fluxo_cadastro(usuario_id: int, mensagem: str) -> str:
 
     # Etapa 1: receber nome
     if etapa == "aguardando_nome":
+        if cmd_msg:
+            return (
+                f"{cmd_msg}\n\n"
+                "📝 *Qual o seu nome?*"
+            )
         nome = texto.strip()
+        if nome.startswith("/"):
+            return "Me diga apenas seu *nome* (sem comando), por favor. 🙂"
         if len(nome) < 2 or len(nome) > 50:
             return "Hmm, me diz um nome válido (entre 2 e 50 caracteres). 😅"
         if any(c.isdigit() for c in nome):
@@ -1463,6 +1590,8 @@ def _fluxo_cadastro(usuario_id: int, mensagem: str) -> str:
 
     # Etapa 2: receber senha
     if etapa == "aguardando_senha":
+        if cmd_msg:
+            return "Agora preciso da sua *senha* para proteger a conta. 🔒"
         if len(texto) < 4:
             return "Senha muito curta! Precisa ter no mínimo *4 caracteres*. 🔒\nTenta de novo:"
         if len(texto) > 50:
@@ -1473,6 +1602,8 @@ def _fluxo_cadastro(usuario_id: int, mensagem: str) -> str:
 
     # Etapa 3: confirmar senha
     if etapa == "aguardando_confirmacao":
+        if cmd_msg:
+            return "Só falta confirmar sua senha. 🔒\nRepita a senha para continuar."
         senha_original = _senha_temporaria.get(usuario_id)
         if not senha_original:
             # Perdeu a senha temporária (reinicia)
@@ -1505,6 +1636,7 @@ def _fluxo_cadastro(usuario_id: int, mensagem: str) -> str:
 def _fluxo_login(usuario_id: int, mensagem: str) -> str:
     """Pede a senha quando a sessão expirou."""
     texto = mensagem.strip()
+    cmd_msg = _mensagem_comando_onboarding(texto)
 
     if usuario_id not in _aguardando_senha_login:
         # Primeira mensagem após expiração → pede senha
@@ -1517,6 +1649,9 @@ def _fluxo_login(usuario_id: int, mensagem: str) -> str:
         )
 
     # Já pediu senha → verifica
+    if cmd_msg:
+        return "Sua sessão expirou. Para continuar, digite sua *senha*. 🔒"
+
     if verificar_senha(usuario_id, texto):
         _aguardando_senha_login.discard(usuario_id)
         criar_sessao(usuario_id)
@@ -1534,6 +1669,11 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
 
     # Comando de logout
     msg_lower = mensagem.strip().lower()
+    if msg_lower in ("/start", "start"):
+        return "Estou pronto! Me manda um lançamento, por exemplo: *gastei 25 no almoço*."
+    if msg_lower in ("/help", "/ajuda"):
+        msg_lower = "ajuda"
+
     if msg_lower in ("sair", "logout", "bloquear", "trancar", "encerrar sessão",
                      "encerrar sessao", "travar"):
         clear_todos_estados_conversa(usuario_id)
@@ -1622,6 +1762,8 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         descricao = parsed["descricao"]
         data_ref = parsed["data"] or date.today().isoformat()
         mes_ref = parsed.get("mes_referencia")  # YYYY-MM ou None (mês atual)
+
+    _ultima_intencao_ctx.set(intencao)
 
     # Mensagens financeiras ambíguas/complexas passam por IA para
     # extrair tipo, valor, descrição, categoria e credor quando aplicável.
@@ -1752,6 +1894,9 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     sufixo_mes = f" em *{label_mes}*" if mes_ref else ""
     label_dividas = label_mes if mes_ref else "em aberto"
     sufixo_dividas = f" em *{label_dividas}*"
+
+    if intencao == "desfazer_ultimo":
+        return _processar_desfazer_ultimo(usuario_id)
 
     # 4. Executa ação no banco e monta resposta com dados reais
     #    TODAS as respostas financeiras são montadas por código.
@@ -1970,25 +2115,53 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             return f"🤷 Não encontrei lançamento com o ID #{id_mov}."
 
         import re as _re
-        descricao_edit = (descricao or "").strip()
+        descricao_edit_raw = (descricao or "").strip()
         descricao_edit = _re.sub(
             r'\s*(?:para|pra|por|valor|novo valor)\s+(?:R\$\s*)?\d+(?:[.,]\d{1,2})?\s*$',
+            '',
+            descricao_edit_raw,
+            flags=_re.IGNORECASE,
+        ).strip()
+
+        # Frases como "valor do fulano para 20" devem virar "fulano" para busca.
+        descricao_candidatas = [descricao_edit]
+        desc_sem_valor = _re.sub(
+            r'^(?:o\s+)?(?:novo\s+)?valor\s+(?:d[oa]s?|de)\s+',
             '',
             descricao_edit,
             flags=_re.IGNORECASE,
         ).strip()
+        if desc_sem_valor and desc_sem_valor not in descricao_candidatas:
+            descricao_candidatas.append(desc_sem_valor)
 
-        if not descricao_edit:
+        desc_sem_divida = _re.sub(
+            r'^(?:d[ií]vida\s+com\s+)',
+            '',
+            desc_sem_valor,
+            flags=_re.IGNORECASE,
+        ).strip()
+        if desc_sem_divida and desc_sem_divida not in descricao_candidatas:
+            descricao_candidatas.append(desc_sem_divida)
+
+        if not any(descricao_candidatas):
             return "Me diga qual lançamento você quer editar (ID ou descrição). Ex: editar #12 para 45"
 
-        matches_mov = buscar_movimentacoes_por_descricao(usuario_id, descricao_edit)
-        matches_div = buscar_dividas_por_descricao(usuario_id, descricao_edit)
-        matches = ([{**m, "_tipo_registro": "movimentacao"} for m in matches_mov] +
-                   [{**d, "_tipo_registro": "divida"} for d in matches_div])
+        matches = []
+        descricao_escolhida = descricao_edit
+        for desc_candidata in descricao_candidatas:
+            if not desc_candidata:
+                continue
+            matches_mov = buscar_movimentacoes_por_descricao(usuario_id, desc_candidata)
+            matches_div = buscar_dividas_por_descricao(usuario_id, desc_candidata)
+            matches = ([{**m, "_tipo_registro": "movimentacao"} for m in matches_mov] +
+                       [{**d, "_tipo_registro": "divida"} for d in matches_div])
+            if matches:
+                descricao_escolhida = desc_candidata
+                break
 
         if len(matches) == 0:
             return (
-                f"🤷 Não encontrei lançamento com \"{descricao_edit}\" neste mês.\n"
+                f"🤷 Não encontrei lançamento com \"{descricao_escolhida}\" neste mês.\n"
                 "Manda *listar movimentações* pra ver os IDs."
             )
         if len(matches) == 1:
@@ -2003,9 +2176,9 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         _pendente_desambiguacao_editar[usuario_id] = {
             "movimentacoes": matches,
             "novo_valor": float(novo_valor),
-            "descricao": descricao_edit,
+            "descricao": descricao_escolhida,
         }
-        return _montar_desambiguacao_editar(matches, descricao_edit, float(novo_valor))
+        return _montar_desambiguacao_editar(matches, descricao_escolhida, float(novo_valor))
 
     elif intencao == "listar_movimentacoes":
         tipo_listar = parsed.get("tipo_listar")  # 'entrada', 'saida' ou None

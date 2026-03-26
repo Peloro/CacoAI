@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from app.chatbot import processar_mensagem
 from app.database import resumo_mes, get_or_create_user
 from app.config import API_TEST_ENABLED, API_TEST_TOKEN
+from app.metrics import get_metrics_snapshot
 
 router = APIRouter(prefix="/api")
 
@@ -72,3 +73,10 @@ def obter_resumo(telefone: str, request: Request):
     usuario = get_or_create_user(telefone)
     resumo = resumo_mes(usuario["id"])
     return resumo
+
+
+@router.get("/metrics")
+def obter_metricas(request: Request):
+    """Retorna métricas simples de execução para observabilidade."""
+    _autorizar_api_teste(request)
+    return get_metrics_snapshot()
