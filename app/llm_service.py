@@ -575,13 +575,70 @@ def _sanitizar_resposta_conversa(resposta: str) -> str:
 # 3. Classificacao de intencao financeira via LLM
 # ---------------------------------------------------------------------------
 
-_TIPOS_INTENCAO_IA = {"gasto", "ganho", "divida", "nao_financeiro", "incerto"}
+_TIPOS_INTENCAO_IA = {"entrada", "saida", "divida", "nao_financeiro", "incerto", "gasto", "ganho"}
 _TIPOS_MOV_IA = {"entrada", "saida", "divida", "nao_financeiro", "incerto"}
+
+
+def _mensagem_indica_cenario_hipotetico(mensagem: str) -> bool:
+    msg = (mensagem or "").strip().lower()
+    if "?" not in msg:
+        return False
+    gatilhos = (
+        "se eu ",
+        "vai dar ruim",
+        "vou me enrolar",
+        "vou me enrola",
+        "devo comprar",
+        "vou conseguir pagar",
+        "sera que consigo pagar",
+        "será que consigo pagar",
+        "seria loucura",
+    )
+    return any(g in msg for g in gatilhos)
+
+
+def _mensagem_indica_divida(mensagem: str) -> bool:
+    msg = (mensagem or "").strip().lower()
+    return any(
+        t in msg
+        for t in (
+            "divida",
+            "dívida",
+            "devendo",
+            "emprestimo",
+            "empréstimo",
+            "parcela",
+            "fatura",
+            "cartao",
+            "cartão",
+            "no negativo",
+            "negativo",
+        )
+    )
+
+
+def _override_tipo_por_regra(mensagem: str, tipo_sugerido: str) -> str:
+    if _mensagem_indica_cenario_hipotetico(mensagem):
+        return "incerto"
+    if _mensagem_indica_divida(mensagem):
+        return "divida"
+    return tipo_sugerido
+
+
+def _normalizar_tipo_intencao_ia(tipo: str) -> str:
+    t = (tipo or "").strip().lower()
+    if t == "ganho":
+        return "entrada"
+    if t == "gasto":
+        return "saida"
+    if t in {"entrada", "saida", "divida", "nao_financeiro", "incerto"}:
+        return t
+    return "incerto"
 
 
 def classificar_intencao_financeira(mensagem: str) -> dict:
     """
-    Classifica a mensagem em: gasto, ganho, divida, nao_financeiro ou incerto.
+    Classifica a mensagem em: entrada, saida, divida, nao_financeiro ou incerto.
 
     Retorna dict:
       - tipo: str
@@ -617,9 +674,9 @@ def classificar_intencao_financeira(mensagem: str) -> dict:
         if not isinstance(data, dict):
             return {"tipo": "incerto", "confianca": 0.0, "justificativa": "json_invalido"}
 
-        tipo = str(data.get("tipo", "incerto")).strip().lower()
-        if tipo not in _TIPOS_INTENCAO_IA:
-            tipo = "incerto"
+        tipo_bruto = str(data.get("tipo", "incerto")).strip().lower()
+        tipo = _normalizar_tipo_intencao_ia(tipo_bruto if tipo_bruto in _TIPOS_INTENCAO_IA else "incerto")
+        tipo = _override_tipo_por_regra(mensagem, tipo)
 
         try:
             confianca = float(data.get("confianca", 0.0))
@@ -658,6 +715,97 @@ def _to_float_seguro(valor) -> float:
         except ValueError:
             return 0.0
     return 0.0
+
+
+def _inferir_origem_destino(mensagem: str, descricao: str, tipo: str) -> str:
+    base = f"{mensagem or ''} {descricao or ''}".strip().lower()
+    if not base:
+        return ""
+
+    if tipo == "entrada" and "venda" in base:
+        return "venda"
+    if tipo == "entrada" and "freela" in base:
+        return "freela"
+    if tipo == "saida" and "uber" in base:
+        return "uber"
+    if tipo == "saida" and "internet" in base:
+        return "internet"
+    if tipo == "divida" and "emprestimo" in base:
+        return "emprestimo"
+
+    padroes = [
+        r"\b(?:de|do|da)\s+([a-z0-9_à-ÿ]+)",
+        r"\b(?:com)\s+([a-z0-9_à-ÿ]+)",
+        r"\bpix\s+(?:de|do|da)\s+([a-z0-9_à-ÿ]+)",
+    ]
+    for p in padroes:
+        m = re.search(p, base, flags=re.IGNORECASE)
+        if m:
+            candidato = (m.group(1) or "").strip().lower()
+            if candidato.isdigit():
+                continue
+            if candidato and candidato not in {"um", "uma", "o", "a", "meu", "minha", "festa", "monitor"}:
+                return candidato
+
+    return ""
+
+
+def _normalizar_origem_destino(origem_extraida: str, mensagem: str, descricao: str, tipo: str) -> str:
+    base = f"{mensagem or ''} {descricao or ''}".strip().lower()
+    origem = (origem_extraida or "").strip().lower()
+
+    if tipo == "incerto":
+        return ""
+
+    # Sinais fortes no texto da mensagem devem prevalecer sobre extrações genéricas.
+    prioridades = [
+        "estorno",
+        "cashback",
+        "rendimento",
+        "venda",
+        "freela",
+        "aluguel",
+        "mercado",
+        "uber",
+        "internet",
+        "streaming",
+        "hospital",
+        "caixa",
+        "cartao",
+        "cartão",
+        "emprestimo",
+        "empréstimo",
+        "banco",
+    ]
+    for token in prioridades:
+        if token in base:
+            return "cartao" if token == "cartão" else ("emprestimo" if token == "empréstimo" else token)
+
+    if origem and not origem.isdigit():
+        return origem
+
+    return _inferir_origem_destino(mensagem, descricao, tipo)
+
+
+def _extrair_primeiro_valor_mensagem(mensagem: str) -> float:
+    txt = (mensagem or "").strip()
+    if not txt:
+        return 0.0
+
+    m = re.search(r"(\d{1,3}(?:\.\d{3})+,\d{1,2}|\d+,\d{1,2}|\d+\.\d{1,2}|\d+)", txt)
+    if not m:
+        return 0.0
+
+    bruto = m.group(1)
+    if "," in bruto and "." in bruto:
+        bruto = bruto.replace(".", "").replace(",", ".")
+    elif "," in bruto:
+        bruto = bruto.replace(",", ".")
+
+    try:
+        return float(bruto)
+    except ValueError:
+        return 0.0
 
 
 def extrair_movimentacao_estruturada(mensagem: str) -> dict:
@@ -720,12 +868,20 @@ def extrair_movimentacao_estruturada(mensagem: str) -> dict:
         tipo = str(data.get("tipo", "incerto")).strip().lower()
         if tipo not in _TIPOS_MOV_IA:
             tipo = "incerto"
+        tipo = _override_tipo_por_regra(mensagem, tipo)
 
         valor = max(0.0, _to_float_seguro(data.get("valor", 0.0)))
+        if "+" in mensagem:
+            primeiro_valor = _extrair_primeiro_valor_mensagem(mensagem)
+            if primeiro_valor > 0:
+                valor = primeiro_valor
+        if tipo == "incerto":
+            valor = 0.0
         descricao = str(data.get("descricao", "") or "").strip()
         categoria = _slugify_categoria(str(data.get("categoria", "") or ""))
         meio_pagamento = str(data.get("meio_pagamento", "") or "").strip().lower()
         origem_destino = str(data.get("origem_destino", "") or "").strip().lower()
+        origem_destino = _normalizar_origem_destino(origem_destino, mensagem, descricao, tipo)
 
         data_ref_raw = data.get("data_ref")
         data_ref = None

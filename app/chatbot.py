@@ -42,12 +42,14 @@ from app.database import (
     apagar_movimentacao_por_id,
     obter_movimentacao_por_id,
     atualizar_valor_movimentacao,
+    atualizar_movimentacao_campos,
     registrar_divida,
     listar_dividas_recentes,
     buscar_dividas_por_descricao,
     obter_divida_por_id,
     apagar_divida_por_id,
     atualizar_valor_divida,
+    atualizar_divida_campos,
     limpar_dividas,
     totais_dividas,
     quitar_dividas,
@@ -78,7 +80,7 @@ from app.database import (
     buscar_titulo_aprendido,
     registrar_titulo_aprendido,
 )
-from app.parser import detectar_intencao, CATEGORIAS_KEYWORDS
+from app.parser import detectar_intencao, CATEGORIAS_KEYWORDS, extrair_categoria_mencionada
 from app.responder import (
     resposta_local,
     RESPOSTAS_NAO_ENTENDI,
@@ -101,8 +103,6 @@ from app.config import (
     BOT_RESPONSE_DELAY_SECONDS,
     INTENT_CONFIRM_MIN_SCORE,
     INTENT_CONFIRM_MIN_MARGIN,
-    TITLE_CONFIRM_MIN_SCORE,
-    TITLE_CONFIRM_MIN_MARGIN,
     UNDO_WINDOW_SECONDS,
 )
 from app.metrics import inc_counter, observe_latency_ms
@@ -232,7 +232,7 @@ _pendente_confirmacao_limpar = _EstadoMap("pendente_confirmacao_limpar")
 _pendente_confirmacao_quitar = _EstadoMap("pendente_confirmacao_quitar")
 _pendente_valor_registro = _EstadoMap("pendente_valor_registro")
 _pendente_confirmacao_intencao = _EstadoMap("pendente_confirmacao_intencao")
-_pendente_confirmacao_titulo = _EstadoMap("pendente_confirmacao_titulo")
+_pendente_confirmacao_operacao = _EstadoMap("pendente_confirmacao_operacao")
 _pendente_descricao_registro = _EstadoMap("pendente_descricao_registro")
 _aguardando_senha_login = _EstadoSet("aguardando_senha_login")
 _ultimo_registro = _EstadoMap("ultimo_registro")
@@ -249,6 +249,14 @@ def _nome_mes(ano_mes: str | None) -> str:
     """Retorna nome amigável do mês. Ex: '2026-01' → 'janeiro/2026'."""
     if not ano_mes:
         ano_mes = date.today().strftime("%Y-%m")
+
+    # Referência anual (YYYY)
+    if re.fullmatch(r"\d{4}", str(ano_mes)):
+        ano = int(str(ano_mes))
+        if ano == date.today().year:
+            return "este ano"
+        return str(ano)
+
     try:
         partes = ano_mes.split("-")
         ano = int(partes[0])
@@ -593,13 +601,15 @@ _VERBOS_TITULO_GENERICOS = {
 }
 
 _VERBOS_PEDIDO_AJUDA = {
-    "ajuda", "ajudar", "anota", "anotar", "registra", "registrar", "registrando"
+    "ajuda", "ajudar", "anota", "anotar", "registra", "registrar", "registrando",
+    "adiciona", "adicionar", "pode", "poderia"
 }
 
 _STOPWORDS_TITULO = {
     "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas", "com", "para", "pra", "pro",
     "por", "meu", "minha", "meus", "minhas", "um", "uma", "uns", "umas", "o", "a", "os", "as",
     "quando", "que", "ele", "ela", "isso", "hoje", "ontem", "amanha", "sexta", "sabado", "domingo",
+    "ai", "aí", "mim", "favor", "porfavor", "debito", "débito", "ultima", "última",
 }
 
 _TITULO_PADRAO_CATEGORIA = {
@@ -753,6 +763,8 @@ def _gerar_titulo_regra(
         return "divida"
 
     if intencao == "registrar_entrada":
+        if _tem_token_msg(msg_low, "aluguel") and _tem_token_msg(msg_low, "quarto"):
+            return "aluguel quarto"
         if _tem_token_msg(msg_low, "cashback"):
             return "cashback"
         if "pix" in msg_low:
@@ -771,6 +783,22 @@ def _gerar_titulo_regra(
     if m_sair:
         sufixo = "amiga" if m_sair.group(1) == "a" else "amigo"
         return f"sair com {sufixo}"
+    m_saida = re.search(r"\bsaida\b[\w\s]*\bcom\s+(?:meu|minha|um|uma|o|a)?\s*amig([oa])", msg_low)
+    if m_saida:
+        sufixo = "amiga" if m_saida.group(1) == "a" else "amigo"
+        return f"sair com {sufixo}"
+
+    if _tem_token_msg(msg_low, "almoco"):
+        if _tem_token_msg(msg_low, "pessoal") or _tem_token_msg(msg_low, "trabalho"):
+            return "almoco pessoal"
+        return "almoco"
+
+    if _tem_token_msg(msg_low, "jantar"):
+        if _tem_token_msg(msg_low, "familia"):
+            return "jantar familia"
+        if _tem_token_msg(msg_low, "amigos") or _tem_token_msg(msg_low, "amigo"):
+            return "jantar amigos"
+        return "jantar"
 
     if any(_tem_token_msg(msg_low, k) for k in ("energia", "agua", "internet", "luz", "gas")):
         if _tem_token_msg(msg_low, "energia"):
@@ -796,11 +824,23 @@ def _gerar_titulo_regra(
     if _tem_token_msg(msg_low, "curso"):
         return "curso"
 
+    if any(k in msg_low for k in ("comprei", "comprar", "compra")):
+        m_compra = re.search(
+            r"\b(?:comprei|comprar|compra(?:r)?|paguei)\b\s+(?:o|a|os|as|um|uma|uns|umas|meu|minha|meus|minhas|seu|sua|seus|suas|pro|pra|para)?\s*([a-z0-9_à-ÿ]+)",
+            msg_low,
+            flags=re.IGNORECASE,
+        )
+        if m_compra:
+            alvo = _ascii_lower(m_compra.group(1) or "")
+            if alvo and alvo not in _STOPWORDS_TITULO and alvo not in _VERBOS_TITULO_GENERICOS:
+                return _finalizar_titulo_canonico(f"compra {alvo}")
     if any(k in msg_low for k in ("comprei", "comprar", "compra")) and desc_tokens:
         return _finalizar_titulo_canonico(f"compra {' '.join(desc_tokens[:2])}")
 
     if _tem_token_msg(msg_low, "uber") and _tem_token_msg(msg_low, "festa"):
         return "uber festa"
+    if _tem_token_msg(msg_low, "uber") and (_tem_token_msg(msg_low, "trabalho") or _tem_token_msg(msg_low, "trampo")):
+        return "uber trampo"
     if _tem_token_msg(msg_low, "uber") and (_tem_token_msg(msg_low, "volta") or _tem_token_msg(msg_low, "voltando")):
         return "uber volta"
 
@@ -966,23 +1006,6 @@ def _sugerir_titulo_registro(
     }
 
 
-def _deve_confirmar_titulo(sugestao: dict) -> bool:
-    score = float(sugestao.get("score", 0.0) or 0.0)
-    margem = float(sugestao.get("margem", 0.0) or 0.0)
-    return score < TITLE_CONFIRM_MIN_SCORE or margem < TITLE_CONFIRM_MIN_MARGIN
-
-
-def _montar_pergunta_confirmacao_titulo(titulo: str, alternativa: str = "") -> str:
-    alt = alternativa or "lancamento"
-    return (
-        "📝 Quero confirmar o *titulo* deste lancamento:\n"
-        f"1. {titulo}\n"
-        f"2. {alt}\n\n"
-        "Responda com *1* ou *2*.\n"
-        "Se preferir, escreva outro titulo (maximo 4 palavras)."
-    )
-
-
 def _executar_registro_por_payload(usuario_id: int, payload: dict) -> str:
     """Executa registro financeiro com payload padronizado e grava aprendizado."""
     intencao = payload.get("intencao")
@@ -1062,7 +1085,7 @@ def _processar_fluxo_titulo_ou_registro(
     data_ref: str,
     credor_divida: str = "",
 ) -> str:
-    """Resolve titulo com confianca; confirma quando ambiguo; registra em seguida."""
+    """Resolve título sugerido e registra usando o fluxo unificado de confirmação de operação."""
     categoria_preview = None
     if intencao in ("registrar_entrada", "registrar_saida"):
         categoria_preview = _resolver_categoria(categoria_regra, descricao)
@@ -1085,17 +1108,6 @@ def _processar_fluxo_titulo_ou_registro(
         "credor_divida": credor_divida,
         "mensagem_original": mensagem_original,
     }
-
-    if _deve_confirmar_titulo(sugestao):
-        _pendente_confirmacao_titulo[usuario_id] = {
-            "payload": payload,
-            "op1": sugestao.get("titulo") or _titulo_padrao_para_contexto(intencao, categoria_preview),
-            "op2": sugestao.get("alternativa") or _titulo_padrao_para_contexto(intencao, categoria_preview),
-        }
-        return _montar_pergunta_confirmacao_titulo(
-            titulo=_pendente_confirmacao_titulo.get(usuario_id, {}).get("op1", "lancamento"),
-            alternativa=_pendente_confirmacao_titulo.get(usuario_id, {}).get("op2", "lancamento"),
-        )
 
     return _executar_registro_por_payload(usuario_id, payload)
 
@@ -1220,13 +1232,20 @@ def _calcular_confianca_intencao(mensagem: str, parsed: dict) -> dict:
         "registrar_entrada": 0.0,
         "registrar_saida": 0.0,
         "registrar_divida": 0.0,
+        "registrar_saldo_inicial": 0.0,
         "consultar_resumo": 0.0,
         "consultar_saldo": 0.0,
+        "consultar_total": 0.0,
         "listar_movimentacoes": 0.0,
+        "listar_categorias": 0.0,
+        "consultar_categoria": 0.0,
         "apagar_movimentacao": 0.0,
         "editar_movimentacao": 0.0,
         "limpar_movimentacoes": 0.0,
         "posso_gastar": 0.0,
+        "pagar_divida": 0.0,
+        "quitar_dividas": 0.0,
+        "desfazer_ultimo": 0.0,
         "conversa_geral": 0.0,
     }
 
@@ -1241,14 +1260,27 @@ def _calcular_confianca_intencao(mensagem: str, parsed: dict) -> dict:
         scores["consultar_resumo"] += 0.6
     if _RE_COMANDO_SALDO.search(texto):
         scores["consultar_saldo"] += 0.6
+    if "quanto gastei" in texto or "quanto ganhei" in texto:
+        scores["consultar_total"] += 0.6
     if _RE_COMANDO_LISTAR.search(texto):
         scores["listar_movimentacoes"] += 0.45
+        scores["listar_categorias"] += 0.25
     if _RE_COMANDO_APAGAR.search(texto):
         scores["apagar_movimentacao"] += 0.6
     if _RE_COMANDO_EDITAR.search(texto):
         scores["editar_movimentacao"] += 0.6
     if _RE_COMANDO_LIMPAR.search(texto):
         scores["limpar_movimentacoes"] += 0.6
+    if "categoria" in texto:
+        scores["consultar_categoria"] += 0.35
+    if "saldo inicial" in texto or "na conta" in texto:
+        scores["registrar_saldo_inicial"] += 0.35
+    if "quitar" in texto:
+        scores["quitar_dividas"] += 0.55
+    if "pagar divida" in texto or "pagar dívida" in texto:
+        scores["pagar_divida"] += 0.55
+    if "desfazer" in texto:
+        scores["desfazer_ultimo"] += 0.55
 
     if "posso gastar" in texto or "vale a pena" in texto or "da pra gastar" in texto or "dá pra gastar" in texto:
         scores["posso_gastar"] += 0.6
@@ -1276,18 +1308,21 @@ def _calcular_confianca_intencao(mensagem: str, parsed: dict) -> dict:
 
 
 def _deve_confirmar_intencao(parsed: dict, confianca: dict) -> bool:
-    """Confirma com o usuário quando a classificação é ambígua em ações sensíveis."""
+    """Confirma com o usuário quando a classificação é ambígua em operações."""
     intencao = parsed.get("intencao", "")
-    sensiveis = {
+    intencoes_mutaveis = {
         "registrar_entrada",
         "registrar_saida",
         "registrar_divida",
+        "registrar_saldo_inicial",
         "apagar_movimentacao",
         "editar_movimentacao",
         "limpar_movimentacoes",
-        "posso_gastar",
+        "pagar_divida",
+        "quitar_dividas",
+        "desfazer_ultimo",
     }
-    if intencao not in sensiveis:
+    if intencao not in intencoes_mutaveis:
         return False
 
     top_score = float(confianca.get("top_score", 0.0) or 0.0)
@@ -1298,7 +1333,7 @@ def _deve_confirmar_intencao(parsed: dict, confianca: dict) -> bool:
     # Gate configurável via .env para calibrar rigor por ambiente.
     if top_score < INTENT_CONFIRM_MIN_SCORE:
         return True
-    if segunda in sensiveis and margem < INTENT_CONFIRM_MIN_MARGIN:
+    if segunda in intencoes_mutaveis and margem < INTENT_CONFIRM_MIN_MARGIN:
         return True
     return False
 
@@ -1311,6 +1346,467 @@ def _montar_pergunta_confirmacao_intencao(op1: str, op2: str) -> str:
         f"*2.* {_rotulo_intencao(op2)}\n\n"
         "Responde com *1* ou *2* (ou *cancelar*)."
     )
+
+
+def _intencao_exige_confirmacao_operacao(intencao: str) -> bool:
+    return intencao in {
+        "registrar_entrada",
+        "registrar_saida",
+        "registrar_divida",
+        "registrar_saldo_inicial",
+        "apagar_movimentacao",
+        "limpar_movimentacoes",
+        "pagar_divida",
+        "quitar_dividas",
+        "desfazer_ultimo",
+    }
+
+
+def _montar_especificacoes_operacao(parsed: dict) -> str:
+    intencao = parsed.get("intencao", "")
+    valor = parsed.get("valor")
+    descricao = (parsed.get("descricao") or "").strip()
+    titulo_preview = (parsed.get("_titulo_preview") or "").strip()
+    categoria_preview = (parsed.get("_categoria_preview") or "").strip()
+    data_ref = parsed.get("data") or date.today().isoformat()
+    mes_ref = parsed.get("mes_referencia")
+
+    linhas: list[str] = [f"• Operação: {_rotulo_intencao(intencao)}"]
+
+    if intencao in {"registrar_entrada", "registrar_saida", "registrar_divida", "registrar_saldo_inicial", "posso_gastar", "pagar_divida"} and valor:
+        linhas.append(f"• Valor: {formatar_real(float(valor))}")
+
+    if (titulo_preview or descricao) and intencao in {"registrar_entrada", "registrar_saida", "registrar_divida", "editar_movimentacao"}:
+        linhas.append(f"• Título: {titulo_preview or descricao}")
+
+    if descricao and intencao in {"apagar_movimentacao", "consultar_categoria", "posso_gastar"}:
+        linhas.append(f"• Descrição: {descricao}")
+
+    if intencao in {"registrar_entrada", "registrar_saida"}:
+        categoria_ref = categoria_preview or (parsed.get("categoria_regra") or "")
+        if categoria_ref:
+            linhas.append(f"• Categoria: {categoria_ref}")
+
+    if parsed.get("credor_divida") and (
+        intencao in {"registrar_divida", "pagar_divida", "quitar_dividas"}
+        or (intencao == "editar_movimentacao" and parsed.get("_editar_tipo_registro") == "divida")
+    ):
+        linhas.append(f"• Credor: {parsed.get('credor_divida')}")
+
+    if parsed.get("id_movimentacao") and intencao in {"apagar_movimentacao", "editar_movimentacao"}:
+        linhas.append(f"• ID alvo: #{parsed.get('id_movimentacao')}")
+
+    if intencao == "editar_movimentacao" and parsed.get("_editar_tipo_registro"):
+        linhas.append(
+            "• Tipo de registro: "
+            + ("dívida" if parsed.get("_editar_tipo_registro") == "divida" else "movimentação")
+        )
+
+    if parsed.get("valor") and intencao == "editar_movimentacao":
+        linhas.append(f"• Valor atual: {formatar_real(float(parsed.get('valor')))}")
+
+    if parsed.get("novo_valor") and intencao == "editar_movimentacao":
+        linhas.append(f"• Novo valor: {formatar_real(float(parsed.get('novo_valor')))}")
+
+    if parsed.get("categoria_regra") and intencao == "editar_movimentacao":
+        linhas.append(f"• Categoria: {parsed.get('categoria_regra')}")
+
+    if parsed.get("tipo_movimentacao") and intencao == "editar_movimentacao":
+        linhas.append(f"• Novo tipo: {parsed.get('tipo_movimentacao')}")
+
+    if intencao == "limpar_movimentacoes":
+        tipo_limpar = parsed.get("tipo_limpar")
+        periodo_limpar = (parsed.get("periodo_limpar") or "mes").strip().lower()
+        alvo = "tudo" if not tipo_limpar else ("gastos" if tipo_limpar == "saida" else "entradas")
+        linhas.append(f"• Escopo: {alvo}")
+        if periodo_limpar == "tudo":
+            linhas.append("• Período: histórico completo")
+        elif periodo_limpar == "ano":
+            ano_txt = (parsed.get("mes_referencia") or str(date.today().year)).strip()
+            linhas.append(f"• Período: ano {ano_txt}")
+        else:
+            linhas.append("• Período: mês")
+
+    if intencao == "consultar_total":
+        tipo_total = parsed.get("tipo_total")
+        linhas.append(f"• Tipo: {'ganhos' if tipo_total == 'entrada' else 'gastos'}")
+
+    if intencao == "listar_movimentacoes" and parsed.get("tipo_listar"):
+        linhas.append(f"• Tipo: {parsed.get('tipo_listar')}")
+
+    if intencao == "listar_categorias" and parsed.get("tipo_categoria"):
+        linhas.append(f"• Tipo: {parsed.get('tipo_categoria')}")
+
+    if intencao == "consultar_categoria" and parsed.get("categoria_consulta"):
+        linhas.append(f"• Categoria: {parsed.get('categoria_consulta')}")
+
+    if mes_ref:
+        linhas.append(f"• Referência: {_nome_mes(mes_ref)}")
+    elif intencao in {
+        "registrar_entrada",
+        "registrar_saida",
+        "registrar_divida",
+        "registrar_saldo_inicial",
+        "consultar_resumo",
+        "consultar_saldo",
+        "consultar_total",
+        "listar_movimentacoes",
+        "listar_categorias",
+        "consultar_categoria",
+        "limpar_movimentacoes",
+        "editar_movimentacao",
+        "quitar_dividas",
+        "pagar_divida",
+    } and not (intencao == "limpar_movimentacoes" and (parsed.get("periodo_limpar") or "").strip().lower() == "tudo"):
+        linhas.append(f"• Referência: {data_ref}")
+
+    return "\n".join(linhas)
+
+
+def _montar_pergunta_confirmacao_operacao(parsed: dict, veio_desambiguacao: bool = False) -> str:
+    cabecalho = "Perfeito. Antes de executar, confirma os detalhes:" if veio_desambiguacao else "Antes de executar, confirma esta operação:"
+    return (
+        f"{cabecalho}\n\n"
+        f"{_montar_especificacoes_operacao(parsed)}\n\n"
+        "Se quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n"
+        "(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\n"
+        "Responda com *sim* para confirmar ou *cancelar* para não executar."
+    )
+
+
+def _enriquecer_preview_operacao(usuario_id: int, parsed_base: dict) -> dict:
+    """Prepara pré-visualização de título/categoria para confirmação de operação."""
+    parsed = dict(parsed_base or {})
+    intencao = (parsed.get("intencao") or "").strip()
+
+    if intencao not in {"registrar_entrada", "registrar_saida", "registrar_divida", "editar_movimentacao"}:
+        return parsed
+
+    descricao = _normalizar_descricao_registro((parsed.get("descricao") or "").strip())
+    if descricao:
+        parsed["descricao"] = descricao
+
+    if intencao in {"registrar_entrada", "registrar_saida"}:
+        categoria_ref = _resolver_categoria(parsed.get("categoria_regra"), descricao or "")
+        if categoria_ref:
+            parsed["_categoria_preview"] = categoria_ref
+
+    if intencao in {"registrar_entrada", "registrar_saida", "registrar_divida"} and descricao:
+        mensagem_original = parsed.get("_mensagem_original") or descricao
+        sugestao = _sugerir_titulo_registro(
+            usuario_id=usuario_id,
+            mensagem_original=mensagem_original,
+            intencao=intencao,
+            descricao=descricao,
+            categoria=parsed.get("_categoria_preview"),
+            credor=parsed.get("credor_divida") or "",
+        )
+        titulo_preview = (sugestao.get("titulo") or descricao).strip()
+        if titulo_preview:
+            parsed["_titulo_preview"] = titulo_preview
+
+    if intencao == "editar_movimentacao" and descricao:
+        parsed["_titulo_preview"] = descricao
+
+    return parsed
+
+
+def _intencao_e_operacao(intencao: str) -> bool:
+    return intencao in {
+        "registrar_entrada",
+        "registrar_saida",
+        "registrar_divida",
+        "registrar_saldo_inicial",
+        "apagar_movimentacao",
+        "editar_movimentacao",
+        "limpar_movimentacoes",
+        "pagar_divida",
+        "quitar_dividas",
+        "desfazer_ultimo",
+    }
+
+
+def _aplicar_edicao_operacao_pendente(parsed_base: dict, mensagem: str) -> tuple[dict, list[str]]:
+    """Aplica edições em linguagem natural na operação pendente de confirmação."""
+    novo = dict(parsed_base or {})
+    alteracoes: list[str] = []
+    texto = (mensagem or "").strip()
+    texto_lower = texto.lower()
+
+    if not texto:
+        return novo, alteracoes
+
+    parsed_msg = detectar_intencao(texto)
+    intencao_atual = (novo.get("intencao") or "").strip()
+    intencao_msg = (parsed_msg.get("intencao") or "").strip()
+    comando_categoria = bool(re.search(r"\b(?:categoria|cat)\b", texto_lower, flags=re.IGNORECASE))
+    comando_data = bool(
+        parsed_msg.get("data")
+        or re.search(r"\b(?:data|hoje|ontem|amanh[ãa]|anteontem|dia\s+\d{1,2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b", texto_lower, flags=re.IGNORECASE)
+    )
+    comando_valor = bool(
+        parsed_msg.get("novo_valor")
+        or parsed_msg.get("valor")
+        or re.search(r"\b(?:valor|reais?|r\$|rs)\b", texto_lower, flags=re.IGNORECASE)
+    )
+    comando_tipo = bool(
+        re.search(r"\b(?:tipo|entrada|sa[ií]da|gasto|d[ií]vida|divida)\b", texto_lower, flags=re.IGNORECASE)
+    )
+
+    # Edição explícita de credor em linguagem natural.
+    credor_explicito = ""
+    m_credor = re.search(
+        r"\b(?:credor|para\s+quem|quem\s+eu\s+devo)\b\s*(?:=|:)?\s*(?:para|pra|pro)?\s*(.+)$",
+        texto,
+        flags=re.IGNORECASE,
+    )
+    if m_credor:
+        credor_explicito = _normalizar_credor_texto(m_credor.group(1).strip())
+
+    # Permite ajustar a operação quando o usuário corrige explicitamente o tipo de ação.
+    troca_operacao_explicita = bool(
+        re.search(
+            r"\b(?:opera(?:c|ç)[aã]o|intenc[aã]o|tipo|em vez|ao inves|ao invés|na verdade|corrige para|troca para)\b",
+            texto_lower,
+            flags=re.IGNORECASE,
+        )
+    )
+    if (
+        intencao_msg
+        and intencao_msg != "conversa_geral"
+        and intencao_msg != intencao_atual
+        and _intencao_e_operacao(intencao_msg)
+        and troca_operacao_explicita
+    ):
+        novo["intencao"] = intencao_msg
+        alteracoes.append(f"operação para {_rotulo_intencao(intencao_msg)}")
+        intencao_atual = intencao_msg
+
+    # Valor principal da operação.
+    if intencao_atual in {
+        "registrar_entrada",
+        "registrar_saida",
+        "registrar_divida",
+        "registrar_saldo_inicial",
+        "posso_gastar",
+        "pagar_divida",
+    }:
+        valor_msg = parsed_msg.get("valor")
+        if valor_msg and float(valor_msg) > 0:
+            novo["valor"] = float(valor_msg)
+            alteracoes.append(f"valor para {formatar_real(float(valor_msg))}")
+
+    # Campos específicos de edição de lançamento existente.
+    if intencao_atual == "editar_movimentacao":
+        if parsed_msg.get("id_movimentacao"):
+            novo["id_movimentacao"] = parsed_msg.get("id_movimentacao")
+            alteracoes.append(f"ID alvo para #{parsed_msg.get('id_movimentacao')}")
+        valor_novo = None
+        if parsed_msg.get("novo_valor") and float(parsed_msg.get("novo_valor") or 0.0) > 0:
+            valor_novo = float(parsed_msg.get("novo_valor"))
+        elif parsed_msg.get("valor") and float(parsed_msg.get("valor") or 0.0) > 0:
+            valor_novo = float(parsed_msg.get("valor"))
+        if valor_novo is not None:
+            novo["novo_valor"] = valor_novo
+            alteracoes.append(f"novo valor para {formatar_real(valor_novo)}")
+        if comando_categoria and parsed_msg.get("categoria_regra"):
+            novo["categoria_regra"] = parsed_msg.get("categoria_regra")
+            alteracoes.append(f"categoria para {parsed_msg.get('categoria_regra')}")
+
+        m_tipo_mov = re.search(
+            r"\btipo\b\s*(?:=|:)?\s*(entrada|saida|sa[ií]da|gasto)\b",
+            texto_lower,
+            flags=re.IGNORECASE,
+        )
+        if m_tipo_mov:
+            tipo_mov = m_tipo_mov.group(1)
+            tipo_mov = "saida" if tipo_mov in ("gasto", "saída", "saida") else "entrada"
+            novo["tipo_movimentacao"] = tipo_mov
+            alteracoes.append(f"tipo para {tipo_mov}")
+
+        if novo.get("_editar_tipo_registro") == "divida":
+            credor_msg_ed = credor_explicito or _normalizar_credor_texto(parsed_msg.get("credor_divida") or "")
+            if credor_msg_ed:
+                novo["credor_divida"] = credor_msg_ed
+                alteracoes.append(f"credor para {credor_msg_ed}")
+
+    # Data e referência mensal.
+    if parsed_msg.get("data"):
+        novo["data"] = parsed_msg.get("data")
+        alteracoes.append(f"data para {_formatar_data_amigavel(parsed_msg.get('data'))}")
+    if parsed_msg.get("mes_referencia"):
+        novo["mes_referencia"] = parsed_msg.get("mes_referencia")
+        alteracoes.append(f"referência para {_nome_mes(parsed_msg.get('mes_referencia'))}")
+
+    # Categoria para entradas/saídas.
+    if intencao_atual in {"registrar_entrada", "registrar_saida"}:
+        categoria_msg = parsed_msg.get("categoria_regra")
+        if comando_categoria and not categoria_msg:
+            categoria_msg = extrair_categoria_mencionada(texto_lower)
+        if comando_categoria and categoria_msg:
+            novo["categoria_regra"] = categoria_msg
+            alteracoes.append(f"categoria para {categoria_msg}")
+
+    # Credor para dívida/pagamento.
+    if intencao_atual in {"registrar_divida", "pagar_divida", "quitar_dividas"}:
+        credor_msg = credor_explicito or _normalizar_credor_texto(parsed_msg.get("credor_divida") or "")
+        if credor_msg:
+            novo["credor_divida"] = credor_msg
+            alteracoes.append(f"credor para {credor_msg}")
+
+    # Campos de filtros em consultas/listagens/limpeza.
+    if intencao_atual == "limpar_movimentacoes":
+        if parsed_msg.get("tipo_limpar") in {"entrada", "saida"}:
+            novo["tipo_limpar"] = parsed_msg.get("tipo_limpar")
+            alvo = "entradas" if parsed_msg.get("tipo_limpar") == "entrada" else "gastos"
+            alteracoes.append(f"escopo para {alvo}")
+        elif re.search(r"\b(?:tudo|todas|todos)\b", texto_lower):
+            novo["tipo_limpar"] = None
+            alteracoes.append("escopo para tudo")
+
+        periodo_msg = (parsed_msg.get("periodo_limpar") or "").strip().lower()
+        if periodo_msg == "tudo" or re.search(r"\b(?:todo\s+historico|historico\s+inteiro|conta\s+inteira|todos\s+os\s+tempos|de\s+tudo)\b", texto_lower):
+            novo["periodo_limpar"] = "tudo"
+            novo["mes_referencia"] = ""
+            alteracoes.append("período para histórico completo")
+        elif periodo_msg == "ano":
+            novo["periodo_limpar"] = "ano"
+            novo["mes_referencia"] = parsed_msg.get("mes_referencia") or str(date.today().year)
+            alteracoes.append(f"período para ano {novo['mes_referencia']}")
+        elif periodo_msg == "mes":
+            novo["periodo_limpar"] = "mes"
+            novo["mes_referencia"] = parsed_msg.get("mes_referencia")
+            alteracoes.append("período para mês")
+        else:
+            mes_ref_msg = parsed_msg.get("mes_referencia")
+            if isinstance(mes_ref_msg, str) and re.fullmatch(r"\d{4}", mes_ref_msg):
+                novo["periodo_limpar"] = "ano"
+                novo["mes_referencia"] = mes_ref_msg
+                alteracoes.append(f"período para ano {mes_ref_msg}")
+            elif isinstance(mes_ref_msg, str) and re.fullmatch(r"\d{4}-\d{2}", mes_ref_msg):
+                novo["periodo_limpar"] = "mes"
+                novo["mes_referencia"] = mes_ref_msg
+                alteracoes.append(f"período para {_nome_mes(mes_ref_msg)}")
+            elif re.search(r"\b(?:este|esse|neste)\s+m[eê]s\b", texto_lower):
+                novo["periodo_limpar"] = "mes"
+                novo["mes_referencia"] = None
+                alteracoes.append("período para mês atual")
+
+    if intencao_atual == "consultar_total" and parsed_msg.get("tipo_total") in {"entrada", "saida"}:
+        novo["tipo_total"] = parsed_msg.get("tipo_total")
+        alteracoes.append("tipo para ganhos" if parsed_msg.get("tipo_total") == "entrada" else "tipo para gastos")
+
+    if intencao_atual == "listar_movimentacoes" and parsed_msg.get("tipo_listar"):
+        novo["tipo_listar"] = parsed_msg.get("tipo_listar")
+        alteracoes.append(f"tipo para {parsed_msg.get('tipo_listar')}")
+
+    if intencao_atual == "listar_categorias" and parsed_msg.get("tipo_categoria") in {"entrada", "saida"}:
+        novo["tipo_categoria"] = parsed_msg.get("tipo_categoria")
+        alteracoes.append("tipo para entradas" if parsed_msg.get("tipo_categoria") == "entrada" else "tipo para saídas")
+
+    if intencao_atual == "consultar_categoria":
+        categoria_consulta = parsed_msg.get("categoria_consulta")
+        if categoria_consulta:
+            novo["categoria_consulta"] = categoria_consulta
+            alteracoes.append(f"categoria para {categoria_consulta}")
+
+    # Descrição livre (evita substituir por termos genéricos).
+    descricao_dir = ""
+
+    # Comando explícito de título: aceita formas como
+    # "título almoço", "troque o título por almoço", "titulo: almoço".
+    m_titulo = re.search(
+        r"\b(?:t[ií]tulo|titulo)\b\s*(?:=|:|por|para)?\s*(.+)$",
+        texto,
+        flags=re.IGNORECASE,
+    )
+    if m_titulo:
+        descricao_dir = m_titulo.group(1).strip()
+    else:
+        m_desc = re.search(
+            r"\b(?:descri(?:c|ç)[aã]o|motivo|observa(?:c|ç)[aã]o)\s*(?:=|:)?\s*(.+)$",
+            texto,
+            flags=re.IGNORECASE,
+        )
+        if m_desc:
+            descricao_dir = m_desc.group(1).strip()
+        elif (
+            parsed_msg.get("descricao")
+            and not _descricao_insuficiente_para_registro(parsed_msg.get("descricao") or "")
+            and not comando_data
+            and not comando_valor
+            and not comando_tipo
+            and not comando_categoria
+            and not parsed_msg.get("id_movimentacao")
+            and not parsed_msg.get("mes_referencia")
+        ):
+            descricao_dir = (parsed_msg.get("descricao") or "").strip()
+
+    comando_credor = bool(m_credor)
+    if descricao_dir and intencao_atual in {
+        "registrar_entrada",
+        "registrar_saida",
+        "registrar_divida",
+        "apagar_movimentacao",
+        "editar_movimentacao",
+        "consultar_categoria",
+        "posso_gastar",
+    } and not comando_credor and not comando_categoria and not comando_data and not comando_valor:
+        descricao_norm = _normalizar_descricao_registro(descricao_dir)
+        if descricao_norm:
+            novo["descricao"] = descricao_norm
+            if intencao_atual in {"registrar_entrada", "registrar_saida", "registrar_divida", "editar_movimentacao"}:
+                alteracoes.append(f"título para {descricao_norm}")
+            else:
+                alteracoes.append(f"descrição para {descricao_norm}")
+
+    if alteracoes:
+        novo["_mensagem_original"] = texto
+
+    return novo, alteracoes
+
+
+def _resolver_confirmacao_operacao(usuario_id: int, mensagem: str) -> tuple[dict | None, str | None]:
+    pend = _pendente_confirmacao_operacao.get(usuario_id)
+    if not pend:
+        return None, None
+
+    texto = (mensagem or "").strip().lower()
+    if texto in ("cancelar", "cancela", "nao", "não", "n"):
+        _pendente_confirmacao_operacao.pop(usuario_id, None)
+        return None, "Beleza, operação cancelada."
+
+    parsed_atual = dict(pend.get("parsed") or {})
+
+    # Antes do "sim", o usuário pode ajustar qualquer detalhe em linguagem natural.
+    if texto not in ("sim", "s", "confirmar", "confirma", "ok", "beleza", "pode", "vai", "manda"):
+        parsed_editado, alteracoes = _aplicar_edicao_operacao_pendente(parsed_atual, mensagem)
+        if alteracoes:
+            parsed_editado = _enriquecer_preview_operacao(usuario_id, parsed_editado)
+            _pendente_confirmacao_operacao[usuario_id] = {
+                "parsed": parsed_editado,
+                "veio_desambiguacao": bool(pend.get("veio_desambiguacao")),
+            }
+            return None, (
+                "Perfeito, atualizei os detalhes: "
+                + ", ".join(alteracoes)
+                + ".\n\n"
+                + _montar_pergunta_confirmacao_operacao(
+                    parsed_editado,
+                    veio_desambiguacao=bool(pend.get("veio_desambiguacao")),
+                )
+            )
+        return None, (
+            "Você pode responder *sim* para confirmar, *cancelar* para abortar, "
+            "ou editar qualquer campo em linguagem natural (ex.: \"troca o valor para 120\", "
+            "\"foi ontem\", \"categoria mercado\", \"título almoço\")."
+        )
+
+    _pendente_confirmacao_operacao.pop(usuario_id, None)
+    parsed = parsed_atual
+    parsed["_operacao_confirmada"] = True
+    parsed["_confirmacao_manual"] = True
+    return parsed, None
 
 
 def _resolver_confirmacao_intencao(usuario_id: int, mensagem: str) -> tuple[dict | None, str | None]:
@@ -1790,8 +2286,13 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
 
     # --- Verifica se há confirmação pendente de intenção ambígua ---
     confirmou_intencao_manual = False
-    if usuario_id in _pendente_confirmacao_titulo:
-        return _processar_confirmacao_titulo(usuario_id, mensagem)
+    confirmou_operacao_manual = False
+    parsed = None
+    intencao = ""
+    valor = None
+    descricao = ""
+    data_ref = date.today().isoformat()
+    mes_ref = None
 
     if usuario_id in _pendente_confirmacao_intencao:
         parsed_confirmado, resposta_confirmacao = _resolver_confirmacao_intencao(usuario_id, mensagem)
@@ -1805,20 +2306,19 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             descricao = parsed["descricao"]
             data_ref = parsed["data"] or date.today().isoformat()
             mes_ref = parsed.get("mes_referencia")
-        else:
-            parsed = None
-            intencao = ""
-            valor = None
-            descricao = ""
-            data_ref = date.today().isoformat()
-            mes_ref = None
-    else:
-        parsed = None
-        intencao = ""
-        valor = None
-        descricao = ""
-        data_ref = date.today().isoformat()
-        mes_ref = None
+
+    if usuario_id in _pendente_confirmacao_operacao:
+        parsed_confirmado, resposta_confirmacao = _resolver_confirmacao_operacao(usuario_id, mensagem)
+        if resposta_confirmacao:
+            return resposta_confirmacao
+        if parsed_confirmado:
+            parsed = parsed_confirmado
+            confirmou_operacao_manual = bool(parsed.get("_operacao_confirmada"))
+            intencao = parsed["intencao"]
+            valor = parsed.get("valor")
+            descricao = parsed.get("descricao", "")
+            data_ref = parsed.get("data") or date.today().isoformat()
+            mes_ref = parsed.get("mes_referencia")
 
     # --- Verifica se há desambiguação pendente (escolha de qual movimentação apagar) ---
     if usuario_id in _pendente_desambiguacao:
@@ -1865,6 +2365,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     # 2. Parser interpreta a mensagem (100% código, sem LLM)
     if parsed is None:
         parsed = detectar_intencao(mensagem)
+        parsed["_mensagem_original"] = mensagem
         intencao = parsed["intencao"]
         valor = parsed["valor"]
         descricao = parsed["descricao"]
@@ -1875,7 +2376,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
 
     # Mensagens financeiras ambíguas/complexas passam por IA para
     # extrair tipo, valor, descrição, categoria e credor quando aplicável.
-    if (not confirmou_intencao_manual) and _deve_forcar_extracao_ia(mensagem, parsed):
+    if (not confirmou_intencao_manual) and (not confirmou_operacao_manual) and _deve_forcar_extracao_ia(mensagem, parsed):
         parsed = _aplicar_extracao_ia_financeira(mensagem, parsed)
         intencao = parsed["intencao"]
         valor = parsed["valor"]
@@ -1887,7 +2388,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     parsed["credor_divida"] = _normalizar_credor_texto(parsed.get("credor_divida") or "")
 
     confianca = _calcular_confianca_intencao(mensagem, parsed)
-    if (not confirmou_intencao_manual) and _deve_confirmar_intencao(parsed, confianca):
+    if (not confirmou_intencao_manual) and (not confirmou_operacao_manual) and _deve_confirmar_intencao(parsed, confianca):
         op1 = confianca["top_intencao"]
         op2 = confianca["segunda_intencao"]
         if op1 != op2:
@@ -1929,6 +2430,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             "descricao": descricao,
             "categoria_regra": categoria_regra,
             "data_ref": data_ref,
+            "mensagem_original": mensagem,
         }
         return "Entendi como *ganho*, mas faltou o valor. 💚\nEx: \"ganhei 150 de pix\""
     if intencao == "registrar_saida" and not valor:
@@ -1937,6 +2439,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             "descricao": descricao,
             "categoria_regra": categoria_regra,
             "data_ref": data_ref,
+            "mensagem_original": mensagem,
         }
         return "Entendi como *gasto*, mas faltou o valor. 💸\nEx: \"gastei 80 no mercado\""
     if intencao == "registrar_divida" and not valor:
@@ -1946,6 +2449,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             "categoria_regra": categoria_regra,
             "data_ref": data_ref,
             "credor_divida": parsed.get("credor_divida"),
+            "mensagem_original": mensagem,
         }
         return "Entendi como *dívida*, mas faltou o valor. 🧾\nEx: \"fiquei devendo 300 no cartão\""
 
@@ -1997,6 +2501,14 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             "Exemplos: \"fiquei devendo 300 no cartão\", \"devo 200 pro João\""
         )
 
+    if (not confirmou_operacao_manual) and _intencao_exige_confirmacao_operacao(intencao):
+        parsed = _enriquecer_preview_operacao(usuario_id, parsed)
+        _pendente_confirmacao_operacao[usuario_id] = {
+            "parsed": parsed,
+            "veio_desambiguacao": confirmou_intencao_manual,
+        }
+        return _montar_pergunta_confirmacao_operacao(parsed, veio_desambiguacao=confirmou_intencao_manual)
+
     # Helper: label do mês para mensagens
     label_mes = _nome_mes(mes_ref)
     sufixo_mes = f" em *{label_mes}*" if mes_ref else ""
@@ -2013,7 +2525,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     if intencao == "registrar_entrada" and valor and valor > 0:
         return _processar_fluxo_titulo_ou_registro(
             usuario_id=usuario_id,
-            mensagem_original=mensagem,
+            mensagem_original=parsed.get("_mensagem_original") or mensagem,
             intencao="registrar_entrada",
             valor=float(valor),
             descricao=descricao,
@@ -2043,7 +2555,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     elif intencao == "registrar_saida" and valor and valor > 0:
         return _processar_fluxo_titulo_ou_registro(
             usuario_id=usuario_id,
-            mensagem_original=mensagem,
+            mensagem_original=parsed.get("_mensagem_original") or mensagem,
             intencao="registrar_saida",
             valor=float(valor),
             descricao=descricao,
@@ -2054,7 +2566,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     elif intencao == "registrar_divida" and valor and valor > 0:
         return _processar_fluxo_titulo_ou_registro(
             usuario_id=usuario_id,
-            mensagem_original=mensagem,
+            mensagem_original=parsed.get("_mensagem_original") or mensagem,
             intencao="registrar_divida",
             valor=float(valor),
             descricao=descricao or "Divida",
@@ -2216,102 +2728,181 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     elif intencao == "editar_movimentacao":
         id_mov = parsed.get("id_movimentacao")
         novo_valor = parsed.get("novo_valor")
+        if not novo_valor and parsed.get("valor") and float(parsed.get("valor") or 0.0) > 0:
+            novo_valor = float(parsed.get("valor"))
+            parsed["novo_valor"] = novo_valor
 
-        if not novo_valor or novo_valor <= 0:
-            return (
-                "Entendi que você quer editar, mas faltou o novo valor. ✏️\n"
-                "Exemplos: \"editar #12 para 45\" ou \"alterar uber para 32,50\""
-            )
+        def _preparar_confirmacao_edicao(alvo: dict, tipo_registro: str) -> str:
+            parsed_edicao = dict(parsed)
+            parsed_edicao["id_movimentacao"] = alvo.get("id")
+            parsed_edicao["_editar_tipo_registro"] = tipo_registro
 
-        if id_mov:
-            mov = obter_movimentacao_por_id(usuario_id, id_mov)
-            if mov:
-                _pendente_confirmacao_editar[usuario_id] = {
-                    "movimentacao": mov,
-                    "novo_valor": float(novo_valor),
-                    "tipo_registro": "movimentacao",
-                }
-                return _montar_confirmacao_editar(mov, float(novo_valor), "movimentacao")
+            # Pré-carrega dados atuais para permitir ajustes naturais antes da confirmação.
+            if not parsed_edicao.get("data"):
+                parsed_edicao["data"] = alvo.get("data_ref")
+            if not parsed_edicao.get("valor") and alvo.get("valor") is not None:
+                try:
+                    parsed_edicao["valor"] = float(alvo.get("valor"))
+                except Exception:
+                    pass
+            if tipo_registro == "movimentacao":
+                if not parsed_edicao.get("descricao"):
+                    parsed_edicao["descricao"] = (alvo.get("descricao") or "").strip()
+                if not parsed_edicao.get("categoria_regra") and alvo.get("categoria"):
+                    parsed_edicao["categoria_regra"] = (alvo.get("categoria") or "").strip().lower()
+                if not parsed_edicao.get("tipo_movimentacao") and alvo.get("tipo"):
+                    parsed_edicao["tipo_movimentacao"] = alvo.get("tipo")
+            else:
+                if not parsed_edicao.get("descricao"):
+                    parsed_edicao["descricao"] = (alvo.get("descricao") or "").strip()
+                if not parsed_edicao.get("credor_divida") and alvo.get("credor"):
+                    parsed_edicao["credor_divida"] = _normalizar_credor_texto(alvo.get("credor") or "")
 
-            div = obter_divida_por_id(usuario_id, id_mov)
-            if div:
-                _pendente_confirmacao_editar[usuario_id] = {
-                    "movimentacao": div,
-                    "novo_valor": float(novo_valor),
-                    "tipo_registro": "divida",
-                }
-                return _montar_confirmacao_editar(div, float(novo_valor), "divida")
+            parsed_edicao = _enriquecer_preview_operacao(usuario_id, parsed_edicao)
 
-            return (
-                f"🤷 Não encontrei lançamento com o ID #{id_mov}.\n"
-                "💡 Rode *listar movimentações* e tente novamente com *editar #ID para VALOR*."
-            )
-
-        import re as _re
-        descricao_edit_raw = (descricao or "").strip()
-        descricao_edit = _re.sub(
-            r'\s*(?:para|pra|por|valor|novo valor)\s+(?:R\$\s*)?\d+(?:[.,]\d{1,2})?\s*$',
-            '',
-            descricao_edit_raw,
-            flags=_re.IGNORECASE,
-        ).strip()
-
-        # Frases como "valor do fulano para 20" devem virar "fulano" para busca.
-        descricao_candidatas = [descricao_edit]
-        desc_sem_valor = _re.sub(
-            r'^(?:o\s+)?(?:novo\s+)?valor\s+(?:d[oa]s?|de)\s+',
-            '',
-            descricao_edit,
-            flags=_re.IGNORECASE,
-        ).strip()
-        if desc_sem_valor and desc_sem_valor not in descricao_candidatas:
-            descricao_candidatas.append(desc_sem_valor)
-
-        desc_sem_divida = _re.sub(
-            r'^(?:d[ií]vida\s+com\s+)',
-            '',
-            desc_sem_valor,
-            flags=_re.IGNORECASE,
-        ).strip()
-        if desc_sem_divida and desc_sem_divida not in descricao_candidatas:
-            descricao_candidatas.append(desc_sem_divida)
-
-        if not any(descricao_candidatas):
-            return "Me diga qual lançamento você quer editar (ID ou descrição). Ex: editar #12 para 45"
-
-        matches = []
-        descricao_escolhida = descricao_edit
-        for desc_candidata in descricao_candidatas:
-            if not desc_candidata:
-                continue
-            matches_mov = buscar_movimentacoes_por_descricao(usuario_id, desc_candidata)
-            matches_div = buscar_dividas_por_descricao(usuario_id, desc_candidata)
-            matches = ([{**m, "_tipo_registro": "movimentacao"} for m in matches_mov] +
-                       [{**d, "_tipo_registro": "divida"} for d in matches_div])
-            if matches:
-                descricao_escolhida = desc_candidata
-                break
-
-        if len(matches) == 0:
-            return (
-                f"🤷 Não encontrei lançamento com \"{descricao_escolhida}\" neste mês.\n"
-                "💡 Use *listar movimentações* para ver os IDs e envie: *editar #ID para 49,90*."
-            )
-        if len(matches) == 1:
-            mov = matches[0]
-            _pendente_confirmacao_editar[usuario_id] = {
-                "movimentacao": mov,
-                "novo_valor": float(novo_valor),
-                "tipo_registro": mov.get("_tipo_registro", "movimentacao"),
+            _pendente_confirmacao_operacao[usuario_id] = {
+                "parsed": parsed_edicao,
+                "veio_desambiguacao": confirmou_intencao_manual,
             }
-            return _montar_confirmacao_editar(mov, float(novo_valor), mov.get("_tipo_registro", "movimentacao"))
+            return _montar_pergunta_confirmacao_operacao(
+                parsed_edicao,
+                veio_desambiguacao=confirmou_intencao_manual,
+            )
 
-        _pendente_desambiguacao_editar[usuario_id] = {
-            "movimentacoes": matches,
-            "novo_valor": float(novo_valor),
-            "descricao": descricao_escolhida,
-        }
-        return _montar_desambiguacao_editar(matches, descricao_escolhida, float(novo_valor))
+        if not confirmou_operacao_manual:
+            if id_mov:
+                mov = obter_movimentacao_por_id(usuario_id, id_mov)
+                if mov:
+                    return _preparar_confirmacao_edicao(mov, "movimentacao")
+
+                div = obter_divida_por_id(usuario_id, id_mov)
+                if div:
+                    return _preparar_confirmacao_edicao(div, "divida")
+
+                return (
+                    f"🤷 Não encontrei lançamento com o ID #{id_mov}.\n"
+                    "💡 Rode *listar movimentações* e tente novamente com *editar #ID*."
+                )
+
+            import re as _re
+            descricao_edit_raw = (descricao or "").strip()
+            descricao_edit = _re.sub(
+                r'\s*(?:para|pra|por|valor|novo valor)\s+(?:R\$\s*)?\d+(?:[.,]\d{1,2})?\s*$',
+                '',
+                descricao_edit_raw,
+                flags=_re.IGNORECASE,
+            ).strip()
+
+            descricao_candidatas = [descricao_edit]
+            desc_sem_valor = _re.sub(
+                r'^(?:o\s+)?(?:novo\s+)?valor\s+(?:d[oa]s?|de)\s+',
+                '',
+                descricao_edit,
+                flags=_re.IGNORECASE,
+            ).strip()
+            if desc_sem_valor and desc_sem_valor not in descricao_candidatas:
+                descricao_candidatas.append(desc_sem_valor)
+
+            desc_sem_divida = _re.sub(
+                r'^(?:d[ií]vida\s+com\s+)',
+                '',
+                desc_sem_valor,
+                flags=_re.IGNORECASE,
+            ).strip()
+            if desc_sem_divida and desc_sem_divida not in descricao_candidatas:
+                descricao_candidatas.append(desc_sem_divida)
+
+            if not any(descricao_candidatas):
+                return "Me diga qual lançamento você quer editar (ID ou descrição). Ex: editar #12"
+
+            matches = []
+            descricao_escolhida = descricao_edit
+            for desc_candidata in descricao_candidatas:
+                if not desc_candidata:
+                    continue
+                matches_mov = buscar_movimentacoes_por_descricao(usuario_id, desc_candidata)
+                matches_div = buscar_dividas_por_descricao(usuario_id, desc_candidata)
+                matches = ([{**m, "_tipo_registro": "movimentacao"} for m in matches_mov] +
+                           [{**d, "_tipo_registro": "divida"} for d in matches_div])
+
+                # Proteção: se houver mais de um lançamento com a MESMA descrição
+                # no histórico, exige desambiguação em vez de assumir alvo único.
+                if len(matches) == 1:
+                    desc_norm = (desc_candidata or "").strip().lower()
+                    if desc_norm:
+                        hist_mov = buscar_movimentacoes_por_descricao(
+                            usuario_id,
+                            desc_candidata,
+                            ano_mes="",
+                        )
+                        iguais_hist = [
+                            m for m in hist_mov
+                            if (m.get("descricao") or "").strip().lower() == desc_norm
+                        ]
+                        if len(iguais_hist) > 1:
+                            matches = [{**m, "_tipo_registro": "movimentacao"} for m in iguais_hist]
+                if matches:
+                    descricao_escolhida = desc_candidata
+                    break
+
+            if len(matches) == 0:
+                return (
+                    f"🤷 Não encontrei lançamento com \"{descricao_escolhida}\" neste mês.\n"
+                    "💡 Use *listar movimentações* para ver os IDs e envie: *editar #ID*."
+                )
+            if len(matches) == 1:
+                alvo = matches[0]
+                return _preparar_confirmacao_edicao(alvo, alvo.get("_tipo_registro", "movimentacao"))
+
+            _pendente_desambiguacao_editar[usuario_id] = {
+                "movimentacoes": matches,
+                "descricao": descricao_escolhida,
+                "parsed_base": parsed,
+                "veio_desambiguacao": confirmou_intencao_manual,
+            }
+            return _montar_desambiguacao_editar(matches, descricao_escolhida, float(novo_valor or 0.0))
+
+        tipo_registro = parsed.get("_editar_tipo_registro")
+        if tipo_registro not in ("movimentacao", "divida") and id_mov:
+            tipo_registro = "movimentacao" if obter_movimentacao_por_id(usuario_id, id_mov) else "divida"
+
+        if not id_mov or tipo_registro not in ("movimentacao", "divida"):
+            return (
+                "Não consegui identificar qual lançamento editar.\n"
+                "Tente novamente com o ID, por exemplo: *editar #12*."
+            )
+
+        if tipo_registro == "divida":
+            atualizada = atualizar_divida_campos(
+                usuario_id=usuario_id,
+                divida_id=int(id_mov),
+                novo_valor=float(parsed.get("novo_valor")) if parsed.get("novo_valor") else None,
+                nova_descricao=(parsed.get("descricao") or "").strip() or None,
+                novo_credor=_normalizar_credor_texto(parsed.get("credor_divida") or "") or None,
+                nova_data_ref=(parsed.get("data") or "").strip() or None,
+            )
+            if not atualizada:
+                return (
+                    "🤷 Não consegui editar a dívida. Ela pode não existir mais.\n"
+                    "💡 Use *listar dívidas* para confirmar o ID antes de editar."
+                )
+            return _montar_resposta_edicao(atualizada, "divida")
+
+        atualizada = atualizar_movimentacao_campos(
+            usuario_id=usuario_id,
+            movimentacao_id=int(id_mov),
+            novo_valor=float(parsed.get("novo_valor")) if parsed.get("novo_valor") else None,
+            nova_descricao=(parsed.get("descricao") or "").strip() or None,
+            nova_categoria=(parsed.get("categoria_regra") or "").strip() or None,
+            nova_data_ref=(parsed.get("data") or "").strip() or None,
+            novo_tipo=(parsed.get("tipo_movimentacao") or "").strip() or None,
+        )
+        if not atualizada:
+            return (
+                "🤷 Não consegui editar. Essa movimentação pode não existir mais.\n"
+                "💡 Use *listar movimentações* para confirmar o ID antes de editar."
+            )
+        return _montar_resposta_edicao(atualizada, "movimentacao")
 
     elif intencao == "listar_movimentacoes":
         tipo_listar = parsed.get("tipo_listar")  # 'entrada', 'saida' ou None
@@ -2347,39 +2938,53 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
 
     elif intencao == "limpar_movimentacoes":
         tipo_limpar = parsed.get("tipo_limpar")  # 'entrada', 'saida' ou None (tudo)
-        totais = totais_mes(usuario_id, ano_mes=mes_ref)
-        totais_div = totais_dividas(usuario_id, ano_mes=mes_ref)
+        periodo_limpar = (parsed.get("periodo_limpar") or "mes").strip().lower()
+        mes_ref_limpar = parsed.get("mes_referencia")
+        if periodo_limpar == "tudo":
+            mes_ref_limpar = ""
+
+        totais = totais_mes(usuario_id, ano_mes=mes_ref_limpar)
+        totais_div = totais_dividas(usuario_id, ano_mes=mes_ref_limpar)
+
+        if periodo_limpar == "tudo":
+            sufixo_limpar = " de *todo o histórico*"
+        elif periodo_limpar == "ano":
+            ano_label = (mes_ref_limpar or str(date.today().year))
+            sufixo_limpar = f" de *{ano_label}*"
+        else:
+            label_limpar = _nome_mes(mes_ref_limpar)
+            sufixo_limpar = f" em *{label_limpar}*" if mes_ref_limpar else " neste mês"
 
         if tipo_limpar == "saida":
             qtd = totais["qtd_saidas"]
             if qtd == 0:
-                return f"🤷 Você não tem nenhum gasto registrado{sufixo_mes or ' neste mês'}."
-            _pendente_confirmacao_limpar[usuario_id] = ("saida", mes_ref)
+                return f"🤷 Você não tem nenhum gasto registrado{sufixo_limpar}."
+            _pendente_confirmacao_limpar[usuario_id] = ("saida", mes_ref_limpar, periodo_limpar)
             return (
                 f"⚠️ *Tem certeza?*\n\n"
                 f"Isso vai apagar *{qtd} gasto{'s' if qtd > 1 else ''}* "
-                f"({formatar_real(totais['total_saidas'])}){sufixo_mes or ' deste mês'}.\n\n"
+                f"({formatar_real(totais['total_saidas'])}){sufixo_limpar}.\n\n"
                 f"Manda *sim* pra confirmar ou *não* pra cancelar."
             )
         elif tipo_limpar == "entrada":
             qtd = totais["qtd_entradas"]
             if qtd == 0:
-                return f"🤷 Você não tem nenhuma entrada registrada{sufixo_mes or ' neste mês'}."
-            _pendente_confirmacao_limpar[usuario_id] = ("entrada", mes_ref)
+                return f"🤷 Você não tem nenhuma entrada registrada{sufixo_limpar}."
+            _pendente_confirmacao_limpar[usuario_id] = ("entrada", mes_ref_limpar, periodo_limpar)
             return (
                 f"⚠️ *Tem certeza?*\n\n"
                 f"Isso vai apagar *{qtd} entrada{'s' if qtd > 1 else ''}* "
-                f"({formatar_real(totais['total_entradas'])}){sufixo_mes or ' deste mês'}.\n\n"
+                f"({formatar_real(totais['total_entradas'])}){sufixo_limpar}.\n\n"
                 f"Manda *sim* pra confirmar ou *não* pra cancelar."
             )
         else:
             qtd_total = totais["qtd_entradas"] + totais["qtd_saidas"] + totais_div["qtd_dividas"]
             if qtd_total == 0:
-                return f"🤷 Você não tem nenhuma movimentação registrada{sufixo_mes or ' neste mês'}."
-            _pendente_confirmacao_limpar[usuario_id] = (None, mes_ref)
+                return f"🤷 Você não tem nenhuma movimentação registrada{sufixo_limpar}."
+            _pendente_confirmacao_limpar[usuario_id] = (None, mes_ref_limpar, periodo_limpar)
             return (
                 f"⚠️ *Tem certeza?*\n\n"
-                f"Isso vai apagar *TODAS* as movimentações{sufixo_mes or ' deste mês'}:\n"
+                f"Isso vai apagar *TODAS* as movimentações{sufixo_limpar}:\n"
                 f"  💚 {totais['qtd_entradas']} entrada{'s' if totais['qtd_entradas'] != 1 else ''} "
                 f"({formatar_real(totais['total_entradas'])})\n"
                 f"  💸 {totais['qtd_saidas']} gasto{'s' if totais['qtd_saidas'] != 1 else ''} "
@@ -2503,7 +3108,8 @@ def _processar_desambiguacao_editar(usuario_id: int, mensagem: str) -> str:
         return "Ops, perdi o contexto. Me diz de novo qual lançamento quer editar."
 
     candidatas = pendente.get("movimentacoes", [])
-    novo_valor = float(pendente.get("novo_valor", 0.0) or 0.0)
+    parsed_base = dict(pendente.get("parsed_base") or {})
+    veio_desambiguacao = bool(pendente.get("veio_desambiguacao"))
 
     if texto in ("cancelar", "cancela", "nao", "não", "deixa", "esquece", "0"):
         _pendente_desambiguacao_editar.pop(usuario_id, None)
@@ -2512,12 +3118,32 @@ def _processar_desambiguacao_editar(usuario_id: int, mensagem: str) -> str:
     mov, erro = _selecionar_candidata_desambiguacao(candidatas, texto)
     if mov:
         _pendente_desambiguacao_editar.pop(usuario_id, None)
-        _pendente_confirmacao_editar[usuario_id] = {
-            "movimentacao": mov,
-            "novo_valor": novo_valor,
-            "tipo_registro": mov.get("_tipo_registro", "movimentacao"),
+        parsed_base["id_movimentacao"] = mov.get("id")
+        parsed_base["_editar_tipo_registro"] = mov.get("_tipo_registro", "movimentacao")
+        if not parsed_base.get("data"):
+            parsed_base["data"] = mov.get("data_ref")
+        if not parsed_base.get("valor") and mov.get("valor") is not None:
+            try:
+                parsed_base["valor"] = float(mov.get("valor"))
+            except Exception:
+                pass
+        if parsed_base.get("_editar_tipo_registro") == "divida":
+            if not parsed_base.get("credor_divida") and mov.get("credor"):
+                parsed_base["credor_divida"] = _normalizar_credor_texto(mov.get("credor") or "")
+        else:
+            if not parsed_base.get("categoria_regra") and mov.get("categoria"):
+                parsed_base["categoria_regra"] = (mov.get("categoria") or "").strip().lower()
+            if not parsed_base.get("tipo_movimentacao") and mov.get("tipo"):
+                parsed_base["tipo_movimentacao"] = mov.get("tipo")
+
+        _pendente_confirmacao_operacao[usuario_id] = {
+            "parsed": _enriquecer_preview_operacao(usuario_id, parsed_base),
+            "veio_desambiguacao": veio_desambiguacao,
         }
-        return _montar_confirmacao_editar(mov, novo_valor, mov.get("_tipo_registro", "movimentacao"))
+        return _montar_pergunta_confirmacao_operacao(
+            _pendente_confirmacao_operacao[usuario_id]["parsed"],
+            veio_desambiguacao=veio_desambiguacao,
+        )
 
     if erro:
         return erro
@@ -2571,7 +3197,14 @@ def _processar_confirmacao_limpar(usuario_id: int, mensagem: str) -> str:
     Processa a resposta do usuário quando há confirmação pendente de limpeza.
     Aceita 'sim' para confirmar ou 'não' para cancelar.
     """
-    texto = mensagem.strip().lower()
+    texto = (mensagem or "").strip().lower()
+    confirma_por_comando = bool(
+        re.search(
+            r'\b(?:limpar|limpa|limpe|apagar|apaga|apague|remover|remove|remova|excluir|exclui|exclua|deletar|deleta|delete|zerar|zera)\b',
+            texto,
+            flags=re.IGNORECASE,
+        )
+    )
 
     # Confirmar
     if texto in ("sim", "s", "confirmar", "confirma", "pode", "vai", "manda",
@@ -2580,13 +3213,63 @@ def _processar_confirmacao_limpar(usuario_id: int, mensagem: str) -> str:
         if pendente is None:
             return "Ops, perdi o contexto. 😅 Me diz de novo o que quer limpar!"
 
-        tipo_limpar, mes_limpar = pendente
+        if isinstance(pendente, (list, tuple)) and len(pendente) >= 3:
+            tipo_limpar, mes_limpar, periodo_limpar = pendente[0], pendente[1], pendente[2]
+        else:
+            tipo_limpar, mes_limpar = pendente
+            periodo_limpar = "mes"
         apagados = limpar_movimentacoes(usuario_id, tipo=tipo_limpar, ano_mes=mes_limpar)
         apagados_dividas = 0
         if tipo_limpar is None:
             apagados_dividas = limpar_dividas(usuario_id, ano_mes=mes_limpar)
-        label = _nome_mes(mes_limpar)
-        sufixo = f" de *{label}*" if mes_limpar else " deste mês"
+        if periodo_limpar == "tudo":
+            sufixo = " de *todo o histórico*"
+        elif periodo_limpar == "ano":
+            ano_label = (mes_limpar or str(date.today().year))
+            sufixo = f" de *{ano_label}*"
+        else:
+            label = _nome_mes(mes_limpar)
+            sufixo = f" de *{label}*" if mes_limpar else " deste mês"
+
+        if tipo_limpar == "saida":
+            return (
+                f"🗑️ Pronto! Apaguei *{apagados} gasto{'s' if apagados > 1 else ''}*{sufixo}.\n"
+                f"✅ Seu saldo foi atualizado."
+            )
+        elif tipo_limpar == "entrada":
+            return (
+                f"🗑️ Pronto! Apaguei *{apagados} entrada{'s' if apagados > 1 else ''}*{sufixo}.\n"
+                f"✅ Seu saldo foi atualizado."
+            )
+        else:
+            return (
+                f"🗑️ Pronto! Apaguei *{apagados + apagados_dividas} movimentação{'ões' if (apagados + apagados_dividas) > 1 else ''}*{sufixo}.\n"
+                f"🔄 Tudo zerado. Bora recomeçar!"
+            )
+
+    # Quando já existe pendência de limpeza, repetir o comando também confirma.
+    if confirma_por_comando:
+        pendente = _pendente_confirmacao_limpar.pop(usuario_id, None)
+        if pendente is None:
+            return "Ops, perdi o contexto. 😅 Me diz de novo o que quer limpar!"
+
+        if isinstance(pendente, (list, tuple)) and len(pendente) >= 3:
+            tipo_limpar, mes_limpar, periodo_limpar = pendente[0], pendente[1], pendente[2]
+        else:
+            tipo_limpar, mes_limpar = pendente
+            periodo_limpar = "mes"
+        apagados = limpar_movimentacoes(usuario_id, tipo=tipo_limpar, ano_mes=mes_limpar)
+        apagados_dividas = 0
+        if tipo_limpar is None:
+            apagados_dividas = limpar_dividas(usuario_id, ano_mes=mes_limpar)
+        if periodo_limpar == "tudo":
+            sufixo = " de *todo o histórico*"
+        elif periodo_limpar == "ano":
+            ano_label = (mes_limpar or str(date.today().year))
+            sufixo = f" de *{ano_label}*"
+        else:
+            label = _nome_mes(mes_limpar)
+            sufixo = f" de *{label}*" if mes_limpar else " deste mês"
 
         if tipo_limpar == "saida":
             return (
@@ -2644,35 +3327,6 @@ def _processar_confirmacao_quitar(usuario_id: int, mensagem: str) -> str:
     return "Responda *sim* para confirmar a quitação geral ou *não* para cancelar."
 
 
-def _processar_confirmacao_titulo(usuario_id: int, mensagem: str) -> str:
-    """Resolve escolha de titulo sugerido (1/2) ou titulo customizado."""
-    pendente = _pendente_confirmacao_titulo.get(usuario_id)
-    if not pendente:
-        return "Ops, perdi o contexto desse titulo. Me manda o lancamento de novo."
-
-    texto = (mensagem or "").strip()
-    texto_lower = texto.lower()
-    if texto_lower in ("cancelar", "cancela", "nao", "não", "deixa", "esquece"):
-        _pendente_confirmacao_titulo.pop(usuario_id, None)
-        return "Beleza, cancelei esse lancamento."
-
-    op1 = (pendente.get("op1") or "lancamento").strip()
-    op2 = (pendente.get("op2") or op1).strip()
-    payload = pendente.get("payload") or {}
-
-    escolha_num = re.match(r"^\s*([12])(?:[\).\-]\s*)?$", texto)
-    if escolha_num:
-        titulo = op1 if escolha_num.group(1) == "1" else op2
-    else:
-        titulo = _normalizar_descricao_registro(texto)
-        if not titulo:
-            return "Responda com *1* ou *2*, ou escreva um titulo curto (maximo 4 palavras)."
-
-    payload["descricao"] = titulo
-    _pendente_confirmacao_titulo.pop(usuario_id, None)
-    return _executar_registro_por_payload(usuario_id, payload)
-
-
 def _processar_pendente_valor_registro(usuario_id: int, mensagem: str) -> str:
     """Completa um registro pendente quando o usuário envia só o valor."""
     pendente = _pendente_valor_registro.get(usuario_id)
@@ -2700,11 +3354,12 @@ def _processar_pendente_valor_registro(usuario_id: int, mensagem: str) -> str:
 
     _pendente_valor_registro.pop(usuario_id, None)
     valor = float(valor)
+    mensagem_original = (pendente.get("mensagem_original") or "").strip() or mensagem
 
     if intencao == "registrar_entrada":
         return _processar_fluxo_titulo_ou_registro(
             usuario_id=usuario_id,
-            mensagem_original=mensagem,
+            mensagem_original=mensagem_original,
             intencao="registrar_entrada",
             valor=valor,
             descricao=descricao,
@@ -2715,7 +3370,7 @@ def _processar_pendente_valor_registro(usuario_id: int, mensagem: str) -> str:
     if intencao == "registrar_divida":
         return _processar_fluxo_titulo_ou_registro(
             usuario_id=usuario_id,
-            mensagem_original=mensagem,
+            mensagem_original=mensagem_original,
             intencao="registrar_divida",
             valor=valor,
             descricao=descricao or "Divida",
@@ -2727,7 +3382,7 @@ def _processar_pendente_valor_registro(usuario_id: int, mensagem: str) -> str:
     # fallback: registrar_saida
     return _processar_fluxo_titulo_ou_registro(
         usuario_id=usuario_id,
-        mensagem_original=mensagem,
+        mensagem_original=mensagem_original,
         intencao="registrar_saida",
         valor=valor,
         descricao=descricao,
@@ -3018,7 +3673,7 @@ def _montar_confirmacao_apagar(mov: dict, tipo_registro: str = "movimentacao") -
 
 
 def _montar_confirmacao_editar(mov: dict, novo_valor: float, tipo_registro: str = "movimentacao") -> str:
-    """Monta mensagem de confirmação antes de editar valor."""
+    """Monta mensagem de confirmação antes de editar campos da operação."""
     if tipo_registro == "divida":
         descricao = (mov.get("descricao") or "dívida").capitalize()
         credor = mov.get("credor") or "não informado"
@@ -3042,10 +3697,16 @@ def _montar_confirmacao_editar(mov: dict, novo_valor: float, tipo_registro: str 
 
 def _montar_desambiguacao_editar(movimentacoes: list[dict], descricao: str, novo_valor: float) -> str:
     """Pede escolha quando há múltiplos candidatos para edição."""
-    resposta = (
-        f"🤔 Encontrei *{len(movimentacoes)}* lançamentos com \"{descricao}\".\n"
-        f"Qual você quer editar para {formatar_real(novo_valor)}?\n\n"
-    )
+    if novo_valor and novo_valor > 0:
+        resposta = (
+            f"🤔 Encontrei *{len(movimentacoes)}* lançamentos com \"{descricao}\".\n"
+            f"Qual você quer editar para {formatar_real(novo_valor)}?\n\n"
+        )
+    else:
+        resposta = (
+            f"🤔 Encontrei *{len(movimentacoes)}* lançamentos com \"{descricao}\".\n"
+            "Qual você quer editar?\n\n"
+        )
 
     resposta += _montar_linhas_candidatas(movimentacoes)
     resposta += "\n\nManda o *número*, *#ID*, *data* (24/03) ou *valor* (300), ou *cancelar*."
@@ -3053,26 +3714,57 @@ def _montar_desambiguacao_editar(movimentacoes: list[dict], descricao: str, novo
 
 
 def _montar_resposta_edicao(mov: dict, tipo_registro: str = "movimentacao") -> str:
-    """Confirmação de edição concluída com valor antes/depois."""
+    """Confirmação de edição concluída com campos alterados."""
+    alteracoes = list(mov.get("alteracoes") or [])
+    antes = mov.get("antes") or {}
+
     if tipo_registro == "divida":
         descricao = (mov.get("descricao") or "dívida").capitalize()
         credor = mov.get("credor") or "não informado"
-        valor_anterior = mov.get("valor_anterior", mov.get("valor", 0.0))
-        valor_novo = mov.get("valor", 0.0)
-        return (
-            "✅ Dívida atualizada com sucesso!\n"
-            f"• #{mov['id']} {descricao} (credor: {credor})\n"
-            f"• Antes: {formatar_real(valor_anterior)}\n"
-            f"• Agora: {formatar_real(valor_novo)}"
-        )
+        if not alteracoes:
+            return (
+                "ℹ️ Nenhum campo foi alterado nessa dívida.\n"
+                "Você pode ajustar valor, descrição, credor ou data e confirmar de novo."
+            )
+
+        linhas: list[str] = [
+            "✅ Dívida atualizada com sucesso!",
+            f"• #{mov['id']} {descricao} (credor: {credor})",
+        ]
+        if "valor" in alteracoes:
+            linhas.append(
+                f"• Valor: {formatar_real(float(antes.get('valor', 0.0) or 0.0))} → {formatar_real(float(mov.get('valor', 0.0) or 0.0))}"
+            )
+        if "descricao" in alteracoes:
+            linhas.append(f"• Descrição: {(antes.get('descricao') or 'sem descrição')} → {(mov.get('descricao') or 'sem descrição')}")
+        if "credor" in alteracoes:
+            linhas.append(f"• Credor: {(antes.get('credor') or 'não informado')} → {(mov.get('credor') or 'não informado')}")
+        if "data" in alteracoes:
+            linhas.append(f"• Data: {(antes.get('data_ref') or '-')} → {(mov.get('data_ref') or '-')}")
+        return "\n".join(linhas)
 
     descricao = (mov.get("descricao") or mov.get("categoria") or "movimentação").capitalize()
-    valor_anterior = mov.get("valor_anterior", mov.get("valor", 0.0))
-    valor_novo = mov.get("valor", 0.0)
-    return (
-        "✅ Valor atualizado com sucesso!\n"
-        f"• #{mov['id']} {descricao} ({mov['categoria']})\n"
-        f"• Antes: {formatar_real(valor_anterior)}\n"
-        f"• Agora: {formatar_real(valor_novo)}\n"
-        "🔄 Seu saldo foi recalculado."
-    )
+    if not alteracoes:
+        return (
+            "ℹ️ Nenhum campo foi alterado nesse lançamento.\n"
+            "Você pode ajustar valor, descrição, categoria, data ou tipo e confirmar de novo."
+        )
+
+    linhas = [
+        "✅ Lançamento atualizado com sucesso!",
+        f"• #{mov['id']} {descricao} ({mov.get('categoria', 'sem categoria')})",
+    ]
+    if "valor" in alteracoes:
+        linhas.append(
+            f"• Valor: {formatar_real(float(antes.get('valor', 0.0) or 0.0))} → {formatar_real(float(mov.get('valor', 0.0) or 0.0))}"
+        )
+    if "descricao" in alteracoes:
+        linhas.append(f"• Descrição: {(antes.get('descricao') or 'sem descrição')} → {(mov.get('descricao') or 'sem descrição')}")
+    if "categoria" in alteracoes:
+        linhas.append(f"• Categoria: {(antes.get('categoria') or 'sem categoria')} → {(mov.get('categoria') or 'sem categoria')}")
+    if "data" in alteracoes:
+        linhas.append(f"• Data: {(antes.get('data_ref') or '-')} → {(mov.get('data_ref') or '-')}")
+    if "tipo" in alteracoes:
+        linhas.append(f"• Tipo: {(antes.get('tipo') or '-')} → {(mov.get('tipo') or '-')}")
+    linhas.append("🔄 Seu saldo foi recalculado.")
+    return "\n".join(linhas)

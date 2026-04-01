@@ -377,6 +377,88 @@ def atualizar_valor_divida(usuario_id: int, divida_id: int, novo_valor: float) -
     return atual
 
 
+def atualizar_divida_campos(
+    usuario_id: int,
+    divida_id: int,
+    *,
+    novo_valor: Optional[float] = None,
+    nova_descricao: Optional[str] = None,
+    novo_credor: Optional[str] = None,
+    nova_data_ref: Optional[str] = None,
+) -> dict | None:
+    """Atualiza campos de uma dívida e retorna antes/depois com alterações."""
+    with _db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, valor, credor, descricao, data_ref
+            FROM dividas
+            WHERE id = ? AND usuario_id = ?
+            """,
+            (divida_id, usuario_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        antes = dict(row)
+        updates: list[str] = []
+        params: list = []
+        alteracoes: list[str] = []
+
+        if novo_valor is not None and float(novo_valor) > 0:
+            updates.append("valor = ?")
+            params.append(float(novo_valor))
+            alteracoes.append("valor")
+
+        if nova_descricao is not None and str(nova_descricao).strip():
+            updates.append("descricao = ?")
+            params.append(str(nova_descricao).strip())
+            alteracoes.append("descricao")
+
+        if novo_credor is not None and str(novo_credor).strip():
+            updates.append("credor = ?")
+            params.append(str(novo_credor).strip())
+            alteracoes.append("credor")
+
+        if nova_data_ref is not None and str(nova_data_ref).strip():
+            updates.append("data_ref = ?")
+            params.append(str(nova_data_ref).strip())
+            alteracoes.append("data")
+
+        if not updates:
+            atual = dict(antes)
+            atual["antes"] = antes
+            atual["alteracoes"] = []
+            return atual
+
+        params.extend([divida_id, usuario_id])
+        cur.execute(
+            f"""
+            UPDATE dividas
+            SET {", ".join(updates)}
+            WHERE id = ? AND usuario_id = ?
+            """,
+            params,
+        )
+
+        cur.execute(
+            """
+            SELECT id, valor, credor, descricao, data_ref
+            FROM dividas
+            WHERE id = ? AND usuario_id = ?
+            """,
+            (divida_id, usuario_id),
+        )
+        after_row = cur.fetchone()
+        conn.commit()
+
+    atual = dict(after_row) if after_row else dict(antes)
+    atual["antes"] = antes
+    atual["alteracoes"] = alteracoes
+    return atual
+
+
 def limpar_dividas(usuario_id: int, ano_mes: Optional[str] = None) -> int:
     """Apaga todas as dívidas do usuário no mês informado."""
     if ano_mes is None:
@@ -997,6 +1079,95 @@ def atualizar_valor_movimentacao(usuario_id: int, movimentacao_id: int, novo_val
 
     atual["valor_anterior"] = valor_anterior
     atual["valor"] = float(novo_valor)
+    return atual
+
+
+def atualizar_movimentacao_campos(
+    usuario_id: int,
+    movimentacao_id: int,
+    *,
+    novo_valor: Optional[float] = None,
+    nova_descricao: Optional[str] = None,
+    nova_categoria: Optional[str] = None,
+    nova_data_ref: Optional[str] = None,
+    novo_tipo: Optional[str] = None,
+) -> dict | None:
+    """Atualiza campos de uma movimentação e retorna antes/depois com alterações."""
+    with _db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, tipo, valor, categoria, descricao, data_ref
+            FROM movimentacoes
+            WHERE id = ? AND usuario_id = ?
+            """,
+            (movimentacao_id, usuario_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        antes = dict(row)
+        updates: list[str] = []
+        params: list = []
+        alteracoes: list[str] = []
+
+        if novo_valor is not None and float(novo_valor) > 0:
+            updates.append("valor = ?")
+            params.append(float(novo_valor))
+            alteracoes.append("valor")
+
+        if nova_descricao is not None and str(nova_descricao).strip():
+            updates.append("descricao = ?")
+            params.append(str(nova_descricao).strip())
+            alteracoes.append("descricao")
+
+        if nova_categoria is not None and str(nova_categoria).strip():
+            updates.append("categoria = ?")
+            params.append(str(nova_categoria).strip().lower())
+            alteracoes.append("categoria")
+
+        if nova_data_ref is not None and str(nova_data_ref).strip():
+            updates.append("data_ref = ?")
+            params.append(str(nova_data_ref).strip())
+            alteracoes.append("data")
+
+        tipo_norm = (novo_tipo or "").strip().lower()
+        if tipo_norm in ("entrada", "saida"):
+            updates.append("tipo = ?")
+            params.append(tipo_norm)
+            alteracoes.append("tipo")
+
+        if not updates:
+            atual = dict(antes)
+            atual["antes"] = antes
+            atual["alteracoes"] = []
+            return atual
+
+        params.extend([movimentacao_id, usuario_id])
+        cur.execute(
+            f"""
+            UPDATE movimentacoes
+            SET {", ".join(updates)}
+            WHERE id = ? AND usuario_id = ?
+            """,
+            params,
+        )
+
+        cur.execute(
+            """
+            SELECT id, tipo, valor, categoria, descricao, data_ref
+            FROM movimentacoes
+            WHERE id = ? AND usuario_id = ?
+            """,
+            (movimentacao_id, usuario_id),
+        )
+        after_row = cur.fetchone()
+        conn.commit()
+
+    atual = dict(after_row) if after_row else dict(antes)
+    atual["antes"] = antes
+    atual["alteracoes"] = alteracoes
     return atual
 
 

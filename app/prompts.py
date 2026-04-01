@@ -72,8 +72,8 @@ Responda apenas com o nome da categoria.
 INTENT_CLASSIFICATION_PROMPT = """Voce e um classificador de intencao para mensagens financeiras em portugues brasileiro.
 
 Classifique a mensagem em exatamente um tipo:
-- gasto: dinheiro saindo (compra, pagamento, despesa)
-- ganho: dinheiro entrando (salario, pix recebido, renda)
+- saida: dinheiro saindo (compra, pagamento, despesa)
+- entrada: dinheiro entrando (salario, pix recebido, renda)
 - divida: mensagem sobre divida/emprestimo/parcela/conta em aberto
 - nao_financeiro: conversa geral, saudacao, pergunta sem acao financeira
 - incerto: quando nao der para decidir com seguranca
@@ -83,7 +83,7 @@ Mensagem do usuario:
 
 Responda APENAS em JSON valido, sem markdown:
 {{
-  "tipo": "gasto|ganho|divida|nao_financeiro|incerto",
+  "tipo": "entrada|saida|divida|nao_financeiro|incerto",
   "confianca": 0.0,
   "justificativa": "curta"
 }}

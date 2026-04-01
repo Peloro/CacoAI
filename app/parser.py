@@ -169,7 +169,19 @@ _RE_PAGAMENTO_DIVIDA = re.compile(
 _RE_PIX_SAIDA = re.compile(r'\bpix\s+de\s+\d+(?:[.,]\d{1,2})?\s+(?:pro|pra|para)\b', re.IGNORECASE)
 _RE_PIX_ENTRADA = re.compile(r'\b(?:me\s+transferiram|transferiram\s+pra\s+mim|pix\s+(?:de|do|da)|pix\s+recebido)\b', re.IGNORECASE)
 _RE_DIVIDA_FORTE = re.compile(r'\b(?:peguei\s+\d+\s+emprestado|peguei\s+emprestado|devo\s+\d+|fiquei\s+devendo|devendo)\b', re.IGNORECASE)
-_RE_LIMPAR_MOVIMENTACOES = re.compile(r'\b(?:zerar|zera|limpar|limpa|apagar|apaga)\b.*\bmovimenta(?:ç(?:ã|a)o|cao|ções|coes)\b', re.IGNORECASE)
+_RE_LIMPAR_MOVIMENTACOES = re.compile(
+    r'\b(?:zerar|zera|limpar|limpa|limpe|apagar|apaga|apague|remover|remove|remova|excluir|exclui|exclua|deletar|deleta|delete)\b'
+    r'.*\b(?:movimenta(?:ç(?:ã|a)o|cao|ções|coes)|movimentos?|registros?|lan[çc]amentos?|valores?)\b',
+    re.IGNORECASE,
+)
+_RE_LIMPAR_PERIODO_TUDO = re.compile(
+    r'\b(?:'
+    r'tudo|todas\s+as\s+movimentacoes|todos\s+os\s+registros|todos\s+os\s+lancamentos|'
+    r'historico\s+(?:todo|inteiro|completo)|conta\s+inteira|todos\s+os\s+tempos|'
+    r'de\s+tudo|de\s+toda\s+a\s+conta'
+    r')\b',
+    re.IGNORECASE,
+)
 _RE_DICA_DIRETA = re.compile(r'\b(?:como\s+reduzir|reduzir\s+gastos|economizar\s+mais|organizar\s+melhor)\b', re.IGNORECASE)
 _RE_DESFAZER = re.compile(r'\b(?:desfazer|desfaz|desfaca|desfaça|undo|voltar\s+atras|volta\s+atras|cancelar\s+ultimo)\b', re.IGNORECASE)
 
@@ -311,6 +323,11 @@ _RE_DATA_COMPLETA = re.compile(r'(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?')
 _RE_MES_PASSADO = re.compile(r'm[eê]s\s+(?:passado|anterior)')
 _RE_MES_RETRASADO = re.compile(r'm[eê]s\s+retrasado|2\s+meses\s+atr[aá]s')
 _RE_MES_ATUAL = re.compile(r'(?:est[ea]|ess[ea]|nest[ea])\s+m[eê]s')
+_RE_ANO_ATUAL = re.compile(
+    r'\b(?:este|esse|neste|meu)\s+ano\b|\b(?:do|no)\s+ano\s+(?:atual|inteiro)\b|\bano\s+atual\b|\bano\s+inteiro\b'
+)
+_RE_ANO_PASSADO = re.compile(r'\bano\s+(?:passado|anterior)\b|\banos\s+anteriores\b')
+_RE_ANO_EXPLICITO = re.compile(r'\b(?:ano\s+de\s+|ano\s+|em\s+|de\s+)?(20\d{2})\b')
 _PADROES_MES_NOME = [
     (
         re.compile(
@@ -393,13 +410,31 @@ def extrair_mes_referencia(texto: str) -> Optional[str]:
     Tenta extrair uma referência de mês do texto.
     Retorna no formato YYYY-MM ou None.
 
-    Entende:
-      - Nomes de mês: "janeiro", "fevereiro", "em março", "de dezembro"
-      - Relativos: "mês passado", "mês anterior", "mês retrasado"
-      - "este mês", "esse mês", "neste mês"
+        Entende:
+            - Nomes de mês: "janeiro", "fevereiro", "em março", "de dezembro"
+            - Relativos: "mês passado", "mês anterior", "mês retrasado"
+            - "este mês", "esse mês", "neste mês"
+            - Referência anual: "este ano", "ano passado", "2024", "ano de 2023"
+
+        Observação:
+            - Quando for anual, retorna somente "YYYY".
+            - Quando for mensal, retorna "YYYY-MM".
     """
     texto_lower = texto.lower()
     hoje = date.today()
+
+    # Referência anual explícita
+    if _RE_ANO_ATUAL.search(texto_lower):
+        return f"{hoje.year}"
+
+    if _RE_ANO_PASSADO.search(texto_lower):
+        return f"{hoje.year - 1}"
+
+    ano_explicito = _RE_ANO_EXPLICITO.search(texto_lower)
+    if ano_explicito:
+        ano = int(ano_explicito.group(1))
+        if 2000 <= ano <= 2099:
+            return f"{ano}"
 
     # "mês passado" / "mês anterior"
     if _RE_MES_PASSADO.search(texto_lower):
@@ -636,6 +671,9 @@ def extrair_credor_divida(texto: str) -> Optional[str]:
         credor = m.group(1).strip(" .,!?:;-")
         # limpa sufixos comuns que podem vir após o credor
         credor = re.split(r'\b(?:hoje|ontem|anteontem|no\s+valor\s+de|valor\s+de|,|\.|!|\?)\b', credor, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+        # corta contexto narrativo que não faz parte do nome do credor
+        credor = re.sub(r'\s+de\s+(?:um|uma|uns|umas)\b.*$', '', credor, flags=re.IGNORECASE).strip()
+        credor = re.sub(r'\s+que\b.*$', '', credor, flags=re.IGNORECASE).strip()
         credor = _normalizar_credor_extraido(credor)
         if credor:
             return credor
@@ -811,6 +849,10 @@ def detectar_intencao(texto: str) -> dict:
     tipo_contexto = _detectar_tipo_contexto(texto_lower)
     categoria_mencionada = extrair_categoria_mencionada(texto_lower)
 
+    # Em comandos de edicao/categorizacao, a categoria canonica pode vir sem keyword de produto.
+    if not categoria_regra and categoria_mencionada:
+        categoria_regra = categoria_mencionada
+
     # Só usa a keyword como descrição quando a descrição ficou vazia.
     if keyword_encontrada and not descricao:
         descricao = keyword_encontrada.capitalize()
@@ -827,44 +869,70 @@ def detectar_intencao(texto: str) -> dict:
         }
 
     if _RE_LIMPAR_MOVIMENTACOES.search(texto_lower):
+        periodo_limpar = "mes"
+        mes_limpar = mes_referencia
+        if _RE_LIMPAR_PERIODO_TUDO.search(texto_lower):
+            periodo_limpar = "tudo"
+            mes_limpar = ""
+        elif isinstance(mes_referencia, str) and re.fullmatch(r'\d{4}', mes_referencia):
+            periodo_limpar = "ano"
         return {
             "intencao": "limpar_movimentacoes",
             "valor": valor,
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
-            "mes_referencia": mes_referencia,
+            "mes_referencia": mes_limpar,
+            "periodo_limpar": periodo_limpar,
             "tipo_limpar": None,
         }
 
     if _texto_contem(texto_lower, PALAVRAS_LIMPAR_GASTOS) or bool(_RE_LIMPAR_GASTOS_DIRETO.search(texto_lower)):
+        periodo_limpar = "mes"
+        mes_limpar = mes_referencia
+        if _RE_LIMPAR_PERIODO_TUDO.search(texto_lower):
+            periodo_limpar = "tudo"
+            mes_limpar = ""
+        elif isinstance(mes_referencia, str) and re.fullmatch(r'\d{4}', mes_referencia):
+            periodo_limpar = "ano"
         return {
             "intencao": "limpar_movimentacoes",
             "valor": valor,
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
-            "mes_referencia": mes_referencia,
+            "mes_referencia": mes_limpar,
+            "periodo_limpar": periodo_limpar,
             "tipo_limpar": "saida",
         }
     if _texto_contem(texto_lower, PALAVRAS_LIMPAR_GANHOS) or bool(_RE_LIMPAR_GANHOS_DIRETO.search(texto_lower)):
+        periodo_limpar = "mes"
+        mes_limpar = mes_referencia
+        if _RE_LIMPAR_PERIODO_TUDO.search(texto_lower):
+            periodo_limpar = "tudo"
+            mes_limpar = ""
+        elif isinstance(mes_referencia, str) and re.fullmatch(r'\d{4}', mes_referencia):
+            periodo_limpar = "ano"
         return {
             "intencao": "limpar_movimentacoes",
             "valor": valor,
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
-            "mes_referencia": mes_referencia,
+            "mes_referencia": mes_limpar,
+            "periodo_limpar": periodo_limpar,
             "tipo_limpar": "entrada",
         }
     if _texto_contem(texto_lower, PALAVRAS_LIMPAR_TUDO):
+        periodo_limpar = "tudo" if _RE_LIMPAR_PERIODO_TUDO.search(texto_lower) or "limpar tudo" in texto_lower or "limpa tudo" in texto_lower else "mes"
         return {
             "intencao": "limpar_movimentacoes",
             "valor": valor,
             "descricao": descricao,
             "data": data_ref,
             "categoria_regra": categoria_regra,
-            "mes_referencia": mes_referencia,
+            "mes_referencia": "" if periodo_limpar == "tudo" else mes_referencia,
+            "periodo_limpar": periodo_limpar,
             "tipo_limpar": None,
         }
 
@@ -872,33 +940,39 @@ def detectar_intencao(texto: str) -> dict:
     # Captura frases como "remova todas as movimentações", "exclua todos os gastos"
     if _texto_contem(texto_lower, PALAVRAS_APAGAR):
         if _RE_TODOS_GASTOS.search(texto_lower):
+            periodo_limpar = "tudo" if _RE_LIMPAR_PERIODO_TUDO.search(texto_lower) else ("ano" if isinstance(mes_referencia, str) and re.fullmatch(r'\d{4}', mes_referencia) else "mes")
             return {
                 "intencao": "limpar_movimentacoes",
                 "valor": valor,
                 "descricao": descricao,
                 "data": data_ref,
                 "categoria_regra": categoria_regra,
-                "mes_referencia": mes_referencia,
+                "mes_referencia": "" if periodo_limpar == "tudo" else mes_referencia,
+                "periodo_limpar": periodo_limpar,
                 "tipo_limpar": "saida",
             }
         if _RE_TODOS_GANHOS.search(texto_lower):
+            periodo_limpar = "tudo" if _RE_LIMPAR_PERIODO_TUDO.search(texto_lower) else ("ano" if isinstance(mes_referencia, str) and re.fullmatch(r'\d{4}', mes_referencia) else "mes")
             return {
                 "intencao": "limpar_movimentacoes",
                 "valor": valor,
                 "descricao": descricao,
                 "data": data_ref,
                 "categoria_regra": categoria_regra,
-                "mes_referencia": mes_referencia,
+                "mes_referencia": "" if periodo_limpar == "tudo" else mes_referencia,
+                "periodo_limpar": periodo_limpar,
                 "tipo_limpar": "entrada",
             }
         if _RE_TODOS_MOVS.search(texto_lower):
+            periodo_limpar = "tudo" if _RE_LIMPAR_PERIODO_TUDO.search(texto_lower) else ("ano" if isinstance(mes_referencia, str) and re.fullmatch(r'\d{4}', mes_referencia) else "mes")
             return {
                 "intencao": "limpar_movimentacoes",
                 "valor": valor,
                 "descricao": descricao,
                 "data": data_ref,
                 "categoria_regra": categoria_regra,
-                "mes_referencia": mes_referencia,
+                "mes_referencia": "" if periodo_limpar == "tudo" else mes_referencia,
+                "periodo_limpar": periodo_limpar,
                 "tipo_limpar": None,
             }
 
@@ -1039,8 +1113,8 @@ def detectar_intencao(texto: str) -> dict:
             "mes_referencia": mes_referencia,
         }
 
-    # 2. Editar valor de movimentação (prioridade sobre apagar para evitar
-    # frases como "corrigir ... para 32,50" cairem em remoção)
+    # 2. Editar movimentação/operação (prioridade sobre apagar para evitar
+    # frases como "corrigir ... para 32,50" caírem em remoção)
     eh_comando_editar = _texto_contem(texto_lower, PALAVRAS_EDITAR)
     if not eh_comando_editar and _RE_COMANDO_EDITAR_VALOR.search(texto_lower):
         eh_comando_editar = True
@@ -1159,7 +1233,8 @@ def detectar_intencao(texto: str) -> dict:
     # "mostrar/ver" com contexto de listagem deve ir para listar_movimentacoes,
     # exceto quando houver termo claro de resumo/extrato/historico.
     pedido_ver_lista = bool(_RE_VER_MOSTRAR.search(texto_lower)) and bool(_RE_CONTEXTO_LISTAGEM.search(texto_lower))
-    if _texto_contem(texto_lower, PALAVRAS_RESUMO) and not (
+    pedido_resumo_ano = bool(re.search(r'\b(?:como\s+foi|como\s+ta|como\s+est[aá]|quero\s+ver)\b.*\b(?:meu\s+ano|ano\s+passado|ano\s+anterior|anos\s+anteriores|20\d{2})\b', texto_lower))
+    if (_texto_contem(texto_lower, PALAVRAS_RESUMO) or pedido_resumo_ano) and not (
         pedido_ver_lista and not re.search(r'\b(resumo|extrato|hist[oó]rico)\b', texto_lower)
     ):
         return {

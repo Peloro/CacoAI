@@ -74,27 +74,16 @@ RESPOSTAS_SAUDACAO = [
 
 RESPOSTAS_AJUDA = [
     (
-        "Claro! Aqui vai o que eu sei fazer 👇\n\n"
-        "💸 *Anotar gasto:* \"Gastei 50 no mercado\"\n"
-        "💚 *Anotar entrada:* \"Recebi 3000 de salário\"\n"
-        "🧾 *Anotar dívida:* \"devo 300 pro João\"\n"
-        "✅ *Quitar dívidas:* \"quitei minhas dívidas\"\n"
-        "💳 *Pagar parte da dívida:* \"paguei 150 da dívida com João\"\n"
-        "✏️ *Editar valor:* \"editar #12 para 45\"\n"
-        "🗑️ *Apagar lançamento:* \"apagar #12\" _(com confirmação)_\n"
-        "🧹 *Limpar tudo:* \"limpar tudo\" _(com confirmação)_\n"
-        "🔒 *Sair da conta:* \"sair\" ou \"logout\"\n"
-        "📋 *Ver extrato com IDs:* \"listar movimentações\"\n"
-        "📁 *Ver categorias:* \"listar categorias de saídas\"\n"
-        "🔎 *Expandir categoria:* \"detalhar categoria transporte de saídas\"\n"
-        "🔎 *Expandir entradas:* \"mostrar categoria salário de entradas\"\n"
-        "🧾 *Citar separado:* \"citar minhas entradas\", \"citar minhas saídas\", \"citar minhas dívidas\"\n"
-        "🧾 *Ver só dívidas:* \"listar dívidas\"\n"
-        "📊 *Ver resumo:* \"Resumo do mês\"\n"
-        "💰 *Ver saldo:* \"Quanto tenho sobrando?\"\n"
-        "🤔 *Avaliar compra:* \"Posso gastar 200?\"\n"
-        "💡 *Pedir dica:* \"Como economizar?\"\n\n"
-        "É só mandar natural, tipo conversa mesmo! 😉"
+        "Claro! Aqui vai um guia rápido 👇\n\n"
+        "💸 *Registrar:* \"gastei 50 no mercado\", \"recebi 3000 de salário\", \"devo 300 pro João\"\n"
+        "✏️ *Editar (qualquer campo):* \"editar #12\"\n"
+        "   Depois ajuste natural: \"valor 45\", \"categoria mercado\", \"título almoço\", \"foi ontem\"\n"
+        "🗑️ *Remover:* \"apagar #12\"\n"
+        "🧹 *Limpar:* \"limpar mês\", \"limpar ano\", \"limpar tudo\"\n"
+        "📊 *Consultar:* \"resumo do mês\", \"resumo do ano\", \"quanto tenho sobrando?\"\n"
+        "📋 *Extrato:* \"listar movimentações\" | 🧾 *Dívidas:* \"listar dívidas\"\n"
+        "🤔 *Planejar compra:* \"posso gastar 200?\"\n\n"
+        "Se quiser, te mostro exemplos só de uma área (registro, edição, limpeza ou consulta)."
     ),
 ]
 
