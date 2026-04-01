@@ -3,6 +3,18 @@ from __future__ import annotations
 import re
 
 
+_INVALID_CREDITOR_TERMS = {
+    "falar",
+    "dizer",
+    "contar",
+    "isso",
+    "isso ai",
+    "isso aí",
+    "aqui",
+    "ali",
+}
+
+
 _RE_VALUE_BY = re.compile(
     r"\d+\s+\w+\s+por\s+(?:R\$\s*)?(\d+(?:[.,]\d{1,2})?)(?:\s*reais)?",
     re.IGNORECASE,
@@ -132,9 +144,37 @@ def normalize_extracted_creditor(creditor: str) -> str:
 def extract_debt_creditor(text: str) -> str | None:
     text_norm = text.strip()
 
+    def _valid_creditor(value: str) -> str:
+        creditor = normalize_extracted_creditor(value)
+        if not creditor:
+            return ""
+        if re.fullmatch(r"\d+(?:[.,]\d+)?", creditor):
+            return ""
+        if creditor.casefold() in _INVALID_CREDITOR_TERMS:
+            return ""
+        return creditor
+
+    # Captura o credor após preposições mais comuns.
+    prep_match = re.search(
+        r"\b(?:para|pra|pro|com|no|na)\s+([\wÀ-ÿ][\wÀ-ÿ\s\-\.'’]{1,80})",
+        text_norm,
+        re.IGNORECASE,
+    )
+    if prep_match:
+        creditor = prep_match.group(1).strip(" .,!?:;-")
+        creditor = re.split(
+            r"\b(?:hoje|ontem|anteontem|no\s+valor\s+de|valor\s+de|referente\s+a|referente\s+ao|,|\.|!|\?)\b",
+            creditor,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0].strip()
+        creditor = _valid_creditor(creditor)
+        if creditor:
+            return creditor
+
     match = re.search(
-        r"\b(?:devo|devendo|fiquei\s+devendo|d[ií]vida\s+com|divida\s+com|emprestado\s+de|"
-        r"pro\s+|pra\s+|para\s+)\s+([\wÀ-ÿ][\wÀ-ÿ\s\-\.'’]{1,80})",
+        r"\b(?:d[ií]vida\s+com|divida\s+com|emprestado\s+de|"
+        r"pro\s+|pra\s+|para\s+|com\s+|no\s+|na\s+)\s+([\wÀ-ÿ][\wÀ-ÿ\s\-\.'’]{1,80})",
         text_norm,
         re.IGNORECASE,
     )
@@ -148,13 +188,13 @@ def extract_debt_creditor(text: str) -> str | None:
         )[0].strip()
         creditor = re.sub(r"\s+de\s+(?:um|uma|uns|umas)\b.*$", "", creditor, flags=re.IGNORECASE).strip()
         creditor = re.sub(r"\s+que\b.*$", "", creditor, flags=re.IGNORECASE).strip()
-        creditor = normalize_extracted_creditor(creditor)
+        creditor = _valid_creditor(creditor)
         if creditor:
             return creditor
 
     fallback = re.search(r"\b(?:devo|devendo|d[ií]vida|d[ií]vidas?)\b.*?\b([\wÀ-ÿ]{2,})$", text_norm, re.IGNORECASE)
     if fallback:
-        creditor = normalize_extracted_creditor(fallback.group(1))
+        creditor = _valid_creditor(fallback.group(1))
         if creditor:
             return creditor
 

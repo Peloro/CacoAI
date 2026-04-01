@@ -270,7 +270,7 @@ def gerar_resposta_consultar_categoria(
     elif tipo == "saida":
         resposta += f"📊 *Quantidade:* {quantidade} {'gasto' if quantidade == 1 else 'gastos'}\n\n"
     else:
-        resposta += f"📊 *Quantidade:* {quantidade} movimentação{'es' if quantidade != 1 else ''}\n\n"
+        resposta += f"📊 *Quantidade:* {quantidade} {'movimentação' if quantidade == 1 else 'movimentações'}\n\n"
 
     # Lista as movimentações
     if movimentacoes:
@@ -291,6 +291,68 @@ def gerar_resposta_consultar_categoria(
 
     resposta += "\n💡 _Dica: pra ver todas as categorias, manda \"resumo\"_"
     
+    return resposta
+
+
+def gerar_resposta_consultar_categoria_ambas(
+    dados_entrada: dict,
+    dados_saida: dict,
+    label_mes: str = "este mês",
+) -> str:
+    """Gera resposta da categoria separando entradas e gastos."""
+    categoria = (dados_entrada.get("categoria") or dados_saida.get("categoria") or "outros").lower()
+    emoji = {
+        "alimentacao": "🍽️",
+        "transporte": "🚗",
+        "moradia": "🏠",
+        "lazer": "🎬",
+        "saude": "💊",
+        "educacao": "📚",
+        "compras": "🛒",
+        "servicos": "✂️",
+        "freelas": "💼",
+        "salario": "💰",
+        "outros": "📌",
+    }.get(categoria, "📌")
+
+    qtd_ent = int(dados_entrada.get("quantidade", 0) or 0)
+    qtd_sai = int(dados_saida.get("quantidade", 0) or 0)
+    total_ent = float(dados_entrada.get("total", 0.0) or 0.0)
+    total_sai = float(dados_saida.get("total", 0.0) or 0.0)
+    total_geral = total_ent + total_sai
+
+    titulo_mes = f" ({label_mes})" if label_mes != "este mês" else ""
+    resposta = f"{emoji} *Categoria {categoria.upper()}*{titulo_mes}\n\n"
+    resposta += f"💰 *Total geral:* {formatar_real(total_geral)}\n"
+    resposta += f"💚 *Entradas:* {formatar_real(total_ent)} ({qtd_ent})\n"
+    resposta += f"💸 *Gastos:* {formatar_real(total_sai)} ({qtd_sai})\n\n"
+
+    movs_ent = dados_entrada.get("movimentacoes") or []
+    movs_sai = dados_saida.get("movimentacoes") or []
+
+    if movs_ent:
+        resposta += "*Entradas:*\n"
+        for mov in movs_ent[:10]:
+            descricao = mov.get("descricao") or categoria
+            valor_fmt = formatar_real(mov.get("valor") or 0.0)
+            data_fmt = _formatar_data_curta(mov.get("data_ref"))
+            resposta += f"• {descricao} — {valor_fmt} _(#{mov.get('id')} - {data_fmt})_\n"
+        if len(movs_ent) > 10:
+            resposta += f"_...e mais {len(movs_ent) - 10} entradas_\n"
+        resposta += "\n"
+
+    if movs_sai:
+        resposta += "*Gastos:*\n"
+        for mov in movs_sai[:10]:
+            descricao = mov.get("descricao") or categoria
+            valor_fmt = formatar_real(mov.get("valor") or 0.0)
+            data_fmt = _formatar_data_curta(mov.get("data_ref"))
+            resposta += f"• {descricao} — {valor_fmt} _(#{mov.get('id')} - {data_fmt})_\n"
+        if len(movs_sai) > 10:
+            resposta += f"_...e mais {len(movs_sai) - 10} gastos_\n"
+        resposta += "\n"
+
+    resposta += "💡 _Dica: pra ver todas as categorias, manda \"resumo\"_"
     return resposta
 
 

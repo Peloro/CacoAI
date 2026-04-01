@@ -21,7 +21,13 @@ def text_contains(text: str, words: list[str]) -> bool:
 def normalize_intent_text(text: str) -> str:
     """Normaliza ruído comum de conversa (vogal repetida e abreviações)."""
     normalized = (text or "").lower().strip()
-    normalized = re.sub(r"([aeiouáéíóúãõ])\1+", r"\1", normalized)
+    # Reduz apenas alongamentos exagerados (>= 3 vogais seguidas), sem quebrar palavras válidas como "freelas".
+    normalized = re.sub(r"([aeiouáéíóúãõ])\1{2,}", r"\1", normalized)
+    # Corrige variações comuns de digitação em comandos curtos.
+    normalized = re.sub(r"\bapag[ae]+\b", "apagar", normalized)
+    normalized = re.sub(r"\blimp[ae]+\b", "limpar", normalized)
+    normalized = re.sub(r"\bresumo+\b", "resumo", normalized)
+    normalized = re.sub(r"\brecebii+\b", "recebi", normalized)
 
     replacements = {
         r"\bqnt\b": "quanto",

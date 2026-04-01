@@ -30,6 +30,24 @@ from app.config import (
     OPENROUTER_MODEL,
     OPENROUTER_SITE_URL,
     OPENROUTER_APP_NAME,
+    LLM_MAX_TOKENS_CATEGORIZACAO,
+    LLM_MAX_TOKENS_CHAT,
+    LLM_MAX_TOKENS_CLASSIFICACAO,
+    LLM_MAX_TOKENS_EXTRACAO,
+    LLM_MAX_TOKENS_DICA,
+    LLM_MAX_TOKENS_OBSERVACAO_RESUMO,
+    LLM_MAX_TOKENS_TITULO,
+    LLM_MAX_CHARS_DESC_CATEGORIZACAO,
+    LLM_MAX_CHARS_MSG_CHAT,
+    LLM_MAX_CHARS_MSG_CLASSIFICACAO,
+    LLM_MAX_CHARS_MSG_EXTRACAO,
+    LLM_MAX_CHARS_CTX_OBSERVACAO,
+    LLM_MAX_CHARS_MSG_TITULO,
+    LLM_CHAT_MAX_SENTENCES,
+    LLM_CHAT_MAX_CHARS,
+    LLM_DICA_MAX_ITEMS,
+    LLM_DICA_MAX_CHARS,
+    LLM_OBSERVACAO_MAX_CHARS,
 )
 from app.prompts import (
     SYSTEM_PROMPT_CHAT,
@@ -45,19 +63,20 @@ from app.prompts import (
 log = logging.getLogger("caco.llm")
 
 # Ajustes de budget de tokens por tarefa (mais enxuto, sem perder utilidade)
-_MAX_TOKENS_CATEGORIZACAO = 20
-_MAX_TOKENS_CHAT = 140
-_MAX_TOKENS_CLASSIFICACAO = 90
-_MAX_TOKENS_EXTRACAO = 150
-_MAX_TOKENS_OBSERVACAO_RESUMO = 90
-_MAX_TOKENS_TITULO = 80
+_MAX_TOKENS_CATEGORIZACAO = LLM_MAX_TOKENS_CATEGORIZACAO
+_MAX_TOKENS_CHAT = LLM_MAX_TOKENS_CHAT
+_MAX_TOKENS_CLASSIFICACAO = LLM_MAX_TOKENS_CLASSIFICACAO
+_MAX_TOKENS_EXTRACAO = LLM_MAX_TOKENS_EXTRACAO
+_MAX_TOKENS_DICA = LLM_MAX_TOKENS_DICA
+_MAX_TOKENS_OBSERVACAO_RESUMO = LLM_MAX_TOKENS_OBSERVACAO_RESUMO
+_MAX_TOKENS_TITULO = LLM_MAX_TOKENS_TITULO
 
-_MAX_CHARS_DESC_CATEGORIZACAO = 220
-_MAX_CHARS_MSG_CHAT = 900
-_MAX_CHARS_MSG_CLASSIFICACAO = 700
-_MAX_CHARS_MSG_EXTRACAO = 900
-_MAX_CHARS_CTX_OBSERVACAO = 700
-_MAX_CHARS_MSG_TITULO = 700
+_MAX_CHARS_DESC_CATEGORIZACAO = LLM_MAX_CHARS_DESC_CATEGORIZACAO
+_MAX_CHARS_MSG_CHAT = LLM_MAX_CHARS_MSG_CHAT
+_MAX_CHARS_MSG_CLASSIFICACAO = LLM_MAX_CHARS_MSG_CLASSIFICACAO
+_MAX_CHARS_MSG_EXTRACAO = LLM_MAX_CHARS_MSG_EXTRACAO
+_MAX_CHARS_CTX_OBSERVACAO = LLM_MAX_CHARS_CTX_OBSERVACAO
+_MAX_CHARS_MSG_TITULO = LLM_MAX_CHARS_MSG_TITULO
 
 
 def _compactar_texto(texto: str, limite_chars: int) -> str:
@@ -66,6 +85,95 @@ def _compactar_texto(texto: str, limite_chars: int) -> str:
     if len(t) <= limite_chars:
         return t
     return t[:limite_chars].rstrip() + "..."
+
+
+def _limitar_chars(texto: str, max_chars: int) -> str:
+    t = re.sub(r"\s+", " ", (texto or "").strip())
+    if len(t) <= max_chars:
+        return t
+    corte = t[:max_chars].rstrip()
+    if " " in corte:
+        corte = corte.rsplit(" ", 1)[0]
+    return (corte or t[:max_chars]).rstrip(" ,;:-") + "..."
+
+
+def _limitar_frases(texto: str, max_frases: int, max_chars: int) -> str:
+    t = re.sub(r"\s+", " ", (texto or "").strip())
+    if not t:
+        return ""
+    partes = [p.strip() for p in re.split(r"(?<=[.!?])\s+", t) if p.strip()]
+    if not partes:
+        return _limitar_chars(t, max_chars)
+    selecionado = " ".join(partes[: max(1, max_frases)])
+    return _limitar_chars(selecionado, max_chars)
+
+
+def _compactar_lista_dicas(texto: str) -> str:
+    bruto = (texto or "").strip()
+    if not bruto:
+        return ""
+
+    # 1) Tenta extrair itens de lista explícitos ("-", "•", "1.") linha a linha.
+    itens: list[str] = []
+    for ln in bruto.splitlines():
+        line = ln.strip()
+        if not line:
+            continue
+        line = re.sub(r"^\s*(?:[-•*]|\d+[\).])\s+", "", line).strip()
+        if line:
+            itens.append(line)
+
+    # 2) Se veio tudo em uma linha com bullets embutidos, separa por " - ".
+    if len(itens) <= 1 and re.search(r"\s-\s", bruto):
+        parts = [p.strip(" \t-•*") for p in re.split(r"\s+-\s+", bruto) if p.strip()]
+        if len(parts) > len(itens):
+            itens = parts
+
+    # 3) Fallback: quebra por frases.
+    if len(itens) <= 1:
+        itens = [p.strip() for p in re.split(r"(?<=[.!?])\s+", bruto) if p.strip()]
+
+    # Limpa, remove linhas de introdução e deduplica mantendo ordem.
+    vistos: set[str] = set()
+    linhas: list[str] = []
+    intro_padroes = (
+        r"\baqui\s+v[aã]o\b",
+        r"\bclaro\b",
+        r"\bdicas\s+financeiras\b",
+        r"\bseguem?\b",
+    )
+    for item in itens:
+        clean = re.sub(r"\s+", " ", item).strip(" \t-•*\"")
+        if len(clean) < 8:
+            continue
+        clean_lower = clean.casefold()
+        if any(re.search(p, clean_lower) for p in intro_padroes):
+            continue
+        if clean.endswith(":"):
+            continue
+        key = clean.casefold()
+        if key in vistos:
+            continue
+        vistos.add(key)
+        linhas.append(clean)
+
+    if not linhas:
+        return ""
+
+    linhas = linhas[: max(1, LLM_DICA_MAX_ITEMS)]
+    rendered = [f"- {_limitar_chars(l, 140)}" for l in linhas]
+
+    # Aplica limite total sem destruir quebras de linha.
+    saida: list[str] = []
+    total = 0
+    for line in rendered:
+        extra = len(line) + (1 if saida else 0)
+        if total + extra > LLM_DICA_MAX_CHARS:
+            break
+        saida.append(line)
+        total += extra
+
+    return "\n".join(saida) if saida else rendered[0][:LLM_DICA_MAX_CHARS]
 
 
 def _normalizar_api_key_openrouter(raw_key: str) -> str:
@@ -453,6 +561,11 @@ def gerar_resposta_chat(
         # Remove aspas envolvendo a resposta inteira
         if resposta.startswith('"') and resposta.endswith('"'):
             resposta = resposta[1:-1]
+        resposta = _limitar_frases(
+            resposta,
+            max_frases=max(1, LLM_CHAT_MAX_SENTENCES),
+            max_chars=max(80, LLM_CHAT_MAX_CHARS),
+        )
         return _sanitizar_resposta_conversa(resposta)
 
     except Exception as e:
@@ -499,14 +612,14 @@ def gerar_dica_financeira(mensagem: str, contexto: dict | None = None) -> str:
     try:
         resposta = _chat_llm(
             prompt,
-            task="fast",
+            task="quality",
             system_prompt=SYSTEM_PROMPT_CHAT,
-            temperature=0.7,
-            max_tokens=_MAX_TOKENS_CHAT,
+            temperature=0.6,
+            max_tokens=_MAX_TOKENS_DICA,
         )
         if resposta.startswith('"') and resposta.endswith('"'):
             resposta = resposta[1:-1]
-        return resposta
+        return _compactar_lista_dicas(resposta)
     except Exception as e:
         log.warning("Erro LLM (%s) em dica: %s", _provedor_ativo, e)
         return "Não consegui gerar dicas agora. Tenta de novo em instantes."
@@ -534,7 +647,7 @@ def gerar_observacao_resumo(contexto: str) -> str:
         )
         if resposta.startswith('"') and resposta.endswith('"'):
             resposta = resposta[1:-1]
-        return resposta.strip()
+        return _limitar_frases(resposta, max_frases=2, max_chars=max(120, LLM_OBSERVACAO_MAX_CHARS))
     except Exception as e:
         log.warning("Erro LLM (%s) em observacao_resumo: %s", _provedor_ativo, e)
         return ""
@@ -636,6 +749,77 @@ def _normalizar_tipo_intencao_ia(tipo: str) -> str:
     return "incerto"
 
 
+def _fallback_tipo_local(mensagem: str) -> str:
+    """Classificação local para cenários sem LLM (evita queda brusca em benchmark)."""
+    try:
+        from app.parser import detectar_intencao
+
+        parsed = detectar_intencao(mensagem)
+        intencao = (parsed.get("intencao") or "").strip().lower()
+        if intencao in {"registrar_entrada", "registrar_saldo_inicial"}:
+            tipo = "entrada"
+        elif intencao == "registrar_saida":
+            tipo = "saida"
+        elif intencao in {"registrar_divida", "pagar_divida", "quitar_dividas"}:
+            tipo = "divida"
+        elif intencao in {"conversa_geral", "pedir_dica"}:
+            tipo = "nao_financeiro"
+        else:
+            tipo = "incerto"
+        return _override_tipo_por_regra(mensagem, tipo)
+    except Exception:
+        return "incerto"
+
+
+def _fallback_movimentacao_local(mensagem: str) -> dict:
+    """Extrai estrutura mínima por heurística local quando IA falha."""
+    try:
+        from app.parser import detectar_intencao
+
+        parsed = detectar_intencao(mensagem)
+        intencao = (parsed.get("intencao") or "").strip().lower()
+        tipo = "incerto"
+        if intencao in {"registrar_entrada", "registrar_saldo_inicial"}:
+            tipo = "entrada"
+        elif intencao == "registrar_saida":
+            tipo = "saida"
+        elif intencao in {"registrar_divida", "pagar_divida", "quitar_dividas"}:
+            tipo = "divida"
+        elif intencao in {"conversa_geral", "pedir_dica"}:
+            tipo = "nao_financeiro"
+        tipo = _override_tipo_por_regra(mensagem, tipo)
+
+        valor = float(parsed.get("valor") or 0.0) if tipo != "incerto" else 0.0
+        descricao = str(parsed.get("descricao") or "").strip()
+        credor = str(parsed.get("credor_divida") or "").strip().lower()
+        origem_base = credor if tipo == "divida" else ""
+        origem_destino = _normalizar_origem_destino(origem_base, mensagem, descricao, tipo)
+
+        return {
+            "tipo": tipo,
+            "valor": max(0.0, valor),
+            "descricao": descricao,
+            "categoria": str(parsed.get("categoria_regra") or "").strip().lower(),
+            "meio_pagamento": "",
+            "origem_destino": origem_destino,
+            "data_ref": parsed.get("data") or None,
+            "confianca": 0.55 if tipo != "incerto" else 0.0,
+            "justificativa": "fallback_local",
+        }
+    except Exception:
+        return {
+            "tipo": "incerto",
+            "valor": 0.0,
+            "descricao": "",
+            "categoria": "",
+            "meio_pagamento": "",
+            "origem_destino": "",
+            "data_ref": None,
+            "confianca": 0.0,
+            "justificativa": "fallback_local_erro",
+        }
+
+
 def classificar_intencao_financeira(mensagem: str) -> dict:
     """
     Classifica a mensagem em: entrada, saida, divida, nao_financeiro ou incerto.
@@ -649,7 +833,12 @@ def classificar_intencao_financeira(mensagem: str) -> dict:
         return {"tipo": "incerto", "confianca": 0.0, "justificativa": "mensagem_vazia"}
 
     if not _llm_disponivel:
-        return {"tipo": "incerto", "confianca": 0.0, "justificativa": "llm_indisponivel"}
+        tipo_local = _fallback_tipo_local(mensagem)
+        return {
+            "tipo": tipo_local,
+            "confianca": 0.55 if tipo_local != "incerto" else 0.0,
+            "justificativa": "llm_indisponivel_fallback_local",
+        }
 
     msg_compacta = _compactar_texto(mensagem, _MAX_CHARS_MSG_CLASSIFICACAO)
     prompt = INTENT_CLASSIFICATION_PROMPT.format(mensagem=msg_compacta)
@@ -672,7 +861,12 @@ def classificar_intencao_financeira(mensagem: str) -> dict:
                 data = json.loads(match.group(0))
 
         if not isinstance(data, dict):
-            return {"tipo": "incerto", "confianca": 0.0, "justificativa": "json_invalido"}
+            tipo_local = _fallback_tipo_local(mensagem)
+            return {
+                "tipo": tipo_local,
+                "confianca": 0.55 if tipo_local != "incerto" else 0.0,
+                "justificativa": "json_invalido_fallback_local",
+            }
 
         tipo_bruto = str(data.get("tipo", "incerto")).strip().lower()
         tipo = _normalizar_tipo_intencao_ia(tipo_bruto if tipo_bruto in _TIPOS_INTENCAO_IA else "incerto")
@@ -686,6 +880,14 @@ def classificar_intencao_financeira(mensagem: str) -> dict:
 
         justificativa = str(data.get("justificativa", "")).strip()
 
+        # Se a IA vier ambígua, tenta recuperar via heurística local.
+        if tipo == "incerto":
+            tipo_local = _fallback_tipo_local(mensagem)
+            if tipo_local != "incerto":
+                tipo = tipo_local
+                confianca = max(confianca, 0.55)
+                justificativa = "ia_incerta_fallback_local"
+
         return {
             "tipo": tipo,
             "confianca": confianca,
@@ -694,7 +896,12 @@ def classificar_intencao_financeira(mensagem: str) -> dict:
 
     except Exception as e:
         log.warning("Erro LLM (%s) em classificacao_intencao: %s", _provedor_ativo, e)
-        return {"tipo": "incerto", "confianca": 0.0, "justificativa": "erro_llm"}
+        tipo_local = _fallback_tipo_local(mensagem)
+        return {
+            "tipo": tipo_local,
+            "confianca": 0.55 if tipo_local != "incerto" else 0.0,
+            "justificativa": "erro_llm_fallback_local",
+        }
 
 
 def _slugify_categoria(valor: str) -> str:
@@ -732,6 +939,12 @@ def _inferir_origem_destino(mensagem: str, descricao: str, tipo: str) -> str:
         return "internet"
     if tipo == "divida" and "emprestimo" in base:
         return "emprestimo"
+
+    empresa_match = re.search(r"\bempresa\s+([a-z0-9_à-ÿ]+)", base, flags=re.IGNORECASE)
+    if empresa_match:
+        empresa = (empresa_match.group(1) or "").strip().lower()
+        if empresa and not empresa.isdigit():
+            return empresa
 
     padroes = [
         r"\b(?:de|do|da)\s+([a-z0-9_à-ÿ]+)",
@@ -840,7 +1053,9 @@ def extrair_movimentacao_estruturada(mensagem: str) -> dict:
         return vazio
 
     if not _llm_disponivel:
-        return vazio
+        fallback = _fallback_movimentacao_local(mensagem)
+        fallback["justificativa"] = "llm_indisponivel_fallback_local"
+        return fallback
 
     msg_compacta = _compactar_texto(mensagem, _MAX_CHARS_MSG_EXTRACAO)
     prompt = TRANSACTION_EXTRACTION_PROMPT.format(mensagem=msg_compacta)
@@ -862,8 +1077,9 @@ def extrair_movimentacao_estruturada(mensagem: str) -> dict:
                 data = json.loads(match.group(0))
 
         if not isinstance(data, dict):
-            vazio["justificativa"] = "json_invalido"
-            return vazio
+            fallback = _fallback_movimentacao_local(mensagem)
+            fallback["justificativa"] = "json_invalido_fallback_local"
+            return fallback
 
         tipo = str(data.get("tipo", "incerto")).strip().lower()
         if tipo not in _TIPOS_MOV_IA:
@@ -898,7 +1114,7 @@ def extrair_movimentacao_estruturada(mensagem: str) -> dict:
 
         justificativa = str(data.get("justificativa", "") or "").strip()
 
-        return {
+        resultado = {
             "tipo": tipo,
             "valor": valor,
             "descricao": descricao,
@@ -910,10 +1126,34 @@ def extrair_movimentacao_estruturada(mensagem: str) -> dict:
             "justificativa": justificativa,
         }
 
+        # Se a IA vier fraca/incompleta, completa com extração local para evitar perda total.
+        fallback = _fallback_movimentacao_local(mensagem)
+        ia_fraca = (
+            resultado["tipo"] == "incerto"
+            or (resultado["valor"] <= 0 and fallback.get("valor", 0.0) > 0)
+            or (not resultado["origem_destino"] and bool(fallback.get("origem_destino")))
+        )
+        if ia_fraca:
+            if fallback.get("tipo") and fallback.get("tipo") != "incerto":
+                resultado["tipo"] = fallback["tipo"]
+            if resultado["valor"] <= 0 and fallback.get("valor", 0.0) > 0:
+                resultado["valor"] = float(fallback.get("valor", 0.0))
+            if not resultado["descricao"] and fallback.get("descricao"):
+                resultado["descricao"] = str(fallback.get("descricao") or "")
+            if not resultado["categoria"] and fallback.get("categoria"):
+                resultado["categoria"] = str(fallback.get("categoria") or "")
+            if not resultado["origem_destino"] and fallback.get("origem_destino"):
+                resultado["origem_destino"] = str(fallback.get("origem_destino") or "")
+            resultado["confianca"] = max(float(resultado.get("confianca", 0.0) or 0.0), 0.55)
+            resultado["justificativa"] = "ia_fraca_complementada_fallback_local"
+
+        return resultado
+
     except Exception as e:
         log.warning("Erro LLM (%s) em extracao_movimentacao: %s", _provedor_ativo, e)
-        vazio["justificativa"] = "erro_llm"
-        return vazio
+        fallback = _fallback_movimentacao_local(mensagem)
+        fallback["justificativa"] = "erro_llm_fallback_local"
+        return fallback
 
 
 def gerar_titulo_canonico(mensagem: str, descricao: str = "", categoria: str = "") -> dict:

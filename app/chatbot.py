@@ -88,6 +88,7 @@ from app.responder import (
     gerar_resposta_listar_dividas,
     gerar_resposta_extrato_completo,
     gerar_resposta_consultar_categoria,
+    gerar_resposta_consultar_categoria_ambas,
     gerar_resposta_listar_categorias,
     gerar_resposta_apagar_com_id,
     gerar_resposta_desambiguacao_apagar,
@@ -151,11 +152,11 @@ def _configurar_logger_requisicoes() -> None:
                     continue
 
         request_log.setLevel(logging.INFO)
+        handler = logging.FileHandler(path, encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        request_log.addHandler(handler)
         request_log.propagate = False
 
-        file_handler = logging.FileHandler(path, encoding="utf-8")
-        file_handler.setFormatter(logging.Formatter("%(message)s"))
-        request_log.addHandler(file_handler)
     except Exception as e:
         log.warning("Nao foi possivel configurar log de requisicoes: %s", e)
 
@@ -167,8 +168,7 @@ def _registrar_requisicao_teste(telefone: str, mensagem: str, resposta: str, err
 
     try:
         payload = {
-            "timestamp": datetime.now().isoformat(timespec="seconds"),
-            "trace_id": _trace_id_ctx.get() or "",
+            "ts": datetime.now().isoformat(timespec="seconds"),
             "telefone": telefone,
             "mensagem": mensagem,
             "resposta": resposta,
@@ -336,6 +336,7 @@ _pendente_valor_registro = _EstadoMap("pendente_valor_registro")
 _pendente_confirmacao_intencao = _EstadoMap("pendente_confirmacao_intencao")
 _pendente_confirmacao_operacao = _EstadoMap("pendente_confirmacao_operacao")
 _pendente_descricao_registro = _EstadoMap("pendente_descricao_registro")
+_pendente_desambiguacao_categoria = _EstadoMap("pendente_desambiguacao_categoria")
 _aguardando_senha_login = _EstadoSet("aguardando_senha_login")
 _ultimo_registro = _EstadoMap("ultimo_registro")
 
@@ -1252,25 +1253,29 @@ def _processar_fluxo_titulo_ou_registro(
     categoria_regra: str | None,
     data_ref: str,
     credor_divida: str = "",
+    preservar_titulo_usuario: bool = False,
 ) -> str:
     """Resolve título sugerido e registra usando o fluxo unificado de confirmação de operação."""
     categoria_preview = None
     if intencao in ("registrar_entrada", "registrar_saida"):
         categoria_preview = _resolver_categoria(categoria_regra, descricao)
 
-    sugestao = _sugerir_titulo_registro(
-        usuario_id=usuario_id,
-        mensagem_original=mensagem_original,
-        intencao=intencao,
-        descricao=descricao,
-        categoria=categoria_preview,
-        credor=credor_divida,
-    )
+    titulo_final = descricao
+    if not preservar_titulo_usuario:
+        sugestao = _sugerir_titulo_registro(
+            usuario_id=usuario_id,
+            mensagem_original=mensagem_original,
+            intencao=intencao,
+            descricao=descricao,
+            categoria=categoria_preview,
+            credor=credor_divida,
+        )
+        titulo_final = sugestao.get("titulo") or descricao
 
     payload = {
         "intencao": intencao,
         "valor": float(valor),
-        "descricao": sugestao.get("titulo") or descricao,
+        "descricao": titulo_final,
         "categoria_regra": categoria_regra,
         "data_ref": data_ref,
         "credor_divida": credor_divida,
@@ -1535,7 +1540,6 @@ def _intencao_exige_confirmacao_operacao(intencao: str) -> bool:
         "apagar_movimentacao",
         "limpar_movimentacoes",
         "pagar_divida",
-        "quitar_dividas",
         "desfazer_ultimo",
     }
 
@@ -1668,6 +1672,10 @@ def _enriquecer_preview_operacao(usuario_id: int, parsed_base: dict) -> dict:
         categoria_ref = _resolver_categoria(parsed.get("categoria_regra"), descricao or "")
         if categoria_ref:
             parsed["_categoria_preview"] = categoria_ref
+
+    if parsed.get("_titulo_manual") and descricao:
+        parsed["_titulo_preview"] = descricao
+        return parsed
 
     if intencao in {"registrar_entrada", "registrar_saida", "registrar_divida"} and descricao:
         mensagem_original = parsed.get("_mensagem_original") or descricao
@@ -2260,6 +2268,10 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     if usuario_id in _pendente_desambiguacao_editar:
         return _processar_desambiguacao_editar(usuario_id, mensagem)
 
+    # --- Verifica se há desambiguação pendente para consulta de categoria ---
+    if usuario_id in _pendente_desambiguacao_categoria:
+        return _processar_desambiguacao_categoria(usuario_id, mensagem)
+
     # --- Verifica se há confirmação pendente de apagar ---
     if usuario_id in _pendente_confirmacao_apagar:
         return _processar_confirmacao_apagar(usuario_id, mensagem)
@@ -2366,6 +2378,29 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         resp_local = resposta_local(mensagem, contexto_local)
         if resp_local:
             return resp_local
+
+    # Consulta de categoria com nome repetido em entrada e saída exige desambiguação.
+    if intencao == "consultar_categoria" and parsed.get("categoria_consulta") and not parsed.get("tipo_consulta"):
+        categoria_consulta = (parsed.get("categoria_consulta") or "").strip().lower()
+        entrada_cat = consultar_categoria(usuario_id, categoria_consulta, ano_mes=mes_ref, tipo="entrada")
+        saida_cat = consultar_categoria(usuario_id, categoria_consulta, ano_mes=mes_ref, tipo="saida")
+        tem_entrada = int(entrada_cat.get("quantidade", 0) or 0) > 0
+        tem_saida = int(saida_cat.get("quantidade", 0) or 0) > 0
+
+        if tem_entrada and tem_saida:
+            ref_txt = f"em *{_nome_mes(mes_ref)}*" if mes_ref else "neste mês"
+            _pendente_desambiguacao_categoria[usuario_id] = {
+                "categoria": categoria_consulta,
+                "mes_referencia": mes_ref,
+            }
+            return (
+                f"A categoria *{categoria_consulta}* aparece em *entradas* e em *gastos* {ref_txt}.\n\n"
+                "Como você quer ver?\n"
+                "*1.* Só entradas\n"
+                "*2.* Só gastos\n"
+                "*3.* Ambas\n\n"
+                "Responda com *1*, *2* ou *3* (ou *cancelar*)."
+            )
 
     # Se regras detectaram movimento financeiro sem valor, pede o valor.
     if intencao == "registrar_entrada" and not valor:
@@ -2509,6 +2544,8 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
                 data_ref=data_ref,
                 mensagem_original=parsed.get("_mensagem_original") or mensagem,
                 credor_divida=(parsed.get("credor_divida") or ""),
+                titulo_manual=bool(parsed.get("_titulo_manual")),
+                titulo_preview=(parsed.get("_titulo_preview") or ""),
             ),
             clear_context=ClearHandlerContext(
                 totais_mes_fn=lambda user_id, ano_mes: totais_mes(user_id, ano_mes=ano_mes),
@@ -2697,6 +2734,51 @@ def _processar_desambiguacao(usuario_id: int, mensagem: str) -> str:
         "🤔 Não entendi. Manda o *número*, *#ID*, *data* (24/03) "
         "ou *valor* (300), ou *cancelar*."
     )
+
+
+def _processar_desambiguacao_categoria(usuario_id: int, mensagem: str) -> str:
+    """Resolve desambiguação de categoria quando existe em entrada e saída."""
+    pendente = _pendente_desambiguacao_categoria.get(usuario_id)
+    if not pendente:
+        return "Ops, perdi o contexto. Me pede a categoria de novo."
+
+    texto = (mensagem or "").strip().lower()
+    if texto in ("cancelar", "cancela", "nao", "não", "deixa", "esquece", "0"):
+        _pendente_desambiguacao_categoria.pop(usuario_id, None)
+        return "Beleza, cancelei a consulta dessa categoria."
+
+    entrada_tokens = {"1", "entrada", "entradas", "ganho", "ganhos", "receita", "receitas"}
+    saida_tokens = {"2", "saida", "saída", "saidas", "saídas", "gasto", "gastos", "despesa", "despesas"}
+    ambas_tokens = {"3", "ambas", "ambos", "todas", "todos", "movimentacoes", "movimentações", "as duas", "os dois", "as 2", "os 2", "duas", "dois"}
+
+    if texto in entrada_tokens:
+        escolha = "entrada"
+    elif texto in saida_tokens:
+        escolha = "saida"
+    elif texto in ambas_tokens:
+        escolha = None
+    else:
+        categoria = pendente.get("categoria") or "essa categoria"
+        return (
+            f"A categoria *{categoria}* aparece em *entradas* e em *gastos*.\n\n"
+            "Escolha uma opção:\n"
+            "*1.* Ver só entradas\n"
+            "*2.* Ver só gastos\n"
+            "*3.* Ver ambas\n\n"
+            "Você também pode responder *cancelar*."
+        )
+
+    categoria = (pendente.get("categoria") or "").strip().lower()
+    mes_ref = pendente.get("mes_referencia")
+    _pendente_desambiguacao_categoria.pop(usuario_id, None)
+
+    if escolha is None:
+        dados_entrada = consultar_categoria(usuario_id, categoria, ano_mes=mes_ref, tipo="entrada")
+        dados_saida = consultar_categoria(usuario_id, categoria, ano_mes=mes_ref, tipo="saida")
+        return gerar_resposta_consultar_categoria_ambas(dados_entrada, dados_saida, _nome_mes(mes_ref))
+
+    dados_categoria = consultar_categoria(usuario_id, categoria, ano_mes=mes_ref, tipo=escolha)
+    return gerar_resposta_consultar_categoria(dados_categoria, _nome_mes(mes_ref))
 
 
 def _processar_confirmacao_apagar(usuario_id: int, mensagem: str) -> str:
@@ -3052,43 +3134,50 @@ def _processar_pendente_valor_registro(usuario_id: int, mensagem: str) -> str:
     data_ref = pendente.get("data_ref") or date.today().isoformat()
     credor = _normalizar_credor_texto((pendente.get("credor_divida") or "").strip())
 
+    parsed_followup = detectar_intencao(mensagem)
+    descricao_followup = _normalizar_descricao_registro(parsed_followup.get("descricao") or "")
+    if descricao_followup and not _descricao_insuficiente_para_registro(descricao_followup):
+        descricao = descricao_followup
+
+    categoria_followup = parsed_followup.get("categoria_regra")
+    if categoria_followup:
+        categoria_regra = categoria_followup
+
+    data_followup = parsed_followup.get("data")
+    if data_followup:
+        data_ref = data_followup
+
+    credor_followup = _normalizar_credor_texto((parsed_followup.get("credor_divida") or "").strip())
+    if intencao == "registrar_divida" and credor_followup:
+        credor = credor_followup
+
+    # Quando a segunda mensagem traz contexto (não é apenas número), usa ela para título/treino.
+    resposta_somente_valor = not bool(re.search(r"[a-zA-ZÀ-ÿ]", (mensagem or "")))
+
     _pendente_valor_registro.pop(usuario_id, None)
     valor = float(valor)
     mensagem_original = (pendente.get("mensagem_original") or "").strip() or mensagem
+    if not resposta_somente_valor:
+        mensagem_original = mensagem
 
-    if intencao == "registrar_entrada":
-        return _processar_fluxo_titulo_ou_registro(
-            usuario_id=usuario_id,
-            mensagem_original=mensagem_original,
-            intencao="registrar_entrada",
-            valor=valor,
-            descricao=descricao,
-            categoria_regra=categoria_regra,
-            data_ref=data_ref,
-        )
+    intencao_final = intencao if intencao in {"registrar_entrada", "registrar_saida", "registrar_divida"} else "registrar_saida"
+    descricao_final = descricao or ("Divida" if intencao_final == "registrar_divida" else "")
+    parsed_confirmacao = {
+        "intencao": intencao_final,
+        "valor": valor,
+        "descricao": descricao_final,
+        "categoria_regra": categoria_regra,
+        "data": data_ref,
+        "mes_referencia": pendente.get("mes_referencia"),
+        "credor_divida": credor if intencao_final == "registrar_divida" else "",
+        "_mensagem_original": mensagem_original,
+        # Quando o follow-up trouxe contexto textual, preserva título do usuário.
+        "_titulo_manual": bool(not resposta_somente_valor and descricao_followup),
+    }
 
-    if intencao == "registrar_divida":
-        return _processar_fluxo_titulo_ou_registro(
-            usuario_id=usuario_id,
-            mensagem_original=mensagem_original,
-            intencao="registrar_divida",
-            valor=valor,
-            descricao=descricao or "Divida",
-            categoria_regra=categoria_regra,
-            data_ref=data_ref,
-            credor_divida=credor,
-        )
-
-    # fallback: registrar_saida
-    return _processar_fluxo_titulo_ou_registro(
-        usuario_id=usuario_id,
-        mensagem_original=mensagem_original,
-        intencao="registrar_saida",
-        valor=valor,
-        descricao=descricao,
-        categoria_regra=categoria_regra,
-        data_ref=data_ref,
-    )
+    parsed_confirmacao = _enriquecer_preview_operacao(usuario_id, parsed_confirmacao)
+    _iniciar_confirmacao_operacao(usuario_id, parsed=parsed_confirmacao)
+    return _montar_pergunta_confirmacao_operacao(parsed_confirmacao)
 
 
 def _processar_pendente_descricao_registro(usuario_id: int, mensagem: str) -> str:
@@ -3120,38 +3209,23 @@ def _processar_pendente_descricao_registro(usuario_id: int, mensagem: str) -> st
     credor = (pendente.get("credor_divida") or "").strip()
     _pendente_descricao_registro.pop(usuario_id, None)
 
-    if intencao == "registrar_entrada":
-        return _processar_fluxo_titulo_ou_registro(
-            usuario_id=usuario_id,
-            mensagem_original=mensagem,
-            intencao="registrar_entrada",
-            valor=valor,
-            descricao=descricao,
-            categoria_regra=categoria_regra,
-            data_ref=data_ref,
-        )
+    intencao_final = intencao if intencao in {"registrar_entrada", "registrar_saida", "registrar_divida"} else "registrar_saida"
+    parsed_confirmacao = {
+        "intencao": intencao_final,
+        "valor": valor,
+        "descricao": descricao,
+        "categoria_regra": categoria_regra,
+        "data": data_ref,
+        "mes_referencia": pendente.get("mes_referencia"),
+        "credor_divida": credor if intencao_final == "registrar_divida" else "",
+        "_mensagem_original": mensagem,
+        # Descrição enviada no follow-up deve aparecer como título do usuário no preview.
+        "_titulo_manual": True,
+    }
 
-    if intencao == "registrar_divida":
-        return _processar_fluxo_titulo_ou_registro(
-            usuario_id=usuario_id,
-            mensagem_original=mensagem,
-            intencao="registrar_divida",
-            valor=valor,
-            descricao=descricao,
-            categoria_regra=categoria_regra,
-            data_ref=data_ref,
-            credor_divida=credor,
-        )
-
-    return _processar_fluxo_titulo_ou_registro(
-        usuario_id=usuario_id,
-        mensagem_original=mensagem,
-        intencao="registrar_saida",
-        valor=valor,
-        descricao=descricao,
-        categoria_regra=categoria_regra,
-        data_ref=data_ref,
-    )
+    parsed_confirmacao = _enriquecer_preview_operacao(usuario_id, parsed_confirmacao)
+    _iniciar_confirmacao_operacao(usuario_id, parsed=parsed_confirmacao)
+    return _montar_pergunta_confirmacao_operacao(parsed_confirmacao)
 
 
 # ---------------------------------------------------------------------------
@@ -3263,7 +3337,7 @@ def _montar_resumo(resumo: dict, usuario_id: int, label_mes: str = "este mês") 
         texto += "🧮 Registros: 0\n"
 
     if cats_saidas:
-        texto += "\n📁 *Categorias de saída (pra onde foi o dinheiro):*\n"
+        texto += "\n💸 *Categorias de saída (pra onde foi o dinheiro):*\n"
         for cat, val in list(cats_saidas.items())[:5]:
             texto += f"  • {cat.capitalize()}: {formatar_real(val)}\n"
 

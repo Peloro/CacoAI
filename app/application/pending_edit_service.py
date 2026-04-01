@@ -205,12 +205,15 @@ def apply_pending_operation_edit(
             changes.append(f"categoria para {query_category}")
 
     direct_description = ""
+    explicit_title_command = False
+    explicit_description_command = False
     m_title = re.search(
         r"\b(?:t[ií]tulo|titulo)\b\s*(?:=|:|por|para)?\s*(.+)$",
         text,
         flags=re.IGNORECASE,
     )
     if m_title:
+        explicit_title_command = True
         direct_description = m_title.group(1).strip()
     else:
         m_desc = re.search(
@@ -219,6 +222,7 @@ def apply_pending_operation_edit(
             flags=re.IGNORECASE,
         )
         if m_desc:
+            explicit_description_command = True
             direct_description = m_desc.group(1).strip()
         elif (
             parsed_msg.get("descricao")
@@ -233,19 +237,32 @@ def apply_pending_operation_edit(
             direct_description = (parsed_msg.get("descricao") or "").strip()
 
     creditor_cmd = bool(m_creditor)
-    if direct_description and current_intent in {
-        "registrar_entrada",
-        "registrar_saida",
-        "registrar_divida",
-        "apagar_movimentacao",
-        "editar_movimentacao",
-        "consultar_categoria",
-        "posso_gastar",
-    } and not creditor_cmd and not category_cmd and not date_cmd and not value_cmd:
+    should_apply_direct_description = (
+        bool(direct_description)
+        and current_intent in {
+            "registrar_entrada",
+            "registrar_saida",
+            "registrar_divida",
+            "apagar_movimentacao",
+            "editar_movimentacao",
+            "consultar_categoria",
+            "posso_gastar",
+        }
+        and not creditor_cmd
+        and (
+            explicit_title_command
+            or explicit_description_command
+            or (not category_cmd and not date_cmd and not value_cmd)
+        )
+    )
+
+    if should_apply_direct_description:
         normalized_description = normalize_description_fn(direct_description)
         if normalized_description:
             new_payload["descricao"] = normalized_description
             if current_intent in {"registrar_entrada", "registrar_saida", "registrar_divida", "editar_movimentacao"}:
+                new_payload["_titulo_manual"] = True
+                new_payload["_titulo_preview"] = normalized_description
                 changes.append(f"título para {normalized_description}")
             else:
                 changes.append(f"descrição para {normalized_description}")

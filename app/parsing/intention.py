@@ -25,7 +25,7 @@ _RE_CONTEXTO_LISTAGEM = re.compile(r"\b(?:movimenta(?:ç(?:ã|a)o|cao|ções|coe
 _RE_COMANDO_EDITAR_VALOR = re.compile(r"\b(?:editar|edita|edite|alterar|altera|altere|atualizar|atualiza|atualize|corrigir|corrige|corrija|mudar|muda|mude|trocar|troca|troque|ajustar|ajusta|ajuste)\b.*(?:\bvalor\b|(?:para|pra|por)\s+(?:R\$\s*)?\d+(?:[.,]\d{1,2})?|#?\d+\s+(?:para|pra|por)\s+(?:R\$\s*)?\d+(?:[.,]\d{1,2})?)", re.IGNORECASE)
 _RE_PLANEJAMENTO_COMPRA_DUVIDA = re.compile(r"(\?|\b(?:se\s+eu|vale\s+a\s+pena|vou\s+ficar|fica\s+ruim|no\s+final|parcelar|parcelado|parcela)\b)", re.IGNORECASE)
 _RE_ACAO_FUTURA_COMPRA = re.compile(r"\b(?:vou\s+comprar|quero\s+comprar|pretendo\s+comprar|compraria|comprar|parcelar|parcela|gastar|vou\s+gastar|quero\s+gastar)\b", re.IGNORECASE)
-_RE_ACAO_REGISTRO_ENTRADA = re.compile(r"\b(ganhei|recebi|entrou|caiu\s+na\s+conta|me\s+pagaram|pagaram\s+pra\s+mim|pix\s+recebido|transferiram\s+pra\s+mim|me\s+transferiram|pingou|creditaram)\b", re.IGNORECASE)
+_RE_ACAO_REGISTRO_ENTRADA = re.compile(r"\b(ganhei|recebi|entrou|caiu\s+na\s+conta|me\s+pagaram|pagaram\s+pra\s+mim|pix\s+recebido|transferiram\s+pra\s+mim|me\s+transferiram|pingou|creditaram|devolveram|me\s+devolveram)\b", re.IGNORECASE)
 _RE_ACAO_REGISTRO_SAIDA = re.compile(r"\b(gastei|paguei|comprei|torrei|debitei|passei\s+no\s+cart[aã]o|mandei\s+pix|fiz\s+pix)\b", re.IGNORECASE)
 _RE_ACAO_REGISTRO_DIVIDA = re.compile(r"\b(devo|devendo|fiquei\s+devendo|me\s+endividei|endividei|peguei\s+emprestado|tenho\s+(?:uma|outra|nova)?\s*d[ií]vida)\b", re.IGNORECASE)
 _RE_SALDO_INICIAL_SETUP = re.compile(r"\b(?:atualmente\s+|hoje\s+|agora\s+)?(?:tenho|to\s+com|tô\s+com|estou\s+com)\b.*\b(?:na\s+conta|em\s+conta|de\s+saldo|de\s+caixa|guardado)\b", re.IGNORECASE)
@@ -44,7 +44,14 @@ _RE_DIVIDA_FORTE = re.compile(r"\b(?:peguei\s+\d+\s+emprestado|peguei\s+empresta
 _RE_LIMPAR_MOVIMENTACOES = re.compile(r"\b(?:zerar|zera|limpar|limpa|limpe|apagar|apaga|apague|remover|remove|remova|excluir|exclui|exclua|deletar|deleta|delete)\b.*\b(?:movimenta(?:ç(?:ã|a)o|cao|ções|coes)|movimentos?|registros?|lan[çc]amentos?|valores?)\b", re.IGNORECASE)
 _RE_LIMPAR_PERIODO_TUDO = re.compile(r"\b(?:tudo|todas\s+as\s+movimentacoes|todos\s+os\s+registros|todos\s+os\s+lancamentos|historico\s+(?:todo|inteiro|completo)|conta\s+inteira|todos\s+os\s+tempos|de\s+tudo|de\s+toda\s+a\s+conta)\b", re.IGNORECASE)
 _RE_DICA_DIRETA = re.compile(r"\b(?:como\s+reduzir|reduzir\s+gastos|economizar\s+mais|organizar\s+melhor)\b", re.IGNORECASE)
+_RE_PEDIR_DICAS = re.compile(
+    r"\b(?:me\s+d[eaê]\s+)?(?:mais\s+)?dicas?(?:\s+financeira(?:s)?)?(?:\s+ainda)?\b",
+    re.IGNORECASE,
+)
 _RE_DESFAZER = re.compile(r"\b(?:desfazer|desfaz|desfaca|desfaça|undo|voltar\s+atras|volta\s+atras|cancelar\s+ultimo)\b", re.IGNORECASE)
+_RE_DELETE_VERB = re.compile(r"\b(?:remov(?:er|a|e)|apag(?:ar|a|ue)|delet(?:ar|a|e)|exclu(?:ir|i|a)|tir(?:ar|a|e))\b", re.IGNORECASE)
+_RE_DELETE_ENTRADA = re.compile(r"\b(?:recebimento|entrada|ganho|receita)\b", re.IGNORECASE)
+_RE_DELETE_SAIDA = re.compile(r"\b(?:pagamento|gasto|saida|saída|despesa|compra)\b", re.IGNORECASE)
 
 
 def _detect_context_type(text_lower: str) -> str | None:
@@ -85,6 +92,7 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
     date_ref = extract_date(text)
     month_ref = extract_reference_month(text)
     debt_creditor = extract_debt_creditor(text)
+    movement_id = extract_movement_id(text)
 
     category_rule, keyword_found = categorize_by_rules(description, categorias_keywords)
     if not category_rule:
@@ -99,6 +107,45 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
 
     if _RE_DESFAZER.search(text_lower):
         return {"intencao": "desfazer_ultimo", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}
+
+    # Comando destrutivo com ID explícito sempre deve ser apagar item específico.
+    if movement_id and _RE_DELETE_VERB.search(text_lower):
+        delete_type = None
+        if text_contains(text_lower, palavras_apagar_entrada) or _RE_DELETE_ENTRADA.search(text_lower):
+            delete_type = "entrada"
+        elif text_contains(text_lower, palavras_apagar_saida) or _RE_DELETE_SAIDA.search(text_lower):
+            delete_type = "saida"
+        else:
+            delete_type = _detect_context_type(text_lower)
+        return {
+            "intencao": "apagar_movimentacao",
+            "valor": value,
+            "descricao": description,
+            "data": date_ref,
+            "categoria_regra": category_rule,
+            "mes_referencia": month_ref,
+            "tipo_apagar": delete_type,
+            "id_movimentacao": movement_id,
+        }
+
+    if _RE_DELETE_VERB.search(text_lower) and ("lançamento" in text_lower or "lancamento" in text_lower):
+        delete_type = None
+        if text_contains(text_lower, palavras_apagar_entrada) or _RE_DELETE_ENTRADA.search(text_lower):
+            delete_type = "entrada"
+        elif text_contains(text_lower, palavras_apagar_saida) or _RE_DELETE_SAIDA.search(text_lower):
+            delete_type = "saida"
+        else:
+            delete_type = _detect_context_type(text_lower)
+        return {
+            "intencao": "apagar_movimentacao",
+            "valor": value,
+            "descricao": description,
+            "data": date_ref,
+            "categoria_regra": category_rule,
+            "mes_referencia": month_ref,
+            "tipo_apagar": delete_type,
+            "id_movimentacao": movement_id,
+        }
 
     if _RE_LIMPAR_MOVIMENTACOES.search(text_lower):
         period = "mes"
@@ -149,6 +196,8 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
         return {"intencao": "consultar_total", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "tipo_total": "entrada"}
     if text_contains(text_lower, palavras_quanto_gastei) and not mentioned_category:
         return {"intencao": "consultar_total", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "tipo_total": "saida"}
+    if "total" in text_lower and "gastei" in text_lower and not value:
+        return {"intencao": "consultar_total", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "tipo_total": "saida"}
 
     if _RE_QUITAR_DIVIDAS.search(text_lower) and not value:
         return {"intencao": "quitar_dividas", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "credor_divida": debt_creditor}
@@ -195,13 +244,12 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
 
     if text_contains(text_lower, palavras_apagar):
         delete_type = None
-        if text_contains(text_lower, palavras_apagar_entrada):
+        if text_contains(text_lower, palavras_apagar_entrada) or _RE_DELETE_ENTRADA.search(text_lower):
             delete_type = "entrada"
-        elif text_contains(text_lower, palavras_apagar_saida):
+        elif text_contains(text_lower, palavras_apagar_saida) or _RE_DELETE_SAIDA.search(text_lower):
             delete_type = "saida"
         else:
             delete_type = _detect_context_type(text_lower)
-        movement_id = extract_movement_id(text)
         return {"intencao": "apagar_movimentacao", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "tipo_apagar": delete_type, "id_movimentacao": movement_id}
 
     category_after = extract_category_after_token(text_lower, categorias_keywords)
@@ -220,12 +268,16 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
         if any(word in text_lower for word in context_words):
             return {"intencao": "consultar_categoria", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "categoria_consulta": mentioned_category, "tipo_consulta": context_type}
 
-    if _RE_DICA_DIRETA.search(text_lower):
+    if _RE_DICA_DIRETA.search(text_lower) or _RE_PEDIR_DICAS.search(text_lower):
         return {"intencao": "pedir_dica", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}
 
     ask_list = bool(_RE_VER_MOSTRAR.search(text_lower)) and bool(_RE_CONTEXTO_LISTAGEM.search(text_lower))
     ask_year_summary = bool(re.search(r"\b(?:como\s+foi|como\s+ta|como\s+est[aá]|quero\s+ver)\b.*\b(?:meu\s+ano|ano\s+passado|ano\s+anterior|anos\s+anteriores|20\d{2})\b", text_lower))
-    if (text_contains(text_lower, palavras_resumo) or ask_year_summary) and not (ask_list and not re.search(r"\b(resumo|extrato|hist[oó]rico)\b", text_lower)):
+    if (
+        text_contains(text_lower, palavras_resumo)
+        or ask_year_summary
+        or ("resumao" in text_lower)
+    ) and not (ask_list and not re.search(r"\b(resumo|resumao|extrato|hist[oó]rico)\b", text_lower)):
         return {"intencao": "consultar_resumo", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}
 
     list_request = text_contains(text_lower, palavras_listar) or bool(_RE_PEDIDO_LISTAGEM_EXPLICITA.search(text_lower)) or (bool(_RE_VER_MOSTRAR.search(text_lower)) and bool(_RE_CONTEXTO_LISTAGEM.search(text_lower)))
@@ -245,7 +297,12 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
     if text_contains(text_lower, palavras_divida) and value:
         return {"intencao": "registrar_divida", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "credor_divida": debt_creditor}
 
-    if "sobro" in text_lower or text_contains(text_lower, palavras_saldo):
+    if (
+        "sobro" in text_lower
+        or text_contains(text_lower, palavras_saldo)
+        or "disponível" in text_lower
+        or "disponivel" in text_lower
+    ):
         return {"intencao": "consultar_saldo", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}
 
     if _RE_ACAO_REGISTRO_ENTRADA.search(text_lower) and value:

@@ -9,46 +9,35 @@ Agora o LLM é usado APENAS para:
 # Prompt de CHAT — personalidade do assistente
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT_CHAT = """Você é o Caco, assistente financeiro no WhatsApp em português brasileiro.
-Fale de forma amigável, simples e direta (1-3 frases, emoji moderado).
-Nunca julgue o usuário.
-
-Regras:
-- Não informe nem invente valores, saldos, entradas ou saídas.
-- Não faça cálculos financeiros.
-- Se pedirem números, oriente a pedir "resumo" ou "saldo".
-- Não prometa funcionalidades que o sistema não executa (ex.: "criar orçamento", "montar plano", "te ensino o processo", "acompanhar por etapas").
-- Só sugira comandos que existem no bot (ex.: ajuda, resumo, saldo, listar movimentações, registrar gasto/entrada/dívida).
-- Responda só texto conversacional (sem JSON/código).
+SYSTEM_PROMPT_CHAT = """Você é o Caco, assistente financeiro em pt-BR.
+Responda com clareza, tom amigável e objetividade (1-2 frases).
+Regras: não inventar números, não fazer cálculos, não prometer funções fora do bot.
+Se pedirem valores, orientar para "resumo" ou "saldo".
+Saída: apenas texto, sem JSON/código.
 """
 
-CHAT_PROMPT_CONVERSA = """Mensagem do usuário: "{mensagem}"
-Responda de forma amigável e curta (1-3 frases), sem valores financeiros.
-Não ofereça funcionalidades externas ao bot e não invente processos de acompanhamento.
+CHAT_PROMPT_CONVERSA = """Usuário: "{mensagem}"
+Responda em 1-2 frases curtas, sem valores financeiros.
 """
 
-CHAT_PROMPT_DICA = """Mensagem do usuário: "{mensagem}"
+CHAT_PROMPT_DICA = """Usuário: "{mensagem}"
 
 Contexto opcional do usuário (sem valores):
 {contexto}
 
-Gere dicas financeiras PERSONALIZADAS e práticas para o contexto acima.
-Requisitos:
-- Entregue 3 a 5 dicas curtas e acionáveis.
-- Evite respostas genéricas/repetitivas.
-- Não cite valores numéricos de orçamento/saldo.
-- Linguagem leve, brasileira e motivadora.
+Gere 4 a 6 dicas práticas, curtas e acionáveis.
+Formato obrigatório: apenas lista em bullets, uma dica por linha, começando com "- ".
+Não inclua introdução, saudação, conclusão ou texto fora dos bullets.
+Sem valores numéricos e sem repetir ideias.
 """
 
-CHAT_PROMPT_OBSERVACAO_RESUMO = """Resumo do mês (sem valores numéricos):
+CHAT_PROMPT_OBSERVACAO_RESUMO = """Resumo (sem números):
 {contexto}
 
-Gere uma observação curta e útil para aparecer ao final do resumo financeiro.
-Requisitos:
-- 1 ou 2 frases.
-- Tom amigável e objetivo.
-- Foco em orientação prática (prioridade do mês).
-- Não inventar números e não pedir dados adicionais.
+Gere 2 frases curtas e úteis para fechamento do resumo:
+- Frase 1: principal leitura do mês (ponto forte ou ponto de atenção).
+- Frase 2: ação prática para o próximo período.
+Sem inventar números e sem frases genéricas como "Parabéns!" isolado.
 """
 
 
@@ -69,29 +58,15 @@ Responda apenas com o nome da categoria.
 # Prompt de CLASSIFICACAO DE INTENCAO FINANCEIRA
 # ---------------------------------------------------------------------------
 
-INTENT_CLASSIFICATION_PROMPT = """Voce e um classificador de intencao para mensagens financeiras em portugues brasileiro.
-
-Classifique a mensagem em exatamente um tipo:
-- saida: dinheiro saindo (compra, pagamento, despesa)
-- entrada: dinheiro entrando (salario, pix recebido, renda)
-- divida: mensagem sobre divida/emprestimo/parcela/conta em aberto
-- nao_financeiro: conversa geral, saudacao, pergunta sem acao financeira
-- incerto: quando nao der para decidir com seguranca
-
-Mensagem do usuario:
-\"{mensagem}\"
-
-Responda APENAS em JSON valido, sem markdown:
+INTENT_CLASSIFICATION_PROMPT = """Classifique a mensagem financeira em um tipo: entrada, saida, divida, nao_financeiro, incerto.
+Mensagem: "{mensagem}"
+Retorne APENAS JSON valido:
 {{
   "tipo": "entrada|saida|divida|nao_financeiro|incerto",
   "confianca": 0.0,
   "justificativa": "curta"
 }}
-
-Regras:
-- Retorne confianca entre 0.0 e 1.0.
-- Se houver ambiguidade forte, use tipo=incerto.
-- Nao invente valores e nao execute calculos.
+Regras: confianca 0..1; se ambigua, use incerto; sem calculos.
 """
 
 
@@ -99,14 +74,9 @@ Regras:
 # Prompt de EXTRACAO ESTRUTURADA DE MOVIMENTACAO
 # ---------------------------------------------------------------------------
 
-TRANSACTION_EXTRACTION_PROMPT = """Voce e um extrator de dados financeiros em portugues brasileiro.
-
-Sua tarefa: converter a mensagem do usuario em um JSON estruturado para backend.
-
-Mensagem:
-\"{mensagem}\"
-
-Retorne APENAS JSON valido (sem markdown), neste formato:
+TRANSACTION_EXTRACTION_PROMPT = """Extraia dados financeiros da mensagem e retorne APENAS JSON valido.
+Mensagem: "{mensagem}"
+Formato:
 {{
   "tipo": "entrada|saida|divida|nao_financeiro|incerto",
   "valor": 0.0,
@@ -118,21 +88,7 @@ Retorne APENAS JSON valido (sem markdown), neste formato:
   "confianca": 0.0,
   "justificativa": "curta"
 }}
-
-Regras importantes:
-- Se for entrada: dinheiro entrando (ex.: recebi, ganhei, pix recebido).
-- Se for saida: dinheiro saindo (ex.: paguei, comprei, gastei).
-- Se for divida: emprestimo, conta em aberto, parcela, dever algo.
-- Para nao_financeiro/incerto, use valor=0 e campos textuais vazios quando necessario.
-- Valor deve ser numero (float), sem simbolo de moeda.
-- Se nao houver valor explicito, use 0.
-- Se identificar "pix do pai", prefira:
-  - descricao: "pix do pai"
-  - categoria: "pix_do_pai"
-  - meio_pagamento: "pix"
-  - origem_destino: "pai"
-- Categoria deve ser curta e util para agrupamento (snake_case quando possivel).
-- Nao invente dados ausentes.
+Regras: valor float sem moeda; sem valor explicito => 0; em nao_financeiro/incerto use campos vazios; sem inventar dados.
 """
 
 
@@ -140,28 +96,15 @@ Regras importantes:
 # Prompt de TITULO CANONICO
 # ---------------------------------------------------------------------------
 
-TITLE_GENERATION_PROMPT = """Voce gera um titulo curto e objetivo para um lancamento financeiro.
-
-Mensagem do usuario:
-"{mensagem}"
-
-Descricao extraida (pode estar vazia):
-"{descricao}"
-
-Categoria sugerida:
-"{categoria}"
-
-Retorne APENAS JSON valido (sem markdown):
+TITLE_GENERATION_PROMPT = """Gere um titulo curto e objetivo para lancamento financeiro.
+Mensagem: "{mensagem}"
+Descricao: "{descricao}"
+Categoria: "{categoria}"
+Retorne APENAS JSON valido:
 {{
   "titulo": "",
   "confianca": 0.0,
   "justificativa": "curta"
 }}
-
-Regras:
-- Titulo com 2 a 4 palavras quando possivel.
-- Nao usar artigos no inicio (o, a, os, as, um, uma, de, do, da, no, na, para, com).
-- Evitar termos vagos: ajuda, coisa, negocio, item, gasto.
-- Focar no motivo principal do lancamento.
-- Nao inventar informacoes nao citadas.
+Regras: 2-4 palavras; sem artigo no inicio; evitar termos vagos; nao inventar.
 """
