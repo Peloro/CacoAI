@@ -19,3 +19,4 @@ tools/
 logs/
 .github/
 docs/
+tests/

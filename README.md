@@ -139,6 +139,16 @@ Executar testes automatizados:
 python -m pytest tests -v
 ```
 
+Executar gate de benchmarks (CI/local):
+```bash
+python tools/check_bench_thresholds.py
+```
+
+Gerar snapshot versionado de baseline (JSON + Markdown em docs/baselines):
+```bash
+python tools/generate_benchmark_baseline.py
+```
+
 Simulador local de conversa:
 ```bash
 python simulador_terminal.py
