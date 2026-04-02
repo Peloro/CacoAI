@@ -242,48 +242,86 @@ def _executar_operacao_mutavel(nome_operacao: str, fn, *args, **kwargs):
         _operation_id_ctx.set(op_id_anterior)
 
 
+def _set_estado_pendente_com_evento(
+    usuario_id: int,
+    payload: dict,
+    *,
+    store,
+    tipo_evento: str,
+    nome_evento: str,
+    usar_operation_id_payload: bool,
+) -> None:
+    final_payload = dict(payload or {})
+    if usar_operation_id_payload:
+        op_id = _definir_operation_id(final_payload.get("operation_id"))
+    else:
+        op_id = _definir_operation_id()
+    final_payload["operation_id"] = op_id
+    store[usuario_id] = final_payload
+    _emitir_evento(nome_evento, tipo=tipo_evento)
+
+
 def _set_pendente_confirmacao_apagar(usuario_id: int, payload: dict) -> None:
-    op_id = _definir_operation_id(payload.get("operation_id"))
-    payload["operation_id"] = op_id
-    _pendente_confirmacao_apagar[usuario_id] = payload
-    _emitir_evento("confirmacao_gerada", tipo="apagar_movimentacao")
+    _set_estado_pendente_com_evento(
+        usuario_id,
+        payload,
+        store=_pendente_confirmacao_apagar,
+        tipo_evento="apagar_movimentacao",
+        nome_evento="confirmacao_gerada",
+        usar_operation_id_payload=True,
+    )
 
 
 def _set_pendente_desambiguacao_apagar(usuario_id: int, payload: dict) -> None:
-    op_id = _definir_operation_id(payload.get("operation_id"))
-    payload["operation_id"] = op_id
-    _pendente_desambiguacao[usuario_id] = payload
-    _emitir_evento("desambiguacao_acionada", tipo="apagar_movimentacao")
+    _set_estado_pendente_com_evento(
+        usuario_id,
+        payload,
+        store=_pendente_desambiguacao,
+        tipo_evento="apagar_movimentacao",
+        nome_evento="desambiguacao_acionada",
+        usar_operation_id_payload=True,
+    )
 
 
 def _set_pendente_desambiguacao_editar(usuario_id: int, payload: dict) -> None:
-    op_id = _definir_operation_id(payload.get("operation_id"))
-    payload["operation_id"] = op_id
-    _pendente_desambiguacao_editar[usuario_id] = payload
-    _emitir_evento("desambiguacao_acionada", tipo="editar_movimentacao")
+    _set_estado_pendente_com_evento(
+        usuario_id,
+        payload,
+        store=_pendente_desambiguacao_editar,
+        tipo_evento="editar_movimentacao",
+        nome_evento="desambiguacao_acionada",
+        usar_operation_id_payload=True,
+    )
 
 
 def _set_pendente_confirmacao_limpar(usuario_id: int, payload: dict | tuple) -> None:
-    op_id = _definir_operation_id()
     if isinstance(payload, dict):
-        payload["operation_id"] = op_id
-        final_payload = payload
+        final_payload = dict(payload)
     else:
         final_payload = {
             "tipo_limpar": payload[0] if len(payload) > 0 else None,
             "mes_limpar": payload[1] if len(payload) > 1 else None,
             "periodo_limpar": payload[2] if len(payload) > 2 else "mes",
-            "operation_id": op_id,
         }
-    _pendente_confirmacao_limpar[usuario_id] = final_payload
-    _emitir_evento("confirmacao_gerada", tipo="limpar_movimentacoes")
+    _set_estado_pendente_com_evento(
+        usuario_id,
+        final_payload,
+        store=_pendente_confirmacao_limpar,
+        tipo_evento="limpar_movimentacoes",
+        nome_evento="confirmacao_gerada",
+        usar_operation_id_payload=False,
+    )
 
 
 def _set_pendente_confirmacao_quitar(usuario_id: int, payload: dict) -> None:
-    op_id = _definir_operation_id(payload.get("operation_id"))
-    payload["operation_id"] = op_id
-    _pendente_confirmacao_quitar[usuario_id] = payload
-    _emitir_evento("confirmacao_gerada", tipo="quitar_dividas")
+    _set_estado_pendente_com_evento(
+        usuario_id,
+        payload,
+        store=_pendente_confirmacao_quitar,
+        tipo_evento="quitar_dividas",
+        nome_evento="confirmacao_gerada",
+        usar_operation_id_payload=True,
+    )
 
 
 class _EstadoMap:
@@ -2592,19 +2630,26 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
                 build_operation_confirm_question_fn=_montar_pergunta_confirmacao_operacao,
                 set_pending_edit_disambiguation_fn=_set_pendente_desambiguacao_editar,
                 build_edit_disambiguation_fn=_montar_desambiguacao_editar,
-                update_divida_fields_fn=lambda user_id, mov_id, fields: _executar_operacao_mutavel(
+                update_divida_fields_fn=lambda **kwargs: _executar_operacao_mutavel(
                     "editar_divida",
                     atualizar_divida_campos,
-                    user_id,
-                    mov_id,
-                    fields,
+                    kwargs.get("usuario_id"),
+                    kwargs.get("divida_id"),
+                    novo_valor=kwargs.get("novo_valor"),
+                    nova_descricao=kwargs.get("nova_descricao"),
+                    novo_credor=kwargs.get("novo_credor"),
+                    nova_data_ref=kwargs.get("nova_data_ref"),
                 ),
-                update_mov_fields_fn=lambda user_id, mov_id, fields: _executar_operacao_mutavel(
+                update_mov_fields_fn=lambda **kwargs: _executar_operacao_mutavel(
                     "editar_movimentacao",
                     atualizar_movimentacao_campos,
-                    user_id,
-                    mov_id,
-                    fields,
+                    kwargs.get("usuario_id"),
+                    kwargs.get("movimentacao_id"),
+                    novo_valor=kwargs.get("novo_valor"),
+                    nova_descricao=kwargs.get("nova_descricao"),
+                    nova_categoria=kwargs.get("nova_categoria"),
+                    nova_data_ref=kwargs.get("nova_data_ref"),
+                    novo_tipo=kwargs.get("novo_tipo"),
                 ),
                 build_edit_response_fn=_montar_resposta_edicao,
             ),

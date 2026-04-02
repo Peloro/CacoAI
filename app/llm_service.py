@@ -176,6 +176,49 @@ def _compactar_lista_dicas(texto: str) -> str:
     return "\n".join(saida) if saida else rendered[0][:LLM_DICA_MAX_CHARS]
 
 
+def _normalizar_observacao_resumo(texto: str, max_chars: int) -> str:
+    """Normaliza saída de observação para texto corrido, útil e sem corte brusco."""
+    t = (texto or "").strip()
+    if not t:
+        return ""
+
+    # Remove markdown e quebras de linha que costumam virar lista/título.
+    t = t.replace("*", "").replace("_", "")
+    t = re.sub(r"\s*\n+\s*", " ", t)
+    t = re.sub(r"\s+-\s+", ". ", t)
+
+    # Remove rótulos comuns para ficar natural.
+    t = re.sub(r"\bfechamento\s+do\s+resumo\b\s*:?", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"\bponto\s+forte\b\s*:?", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"\ba[cç][aã]o\s+pr[aá]tica\s+para\s+o\s+pr[oó]ximo\s+per[ií]odo\b\s*:?", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"\s+", " ", t).strip(" .;:-")
+
+    partes = [p.strip(" .;:-") for p in re.split(r"(?<=[.!?])\s+", t) if p.strip(" .;:-")]
+    if not partes:
+        return _limitar_chars(t, max_chars)
+
+    partes = partes[:2]
+    sentencas = []
+    for p in partes:
+        if not re.search(r"[.!?]$", p):
+            p += "."
+        sentencas.append(p)
+
+    joined = " ".join(sentencas)
+    if len(joined) <= max_chars:
+        return joined
+
+    # Tenta manter frases completas antes de truncar.
+    acumulado = ""
+    for s in sentencas:
+        cand = (acumulado + " " + s).strip()
+        if len(cand) <= max_chars:
+            acumulado = cand
+        else:
+            break
+    return acumulado or _limitar_chars(joined, max_chars)
+
+
 def _normalizar_api_key_openrouter(raw_key: str) -> str:
     valor = (raw_key or "").strip().strip('"').strip("'")
     if valor.lower().startswith("bearer "):
@@ -640,14 +683,14 @@ def gerar_observacao_resumo(contexto: str) -> str:
     try:
         resposta = _chat_llm(
             prompt,
-            task="fast",
+            task="quality",
             system_prompt=SYSTEM_PROMPT_CHAT,
             temperature=0.5,
             max_tokens=_MAX_TOKENS_OBSERVACAO_RESUMO,
         )
         if resposta.startswith('"') and resposta.endswith('"'):
             resposta = resposta[1:-1]
-        return _limitar_frases(resposta, max_frases=2, max_chars=max(120, LLM_OBSERVACAO_MAX_CHARS))
+        return _normalizar_observacao_resumo(resposta, max_chars=max(180, LLM_OBSERVACAO_MAX_CHARS))
     except Exception as e:
         log.warning("Erro LLM (%s) em observacao_resumo: %s", _provedor_ativo, e)
         return ""

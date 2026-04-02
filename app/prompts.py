@@ -34,9 +34,10 @@ Sem valores numéricos e sem repetir ideias.
 CHAT_PROMPT_OBSERVACAO_RESUMO = """Resumo (sem números):
 {contexto}
 
-Gere 2 frases curtas e úteis para fechamento do resumo:
+Escreva EXATAMENTE 2 frases úteis para fechamento do resumo:
 - Frase 1: principal leitura do mês (ponto forte ou ponto de atenção).
 - Frase 2: ação prática para o próximo período.
+Formato obrigatório: texto corrido, sem markdown, sem bullets e sem títulos.
 Sem inventar números e sem frases genéricas como "Parabéns!" isolado.
 """
 

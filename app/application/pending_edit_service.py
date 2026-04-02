@@ -17,6 +17,53 @@ IsWeakDescriptionFn = Callable[[str], bool]
 NormalizeDescriptionFn = Callable[[str], str]
 
 
+_RE_SANITIZE_PREFIX = re.compile(
+    r"^(?:deveria\s+ser|deve\s+ser|poderia\s+ser|quero\s+que\s+seja|quero\s+que\s+fique|"
+    r"que\s+seja|que\s+fique|pra\s+ser|para\s+ser|ser|ficar|fique|fica)\s+",
+    flags=re.IGNORECASE,
+)
+_RE_CATEGORY_CMD = re.compile(r"\b(?:categoria|cat)\b", flags=re.IGNORECASE)
+_RE_DATE_CMD = re.compile(
+    r"\b(?:data|hoje|ontem|amanh[ãa]|anteontem|dia\s+\d{1,2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b",
+    flags=re.IGNORECASE,
+)
+_RE_VALUE_CMD = re.compile(r"\b(?:valor|reais?|r\$|rs)\b", flags=re.IGNORECASE)
+_RE_TYPE_CMD = re.compile(r"\b(?:tipo|entrada|sa[ií]da|gasto|d[ií]vida|divida)\b", flags=re.IGNORECASE)
+_RE_CREDITOR_CMD = re.compile(
+    r"\b(?:credor|para\s+quem|quem\s+eu\s+devo)\b\s*(?:=|:)?\s*(?:para|pra|pro)?\s*(.+)$",
+    flags=re.IGNORECASE,
+)
+_RE_EXPLICIT_OPERATION_CHANGE = re.compile(
+    r"\b(?:opera(?:c|ç)[aã]o|intenc[aã]o|tipo|em vez|ao inves|ao invés|na verdade|corrige para|troca para)\b",
+    flags=re.IGNORECASE,
+)
+_RE_MOVE_TYPE = re.compile(r"\btipo\b\s*(?:=|:)?\s*(entrada|saida|sa[ií]da|gasto)\b", flags=re.IGNORECASE)
+_RE_CLEAR_ALL_SCOPE = re.compile(r"\b(?:tudo|todas|todos)\b", flags=re.IGNORECASE)
+_RE_CLEAR_ALL_PERIOD = re.compile(
+    r"\b(?:todo\s+historico|historico\s+inteiro|conta\s+inteira|todos\s+os\s+tempos|de\s+tudo)\b",
+    flags=re.IGNORECASE,
+)
+_RE_YEAR_ONLY = re.compile(r"\d{4}")
+_RE_YEAR_MONTH = re.compile(r"\d{4}-\d{2}")
+_RE_CURRENT_MONTH = re.compile(r"\b(?:este|esse|neste)\s+m[eê]s\b", flags=re.IGNORECASE)
+_RE_TITLE_CMD = re.compile(r"\b(?:t[ií]tulo|titulo)\b\s*(?:=|:|por|para)?\s*(.+)$", flags=re.IGNORECASE)
+_RE_DESCRIPTION_CMD = re.compile(
+    r"\b(?:descri(?:c|ç)[aã]o|motivo|observa(?:c|ç)[aã]o)\s*(?:=|:)?\s*(.+)$",
+    flags=re.IGNORECASE,
+)
+
+
+def _sanitize_explicit_field_value(value: str) -> str:
+    """Remove conectores comuns de edição para preservar apenas o conteúdo final."""
+    txt = (value or "").strip()
+    if not txt:
+        return ""
+
+    txt = txt.strip("\"' ")
+    txt = _RE_SANITIZE_PREFIX.sub("", txt)
+    return txt.strip("\"' ")
+
+
 def apply_pending_operation_edit(
     parsed_base: dict,
     message: str,
@@ -43,34 +90,24 @@ def apply_pending_operation_edit(
     parsed_msg = detect_intent_fn(text)
     current_intent = (new_payload.get("intencao") or "").strip()
     message_intent = (parsed_msg.get("intencao") or "").strip()
-    category_cmd = bool(re.search(r"\b(?:categoria|cat)\b", text_lower, flags=re.IGNORECASE))
+    category_cmd = bool(_RE_CATEGORY_CMD.search(text_lower))
     date_cmd = bool(
         parsed_msg.get("data")
-        or re.search(r"\b(?:data|hoje|ontem|amanh[ãa]|anteontem|dia\s+\d{1,2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b", text_lower, flags=re.IGNORECASE)
+        or _RE_DATE_CMD.search(text_lower)
     )
     value_cmd = bool(
         parsed_msg.get("novo_valor")
         or parsed_msg.get("valor")
-        or re.search(r"\b(?:valor|reais?|r\$|rs)\b", text_lower, flags=re.IGNORECASE)
+        or _RE_VALUE_CMD.search(text_lower)
     )
-    type_cmd = bool(re.search(r"\b(?:tipo|entrada|sa[ií]da|gasto|d[ií]vida|divida)\b", text_lower, flags=re.IGNORECASE))
+    type_cmd = bool(_RE_TYPE_CMD.search(text_lower))
 
     explicit_creditor = ""
-    m_creditor = re.search(
-        r"\b(?:credor|para\s+quem|quem\s+eu\s+devo)\b\s*(?:=|:)?\s*(?:para|pra|pro)?\s*(.+)$",
-        text,
-        flags=re.IGNORECASE,
-    )
+    m_creditor = _RE_CREDITOR_CMD.search(text)
     if m_creditor:
         explicit_creditor = normalize_creditor_fn(m_creditor.group(1).strip())
 
-    explicit_operation_change = bool(
-        re.search(
-            r"\b(?:opera(?:c|ç)[aã]o|intenc[aã]o|tipo|em vez|ao inves|ao invés|na verdade|corrige para|troca para)\b",
-            text_lower,
-            flags=re.IGNORECASE,
-        )
-    )
+    explicit_operation_change = bool(_RE_EXPLICIT_OPERATION_CHANGE.search(text_lower))
     if (
         message_intent
         and message_intent != "conversa_geral"
@@ -111,11 +148,7 @@ def apply_pending_operation_edit(
             new_payload["categoria_regra"] = parsed_msg.get("categoria_regra")
             changes.append(f"categoria para {parsed_msg.get('categoria_regra')}")
 
-        m_move_type = re.search(
-            r"\btipo\b\s*(?:=|:)?\s*(entrada|saida|sa[ií]da|gasto)\b",
-            text_lower,
-            flags=re.IGNORECASE,
-        )
+        m_move_type = _RE_MOVE_TYPE.search(text_lower)
         if m_move_type:
             move_type = m_move_type.group(1)
             move_type = "saida" if move_type in ("gasto", "saída", "saida") else "entrada"
@@ -154,12 +187,12 @@ def apply_pending_operation_edit(
             new_payload["tipo_limpar"] = parsed_msg.get("tipo_limpar")
             target = "entradas" if parsed_msg.get("tipo_limpar") == "entrada" else "gastos"
             changes.append(f"escopo para {target}")
-        elif re.search(r"\b(?:tudo|todas|todos)\b", text_lower):
+        elif _RE_CLEAR_ALL_SCOPE.search(text_lower):
             new_payload["tipo_limpar"] = None
             changes.append("escopo para tudo")
 
         period_msg = (parsed_msg.get("periodo_limpar") or "").strip().lower()
-        if period_msg == "tudo" or re.search(r"\b(?:todo\s+historico|historico\s+inteiro|conta\s+inteira|todos\s+os\s+tempos|de\s+tudo)\b", text_lower):
+        if period_msg == "tudo" or _RE_CLEAR_ALL_PERIOD.search(text_lower):
             new_payload["periodo_limpar"] = "tudo"
             new_payload["mes_referencia"] = ""
             changes.append("período para histórico completo")
@@ -173,15 +206,15 @@ def apply_pending_operation_edit(
             changes.append("período para mês")
         else:
             month_ref_msg = parsed_msg.get("mes_referencia")
-            if isinstance(month_ref_msg, str) and re.fullmatch(r"\d{4}", month_ref_msg):
+            if isinstance(month_ref_msg, str) and _RE_YEAR_ONLY.fullmatch(month_ref_msg):
                 new_payload["periodo_limpar"] = "ano"
                 new_payload["mes_referencia"] = month_ref_msg
                 changes.append(f"período para ano {month_ref_msg}")
-            elif isinstance(month_ref_msg, str) and re.fullmatch(r"\d{4}-\d{2}", month_ref_msg):
+            elif isinstance(month_ref_msg, str) and _RE_YEAR_MONTH.fullmatch(month_ref_msg):
                 new_payload["periodo_limpar"] = "mes"
                 new_payload["mes_referencia"] = month_ref_msg
                 changes.append(f"período para {month_name_fn(month_ref_msg)}")
-            elif re.search(r"\b(?:este|esse|neste)\s+m[eê]s\b", text_lower):
+            elif _RE_CURRENT_MONTH.search(text_lower):
                 new_payload["periodo_limpar"] = "mes"
                 new_payload["mes_referencia"] = None
                 changes.append("período para mês atual")
@@ -207,23 +240,15 @@ def apply_pending_operation_edit(
     direct_description = ""
     explicit_title_command = False
     explicit_description_command = False
-    m_title = re.search(
-        r"\b(?:t[ií]tulo|titulo)\b\s*(?:=|:|por|para)?\s*(.+)$",
-        text,
-        flags=re.IGNORECASE,
-    )
+    m_title = _RE_TITLE_CMD.search(text)
     if m_title:
         explicit_title_command = True
-        direct_description = m_title.group(1).strip()
+        direct_description = _sanitize_explicit_field_value(m_title.group(1).strip())
     else:
-        m_desc = re.search(
-            r"\b(?:descri(?:c|ç)[aã]o|motivo|observa(?:c|ç)[aã]o)\s*(?:=|:)?\s*(.+)$",
-            text,
-            flags=re.IGNORECASE,
-        )
+        m_desc = _RE_DESCRIPTION_CMD.search(text)
         if m_desc:
             explicit_description_command = True
-            direct_description = m_desc.group(1).strip()
+            direct_description = _sanitize_explicit_field_value(m_desc.group(1).strip())
         elif (
             parsed_msg.get("descricao")
             and not is_weak_description_fn(parsed_msg.get("descricao") or "")

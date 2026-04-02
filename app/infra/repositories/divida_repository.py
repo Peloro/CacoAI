@@ -1,9 +1,29 @@
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Optional
 
 from app.infra.db import db_connection
+
+
+_RE_YEAR = re.compile(r"\d{4}")
+_RE_YEAR_MONTH = re.compile(r"\d{4}-\d{2}")
+
+
+def _period_bounds(year_month: str) -> tuple[str, str] | None:
+    period = (year_month or "").strip()
+    if _RE_YEAR_MONTH.fullmatch(period):
+        year, month = period.split("-")
+        y = int(year)
+        m = int(month)
+        if m == 12:
+            return f"{y:04d}-12-01", f"{y + 1:04d}-01-01"
+        return f"{y:04d}-{m:02d}-01", f"{y:04d}-{m + 1:02d}-01"
+    if _RE_YEAR.fullmatch(period):
+        y = int(period)
+        return f"{y:04d}-01-01", f"{y + 1:04d}-01-01"
+    return None
 
 
 def register_debt(user_id: int, value: float, creditor: str = "", description: str = "", date_ref: Optional[str] = None) -> int:
@@ -27,16 +47,29 @@ def list_recent_debts(user_id: int, limit: int = 20, year_month: Optional[str] =
     with db_connection() as conn:
         cur = conn.cursor()
         if year_month:
-            cur.execute(
-                """
-                SELECT id, valor, credor, descricao, data_ref
-                FROM dividas
-                WHERE usuario_id = ? AND data_ref LIKE ?
-                ORDER BY data_ref DESC, id DESC
-                LIMIT ?
-                """,
-                (user_id, f"{year_month}%", limit),
-            )
+            bounds = _period_bounds(year_month)
+            if bounds:
+                cur.execute(
+                    """
+                    SELECT id, valor, credor, descricao, data_ref
+                    FROM dividas
+                    WHERE usuario_id = ? AND data_ref >= ? AND data_ref < ?
+                    ORDER BY data_ref DESC, id DESC
+                    LIMIT ?
+                    """,
+                    (user_id, bounds[0], bounds[1], limit),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT id, valor, credor, descricao, data_ref
+                    FROM dividas
+                    WHERE usuario_id = ? AND data_ref LIKE ?
+                    ORDER BY data_ref DESC, id DESC
+                    LIMIT ?
+                    """,
+                    (user_id, f"{year_month}%", limit),
+                )
         else:
             cur.execute(
                 """
@@ -56,17 +89,32 @@ def find_debts_by_description(user_id: int, description: str, year_month: Option
         cur = conn.cursor()
         lowered = description.lower().strip()
         if year_month:
-            cur.execute(
-                """
-                SELECT id, valor, credor, descricao, data_ref
-                FROM dividas
-                WHERE usuario_id = ?
-                  AND data_ref LIKE ?
-                  AND (LOWER(descricao) LIKE ? OR LOWER(credor) LIKE ?)
-                ORDER BY data_ref DESC, id DESC
-                """,
-                (user_id, f"{year_month}%", f"%{lowered}%", f"%{lowered}%"),
-            )
+            bounds = _period_bounds(year_month)
+            if bounds:
+                cur.execute(
+                    """
+                    SELECT id, valor, credor, descricao, data_ref
+                    FROM dividas
+                    WHERE usuario_id = ?
+                      AND data_ref >= ?
+                      AND data_ref < ?
+                      AND (LOWER(descricao) LIKE ? OR LOWER(credor) LIKE ?)
+                    ORDER BY data_ref DESC, id DESC
+                    """,
+                    (user_id, bounds[0], bounds[1], f"%{lowered}%", f"%{lowered}%"),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT id, valor, credor, descricao, data_ref
+                    FROM dividas
+                    WHERE usuario_id = ?
+                      AND data_ref LIKE ?
+                      AND (LOWER(descricao) LIKE ? OR LOWER(credor) LIKE ?)
+                    ORDER BY data_ref DESC, id DESC
+                    """,
+                    (user_id, f"{year_month}%", f"%{lowered}%", f"%{lowered}%"),
+                )
         else:
             cur.execute(
                 """
@@ -216,9 +264,17 @@ def clear_debts(user_id: int, year_month: Optional[str] = None) -> int:
     if year_month is None:
         year_month = date.today().strftime("%Y-%m")
 
+    bounds = _period_bounds(year_month)
+
     with db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("DELETE FROM dividas WHERE usuario_id = ? AND data_ref LIKE ?", (user_id, f"{year_month}%"))
+        if bounds:
+            cur.execute(
+                "DELETE FROM dividas WHERE usuario_id = ? AND data_ref >= ? AND data_ref < ?",
+                (user_id, bounds[0], bounds[1]),
+            )
+        else:
+            cur.execute("DELETE FROM dividas WHERE usuario_id = ? AND data_ref LIKE ?", (user_id, f"{year_month}%"))
         deleted = cur.rowcount
         conn.commit()
     return deleted
@@ -228,14 +284,25 @@ def debts_totals(user_id: int, year_month: Optional[str] = None) -> dict:
     with db_connection() as conn:
         cur = conn.cursor()
         if year_month:
-            cur.execute(
-                """
-                SELECT COUNT(*) as qtd, SUM(valor) as total
-                FROM dividas
-                WHERE usuario_id = ? AND data_ref LIKE ?
-                """,
-                (user_id, f"{year_month}%"),
-            )
+            bounds = _period_bounds(year_month)
+            if bounds:
+                cur.execute(
+                    """
+                    SELECT COUNT(*) as qtd, SUM(valor) as total
+                    FROM dividas
+                    WHERE usuario_id = ? AND data_ref >= ? AND data_ref < ?
+                    """,
+                    (user_id, bounds[0], bounds[1]),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT COUNT(*) as qtd, SUM(valor) as total
+                    FROM dividas
+                    WHERE usuario_id = ? AND data_ref LIKE ?
+                    """,
+                    (user_id, f"{year_month}%"),
+                )
         else:
             cur.execute(
                 """
@@ -258,8 +325,14 @@ def settle_debts(user_id: int, creditor: Optional[str] = None, year_month: Optio
     params: list = [user_id]
 
     if year_month:
-        filters.append("data_ref LIKE ?")
-        params.append(f"{year_month}%")
+        bounds = _period_bounds(year_month)
+        if bounds:
+            filters.append("data_ref >= ?")
+            filters.append("data_ref < ?")
+            params.extend(bounds)
+        else:
+            filters.append("data_ref LIKE ?")
+            params.append(f"{year_month}%")
 
     if creditor and creditor.strip():
         filters.append("LOWER(credor) LIKE ?")
@@ -289,8 +362,14 @@ def pay_debt(user_id: int, paid_value: float, creditor: Optional[str] = None, ye
     filters = ["usuario_id = ?"]
     params: list = [user_id]
     if year_month:
-        filters.append("data_ref LIKE ?")
-        params.append(f"{year_month}%")
+        bounds = _period_bounds(year_month)
+        if bounds:
+            filters.append("data_ref >= ?")
+            filters.append("data_ref < ?")
+            params.extend(bounds)
+        else:
+            filters.append("data_ref LIKE ?")
+            params.append(f"{year_month}%")
     if creditor and creditor.strip():
         filters.append("LOWER(credor) LIKE ?")
         params.append(f"%{creditor.strip().lower()}%")

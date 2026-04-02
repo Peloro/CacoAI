@@ -57,58 +57,45 @@ class OperationRouter:
 
     def route(self, request: OperationRouteRequest) -> str | None:
         parsed_for_typed_handlers = request.parsed_model or request.parsed
-        query_result = self._query_handler.handle(
-            context=request.query_context,
-            parsed=parsed_for_typed_handlers,
-            state=request.query_state,
+        call_sequence = (
+            lambda: self._query_handler.handle(
+                context=request.query_context,
+                parsed=parsed_for_typed_handlers,
+                state=request.query_state,
+            ),
+            lambda: self._register_handler.handle(
+                context=request.register_context,
+                state=request.register_state,
+            ),
+            lambda: self._clear_handler.handle(
+                context=request.clear_context,
+                parsed=parsed_for_typed_handlers,
+                state=request.clear_state,
+            ),
+            lambda: self._delete_handler.handle(
+                context=request.delete_context,
+                parsed=parsed_for_typed_handlers,
+                state=request.delete_state,
+            ),
+            lambda: self._edit_handler.handle(
+                context=request.edit_context,
+                parsed=parsed_for_typed_handlers,
+                state=request.edit_state,
+            ),
+            lambda: self._finance_handler.handle(
+                context=request.finance_context,
+                parsed=parsed_for_typed_handlers,
+                state=request.finance_state,
+            ),
+            lambda: self._undo_handler.handle(
+                context=request.undo_context,
+                state=request.undo_state,
+            ),
         )
-        if query_result is not None:
-            return query_result
 
-        register_result = self._register_handler.handle(
-            context=request.register_context,
-            state=request.register_state,
-        )
-        if register_result is not None:
-            return register_result
-
-        clear_result = self._clear_handler.handle(
-            context=request.clear_context,
-            parsed=parsed_for_typed_handlers,
-            state=request.clear_state,
-        )
-        if clear_result is not None:
-            return clear_result
-
-        delete_result = self._delete_handler.handle(
-            context=request.delete_context,
-            parsed=parsed_for_typed_handlers,
-            state=request.delete_state,
-        )
-        if delete_result is not None:
-            return delete_result
-
-        edit_result = self._edit_handler.handle(
-            context=request.edit_context,
-            parsed=parsed_for_typed_handlers,
-            state=request.edit_state,
-        )
-        if edit_result is not None:
-            return edit_result
-
-        finance_result = self._finance_handler.handle(
-            context=request.finance_context,
-            parsed=parsed_for_typed_handlers,
-            state=request.finance_state,
-        )
-        if finance_result is not None:
-            return finance_result
-
-        undo_result = self._undo_handler.handle(
-            context=request.undo_context,
-            state=request.undo_state,
-        )
-        if undo_result is not None:
-            return undo_result
+        for handler_call in call_sequence:
+            result = handler_call()
+            if result is not None:
+                return result
 
         return None

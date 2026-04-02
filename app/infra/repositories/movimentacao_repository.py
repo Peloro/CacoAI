@@ -8,6 +8,25 @@ from typing import Optional
 from app.infra.db import db_connection
 
 
+_RE_YEAR = re.compile(r"\d{4}")
+_RE_YEAR_MONTH = re.compile(r"\d{4}-\d{2}")
+
+
+def _period_bounds(year_month: str) -> tuple[str, str] | None:
+    period = (year_month or "").strip()
+    if _RE_YEAR_MONTH.fullmatch(period):
+        year, month = period.split("-")
+        y = int(year)
+        m = int(month)
+        if m == 12:
+            return f"{y:04d}-12-01", f"{y + 1:04d}-01-01"
+        return f"{y:04d}-{m:02d}-01", f"{y:04d}-{m + 1:02d}-01"
+    if _RE_YEAR.fullmatch(period):
+        y = int(period)
+        return f"{y:04d}-01-01", f"{y + 1:04d}-01-01"
+    return None
+
+
 def register_movement(
     user_id: int,
     movement_type: str,
@@ -38,54 +57,62 @@ def month_summary(user_id: int, year_month: Optional[str] = None) -> dict:
     if year_month is None:
         year_month = date.today().strftime("%Y-%m")
 
+    bounds = _period_bounds(year_month)
+    if bounds:
+        period_sql = "data_ref >= ? AND data_ref < ?"
+        period_params: tuple[str, ...] = bounds
+    else:
+        period_sql = "data_ref LIKE ?"
+        period_params = (f"{year_month}%",)
+
     with db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
-            """
+            f"""
             SELECT tipo, SUM(valor) as total
             FROM movimentacoes
-            WHERE usuario_id = ? AND data_ref LIKE ?
+            WHERE usuario_id = ? AND {period_sql}
             GROUP BY tipo
             """,
-            (user_id, f"{year_month}%"),
+            (user_id, *period_params),
         )
         totals = {row["tipo"]: row["total"] for row in cur.fetchall()}
         incomes = totals.get("entrada", 0.0)
         expenses = totals.get("saida", 0.0)
 
         cur.execute(
-            """
+            f"""
             SELECT categoria, SUM(valor) as total
             FROM movimentacoes
-            WHERE usuario_id = ? AND tipo = 'saida' AND data_ref LIKE ?
+            WHERE usuario_id = ? AND tipo = 'saida' AND {period_sql}
             GROUP BY categoria
             ORDER BY total DESC
             """,
-            (user_id, f"{year_month}%"),
+            (user_id, *period_params),
         )
         expense_categories = {row["categoria"]: row["total"] for row in cur.fetchall()}
 
         cur.execute(
-            """
+            f"""
             SELECT categoria, SUM(valor) as total
             FROM movimentacoes
-            WHERE usuario_id = ? AND tipo = 'entrada' AND data_ref LIKE ?
+            WHERE usuario_id = ? AND tipo = 'entrada' AND {period_sql}
             GROUP BY categoria
             ORDER BY total DESC
             """,
-            (user_id, f"{year_month}%"),
+            (user_id, *period_params),
         )
         income_categories = {row["categoria"]: row["total"] for row in cur.fetchall()}
 
         cur.execute(
-            """
+            f"""
             SELECT tipo, valor, categoria, descricao, data_ref
             FROM movimentacoes
-            WHERE usuario_id = ? AND data_ref LIKE ?
+            WHERE usuario_id = ? AND {period_sql}
             ORDER BY data_ref DESC, id DESC
             LIMIT 5
             """,
-            (user_id, f"{year_month}%"),
+            (user_id, *period_params),
         )
         latest = [dict(row) for row in cur.fetchall()]
 
@@ -160,24 +187,27 @@ def clear_movements(user_id: int, movement_type: Optional[str] = None, year_mont
     if year_month is None:
         year_month = date.today().strftime("%Y-%m")
 
+    bounds = _period_bounds(year_month)
+
     with db_connection() as conn:
         cur = conn.cursor()
+        filters = ["usuario_id = ?"]
+        params: list = [user_id]
+
         if movement_type:
-            cur.execute(
-                """
-                DELETE FROM movimentacoes
-                WHERE usuario_id = ? AND tipo = ? AND data_ref LIKE ?
-                """,
-                (user_id, movement_type, f"{year_month}%"),
-            )
+            filters.append("tipo = ?")
+            params.append(movement_type)
+
+        if bounds:
+            filters.append("data_ref >= ?")
+            filters.append("data_ref < ?")
+            params.extend(bounds)
         else:
-            cur.execute(
-                """
-                DELETE FROM movimentacoes
-                WHERE usuario_id = ? AND data_ref LIKE ?
-                """,
-                (user_id, f"{year_month}%"),
-            )
+            filters.append("data_ref LIKE ?")
+            params.append(f"{year_month}%")
+
+        where_sql = " AND ".join(filters)
+        cur.execute(f"DELETE FROM movimentacoes WHERE {where_sql}", tuple(params))
         deleted = cur.rowcount
         conn.commit()
     return deleted
@@ -187,16 +217,24 @@ def month_totals(user_id: int, year_month: Optional[str] = None) -> dict:
     if year_month is None:
         year_month = date.today().strftime("%Y-%m")
 
+    bounds = _period_bounds(year_month)
+    if bounds:
+        period_sql = "data_ref >= ? AND data_ref < ?"
+        period_params: tuple[str, ...] = bounds
+    else:
+        period_sql = "data_ref LIKE ?"
+        period_params = (f"{year_month}%",)
+
     with db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
-            """
+            f"""
             SELECT tipo, COUNT(*) as qtd, SUM(valor) as total
             FROM movimentacoes
-            WHERE usuario_id = ? AND data_ref LIKE ?
+            WHERE usuario_id = ? AND {period_sql}
             GROUP BY tipo
             """,
-            (user_id, f"{year_month}%"),
+            (user_id, *period_params),
         )
 
         result = {"total_entradas": 0.0, "total_saidas": 0.0, "qtd_entradas": 0, "qtd_saidas": 0}
@@ -213,50 +251,34 @@ def month_totals(user_id: int, year_month: Optional[str] = None) -> dict:
 def list_recent_movements(user_id: int, limit: int = 10, movement_type: Optional[str] = None, year_month: Optional[str] = None) -> list[dict]:
     with db_connection() as conn:
         cur = conn.cursor()
-        if movement_type and year_month:
-            cur.execute(
-                """
-                SELECT id, tipo, valor, categoria, descricao, data_ref
-                FROM movimentacoes
-                WHERE usuario_id = ? AND tipo = ? AND data_ref LIKE ?
-                ORDER BY data_ref DESC, id DESC
-                LIMIT ?
-                """,
-                (user_id, movement_type, f"{year_month}%", limit),
-            )
-        elif movement_type:
-            cur.execute(
-                """
-                SELECT id, tipo, valor, categoria, descricao, data_ref
-                FROM movimentacoes
-                WHERE usuario_id = ? AND tipo = ?
-                ORDER BY data_ref DESC, id DESC
-                LIMIT ?
-                """,
-                (user_id, movement_type, limit),
-            )
-        elif year_month:
-            cur.execute(
-                """
-                SELECT id, tipo, valor, categoria, descricao, data_ref
-                FROM movimentacoes
-                WHERE usuario_id = ? AND data_ref LIKE ?
-                ORDER BY data_ref DESC, id DESC
-                LIMIT ?
-                """,
-                (user_id, f"{year_month}%", limit),
-            )
-        else:
-            cur.execute(
-                """
-                SELECT id, tipo, valor, categoria, descricao, data_ref
-                FROM movimentacoes
-                WHERE usuario_id = ?
-                ORDER BY data_ref DESC, id DESC
-                LIMIT ?
-                """,
-                (user_id, limit),
-            )
+        filters = ["usuario_id = ?"]
+        params: list = [user_id]
+
+        if movement_type:
+            filters.append("tipo = ?")
+            params.append(movement_type)
+
+        if year_month:
+            bounds = _period_bounds(year_month)
+            if bounds:
+                filters.append("data_ref >= ?")
+                filters.append("data_ref < ?")
+                params.extend(bounds)
+            else:
+                filters.append("data_ref LIKE ?")
+                params.append(f"{year_month}%")
+
+        where_sql = " AND ".join(filters)
+        cur.execute(
+            f"""
+            SELECT id, tipo, valor, categoria, descricao, data_ref
+            FROM movimentacoes
+            WHERE {where_sql}
+            ORDER BY data_ref DESC, id DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        )
 
         return [dict(row) for row in cur.fetchall()]
 
@@ -269,31 +291,35 @@ def find_movements_by_description(user_id: int, description: str, movement_type:
         cur = conn.cursor()
         lowered = description.lower().strip()
 
+        filters = ["usuario_id = ?"]
+        params: list = [user_id]
+
         if movement_type:
-            cur.execute(
-                """
-                SELECT id, tipo, valor, categoria, descricao, data_ref
-                FROM movimentacoes
-                WHERE usuario_id = ?
-                  AND tipo = ?
-                  AND data_ref LIKE ?
-                  AND (LOWER(descricao) LIKE ? OR LOWER(categoria) LIKE ?)
-                ORDER BY data_ref DESC, id DESC
-                """,
-                (user_id, movement_type, f"{year_month}%", f"%{lowered}%", f"%{lowered}%"),
-            )
+            filters.append("tipo = ?")
+            params.append(movement_type)
+
+        bounds = _period_bounds(year_month)
+        if bounds:
+            filters.append("data_ref >= ?")
+            filters.append("data_ref < ?")
+            params.extend(bounds)
         else:
-            cur.execute(
-                """
-                SELECT id, tipo, valor, categoria, descricao, data_ref
-                FROM movimentacoes
-                WHERE usuario_id = ?
-                  AND data_ref LIKE ?
-                  AND (LOWER(descricao) LIKE ? OR LOWER(categoria) LIKE ?)
-                ORDER BY data_ref DESC, id DESC
-                """,
-                (user_id, f"{year_month}%", f"%{lowered}%", f"%{lowered}%"),
-            )
+            filters.append("data_ref LIKE ?")
+            params.append(f"{year_month}%")
+
+        filters.append("(LOWER(descricao) LIKE ? OR LOWER(categoria) LIKE ?)")
+        params.extend([f"%{lowered}%", f"%{lowered}%"])
+
+        where_sql = " AND ".join(filters)
+        cur.execute(
+            f"""
+            SELECT id, tipo, valor, categoria, descricao, data_ref
+            FROM movimentacoes
+            WHERE {where_sql}
+            ORDER BY data_ref DESC, id DESC
+            """,
+            tuple(params),
+        )
         return [dict(row) for row in cur.fetchall()]
 
 
@@ -442,8 +468,18 @@ def consult_category(user_id: int, category: str, year_month: Optional[str] = No
     with db_connection() as conn:
         cur = conn.cursor()
 
-        filters = ["usuario_id = ?", "categoria = ?", "data_ref LIKE ?"]
-        params: list = [user_id, category.lower(), f"{year_month}%"]
+        filters = ["usuario_id = ?", "categoria = ?"]
+        params: list = [user_id, category.lower()]
+
+        bounds = _period_bounds(year_month)
+        if bounds:
+            filters.append("data_ref >= ?")
+            filters.append("data_ref < ?")
+            params.extend(bounds)
+        else:
+            filters.append("data_ref LIKE ?")
+            params.append(f"{year_month}%")
+
         if movement_type in ("entrada", "saida"):
             filters.append("tipo = ?")
             params.append(movement_type)
@@ -479,29 +515,37 @@ def list_categories_by_type(user_id: int, movement_type: Optional[str] = None, y
     if year_month is None:
         year_month = date.today().strftime("%Y-%m")
 
+    bounds = _period_bounds(year_month)
+    if bounds:
+        period_sql = "data_ref >= ? AND data_ref < ?"
+        period_params: tuple[str, ...] = bounds
+    else:
+        period_sql = "data_ref LIKE ?"
+        period_params = (f"{year_month}%",)
+
     with db_connection() as conn:
         cur = conn.cursor()
         if movement_type in ("entrada", "saida"):
             cur.execute(
-                """
+                f"""
                 SELECT tipo, categoria, COUNT(*) as quantidade, SUM(valor) as total
                 FROM movimentacoes
-                WHERE usuario_id = ? AND tipo = ? AND data_ref LIKE ?
+                WHERE usuario_id = ? AND tipo = ? AND {period_sql}
                 GROUP BY tipo, categoria
                 ORDER BY total DESC
                 """,
-                (user_id, movement_type, f"{year_month}%"),
+                (user_id, movement_type, *period_params),
             )
         else:
             cur.execute(
-                """
+                f"""
                 SELECT tipo, categoria, COUNT(*) as quantidade, SUM(valor) as total
                 FROM movimentacoes
-                WHERE usuario_id = ? AND data_ref LIKE ?
+                WHERE usuario_id = ? AND {period_sql}
                 GROUP BY tipo, categoria
                 ORDER BY tipo ASC, total DESC
                 """,
-                (user_id, f"{year_month}%"),
+                (user_id, *period_params),
             )
 
         return [dict(row) for row in cur.fetchall()]

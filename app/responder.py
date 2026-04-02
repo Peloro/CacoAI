@@ -82,8 +82,7 @@ RESPOSTAS_AJUDA = [
         "🧹 *Limpar:* \"limpar mês\", \"limpar ano\", \"limpar tudo\"\n"
         "📊 *Consultar:* \"resumo do mês\", \"resumo do ano\", \"quanto tenho sobrando?\"\n"
         "📋 *Extrato:* \"listar movimentações\" | 🧾 *Dívidas:* \"listar dívidas\"\n"
-        "🤔 *Planejar compra:* \"posso gastar 200?\"\n\n"
-        "Se quiser, te mostro exemplos só de uma área (registro, edição, limpeza ou consulta)."
+        "🤔 *Planejar compra:* \"posso gastar 200?\"\n\n"   
     ),
 ]
 
