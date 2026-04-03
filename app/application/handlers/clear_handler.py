@@ -35,8 +35,12 @@ class ClearHandler:
         if clear_period == "tudo":
             month_ref = ""
 
+        debt_month_ref = month_ref
+        if clear_period == "mes" and not debt_month_ref:
+            debt_month_ref = date.today().strftime("%Y-%m")
+
         totals = context.totais_mes_fn(state.user_id, month_ref)
-        debt_totals = context.totais_dividas_fn(state.user_id, month_ref)
+        debt_totals = context.totais_dividas_fn(state.user_id, debt_month_ref)
 
         if clear_period == "tudo":
             suffix = " de *todo o histórico*"

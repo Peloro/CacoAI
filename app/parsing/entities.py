@@ -105,6 +105,13 @@ def extract_new_edit_value(text: str, movement_id: int | None = None) -> float |
 
     nums = re.findall(r"\d+(?:[.,]\d{1,2})?", text)
     if nums:
+        has_date_reference = bool(
+            re.search(r"\b(?:data|dia)\s+\d{1,2}\b|\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b", text, re.IGNORECASE)
+        )
+        has_value_hint = bool(re.search(r"\b(?:valor|novo valor|r\$|reais?|conto|contos|pila|pilas)\b", text, re.IGNORECASE))
+        if has_date_reference and not has_value_hint:
+            return None
+
         candidates: list[float] = []
         for raw in nums:
             try:

@@ -29,6 +29,8 @@ _RE_DATE_CMD = re.compile(
 )
 _RE_VALUE_CMD = re.compile(r"\b(?:valor|reais?|r\$|rs)\b", flags=re.IGNORECASE)
 _RE_TYPE_CMD = re.compile(r"\b(?:tipo|entrada|sa[ií]da|gasto|d[ií]vida|divida)\b", flags=re.IGNORECASE)
+_RE_INSTALLMENT_HINT = re.compile(r"\b(?:parcela(?:s)?|prestac(?:a|ã)o(?:es)?|x\b|vez(?:es)?)\b", flags=re.IGNORECASE)
+_RE_MONEY_HINT = re.compile(r"\b(?:valor|r\$|reais?|pre[cç]o|custou|custa|deu|foi)\b", flags=re.IGNORECASE)
 _RE_CREDITOR_CMD = re.compile(
     r"\b(?:credor|para\s+quem|quem\s+eu\s+devo)\b\s*(?:=|:)?\s*(?:para|pra|pro)?\s*(.+)$",
     flags=re.IGNORECASE,
@@ -101,6 +103,9 @@ def apply_pending_operation_edit(
         or _RE_VALUE_CMD.search(text_lower)
     )
     type_cmd = bool(_RE_TYPE_CMD.search(text_lower))
+    installment_hint = bool(_RE_INSTALLMENT_HINT.search(text_lower))
+    money_hint = bool(_RE_MONEY_HINT.search(text_lower))
+    installment_only_cmd = installment_hint and not money_hint
 
     explicit_creditor = ""
     m_creditor = _RE_CREDITOR_CMD.search(text)
@@ -129,8 +134,9 @@ def apply_pending_operation_edit(
     }:
         value_msg = parsed_msg.get("valor")
         if value_msg and float(value_msg) > 0:
-            new_payload["valor"] = float(value_msg)
-            changes.append(f"valor para {format_currency_fn(float(value_msg))}")
+            if not (current_intent == "registrar_divida" and installment_only_cmd):
+                new_payload["valor"] = float(value_msg)
+                changes.append(f"valor para {format_currency_fn(float(value_msg))}")
 
     if current_intent == "editar_movimentacao":
         if parsed_msg.get("id_movimentacao"):

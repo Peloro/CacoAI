@@ -702,9 +702,10 @@ _TERMOS_DESCRICAO_GENERICOS = {
     "gastei", "gasto", "gastos", "gastar", "paguei", "pagar", "comprei", "comprar",
     "saida", "saída", "saidas", "saídas", "despesa", "despesas",
     "divida", "dívida", "dividas", "dívidas", "devo", "devendo", "endividado",
+    "parcela", "parcelas", "prestacao", "prestação", "juros", "sem",
     "valor", "dinheiro", "conta", "lancamento", "lançamento", "movimentacao", "movimentação",
     "compensacao", "compensação", "mes", "mês", "semana", "hoje", "ontem",
-    "essa", "esse", "isso", "aquilo", "coisa", "negocio", "negócio",
+    "essa", "esse", "isso", "aquilo", "coisa", "negocio", "negócio", "so", "só",
 }
 
 
@@ -1374,7 +1375,26 @@ def _processar_desfazer_ultimo(usuario_id: int) -> str:
 
 def _normalizar_credor_texto(credor: str) -> str:
     """Normaliza credor para no máximo 4 palavras e sem prefixos genéricos."""
-    return _normalizar_rotulo_curto(credor, max_palavras=4, remover_artigos_inicio=True)
+    texto = (credor or "").strip()
+    if not texto:
+        return ""
+
+    # Remove conectores coloquiais comuns em correções manuais de credor.
+    texto = re.sub(
+        r"^(?:na\s+verdade|na\s+real|na\s+vdd|ali[aá]s|verdade(?:\s+[ée])?)\s+",
+        "",
+        texto,
+        flags=re.IGNORECASE,
+    )
+    texto = re.sub(
+        r"^(?:o\s+credor\s+[ée]|credor\s*(?:[=:]|[ée])|[ée]|eh|era|fica|ficou|"
+        r"deve\s+ser|deveria\s+ser|quero\s+que\s+seja)\s+",
+        "",
+        texto,
+        flags=re.IGNORECASE,
+    )
+
+    return _normalizar_rotulo_curto(texto, max_palavras=4, remover_artigos_inicio=True)
 
 
 def _deve_forcar_extracao_ia(mensagem: str, parsed: dict) -> bool:
@@ -1685,11 +1705,21 @@ def _montar_especificacoes_operacao(parsed: dict) -> str:
 
 def _montar_pergunta_confirmacao_operacao(parsed: dict, veio_desambiguacao: bool = False) -> str:
     cabecalho = "Perfeito. Antes de executar, confirma os detalhes:" if veio_desambiguacao else "Antes de executar, confirma esta operação:"
+    intencao = (parsed.get("intencao") or "").strip()
+    pode_editar_detalhes = intencao not in {"quitar_dividas", "desfazer_ultimo"}
+
+    if pode_editar_detalhes:
+        return (
+            f"{cabecalho}\n\n"
+            f"{_montar_especificacoes_operacao(parsed)}\n\n"
+            "Se quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n"
+            "(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\n"
+            "Responda com *sim* para confirmar ou *cancelar* para não executar."
+        )
+
     return (
         f"{cabecalho}\n\n"
         f"{_montar_especificacoes_operacao(parsed)}\n\n"
-        "Se quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n"
-        "(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\n"
         "Responda com *sim* para confirmar ou *cancelar* para não executar."
     )
 
@@ -1938,13 +1968,33 @@ def _resposta_dica_com_ia(mensagem: str, contexto: dict | None = None) -> str:
     return "Não consegui gerar uma dica agora. Tenta novamente em instantes."
 
 
-def _garantir_hint_ajuda(resposta: str) -> str:
-    """Garante que toda resposta cite o comando de ajuda."""
+_RE_HINT_INTERATIVO = re.compile(
+    r"(?:responda|manda)\s+com\s+\*(?:sim|n[aã]o|cancelar|1|2|3)\*"
+    r"|\*sim\*\s+pra\s+confirmar"
+    r"|\*sim\*\s+para\s+confirmar"
+    r"|\*cancelar\*\s+para\s+n[aã]o\s+executar",
+    re.IGNORECASE,
+)
+
+
+def _garantir_hint_ajuda(resposta: str, intencao: str | None = None) -> str:
+    """Anexa hint de ajuda apenas em respostas finais (não em prompts de confirmação/seleção)."""
     texto = (resposta or "").strip()
     if not texto:
         texto = "Tudo certo por aqui."
 
-    if "ajuda" in texto.lower():
+    texto_lower = texto.lower()
+    intencao_lower = (intencao or "").strip().lower()
+
+    if "ajuda" in texto_lower:
+        return texto
+
+    if _RE_HINT_INTERATIVO.search(texto):
+        return texto
+
+    if intencao_lower in {"limpar_movimentacoes", "apagar_movimentacao", "quitar_dividas", "desfazer_ultimo"} and (
+        "confirma" in texto_lower or "responda com" in texto_lower
+    ):
         return texto
 
     return f"{texto}\n\n💡 Se precisar, digite *ajuda*."
@@ -2030,8 +2080,9 @@ def processar_mensagem(telefone: str, mensagem: str, trace_id: str | None = None
         inc_counter("messages.error")
         _emitir_evento("persistencia_erro", operacao="processar_mensagem", erro=erro_msg)
 
+    intencao_final = _ultima_intencao_ctx.get() or "desconhecida"
     if aplicar_hint_ajuda:
-        resposta = _garantir_hint_ajuda(resposta)
+        resposta = _garantir_hint_ajuda(resposta, intencao=intencao_final)
     _registrar_requisicao_teste(telefone=telefone, mensagem=mensagem, resposta=resposta, erro=erro_msg)
     if erro_msg is None:
         inc_counter("messages.success")
@@ -2040,7 +2091,6 @@ def processar_mensagem(telefone: str, mensagem: str, trace_id: str | None = None
     if _fallback_acionado_ctx.get():
         inc_counter("fallback.used")
 
-    intencao_final = _ultima_intencao_ctx.get() or "desconhecida"
     inc_counter(f"intent.{intencao_final}")
     if erro_msg is not None:
         inc_counter(f"intent_error.{intencao_final}")
@@ -2366,8 +2416,6 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     if _intencao_e_operacao(intencao):
         _definir_operation_id(operation_id)
 
-    _ultima_intencao_ctx.set(intencao)
-
     # Mensagens financeiras ambíguas/complexas passam por IA para
     # extrair tipo, valor, descrição, categoria e credor quando aplicável.
     if (not confirmou_intencao_manual) and (not confirmou_operacao_manual) and _deve_forcar_extracao_ia(mensagem, parsed):
@@ -2376,6 +2424,8 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         valor = parsed["valor"]
         descricao = parsed["descricao"]
         data_ref = parsed["data"] or date.today().isoformat()
+
+    _ultima_intencao_ctx.set(intencao)
 
     descricao = _normalizar_descricao_registro(descricao)
     parsed["descricao"] = descricao

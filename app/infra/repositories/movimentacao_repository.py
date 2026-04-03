@@ -18,6 +18,8 @@ def _period_bounds(year_month: str) -> tuple[str, str] | None:
         year, month = period.split("-")
         y = int(year)
         m = int(month)
+        if m < 1 or m > 12:
+            return None
         if m == 12:
             return f"{y:04d}-12-01", f"{y + 1:04d}-01-01"
         return f"{y:04d}-{m:02d}-01", f"{y:04d}-{m + 1:02d}-01"

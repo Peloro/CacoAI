@@ -38,12 +38,23 @@ _RE_FULL_DATE = re.compile(r"(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?")
 
 _RE_PREV_MONTH = re.compile(r"m[eê]s\s+(?:passado|anterior)")
 _RE_TWO_MONTHS_AGO = re.compile(r"m[eê]s\s+retrasado|2\s+meses\s+atr[aá]s")
-_RE_CURRENT_MONTH = re.compile(r"(?:est[ea]|ess[ea]|nest[ea])\s+m[eê]s")
+_RE_CURRENT_MONTH = re.compile(r"\b(?:(?:est[ea]|ess[ea]|nest[ea]|dest[ea])\s+m[eê]s|m[eê]s\s+atual)\b")
 _RE_CURRENT_YEAR = re.compile(
     r"\b(?:este|esse|neste|meu)\s+ano\b|\b(?:do|no)\s+ano\s+(?:atual|inteiro)\b|\bano\s+atual\b|\bano\s+inteiro\b"
 )
 _RE_PREV_YEAR = re.compile(r"\bano\s+(?:passado|anterior)\b|\banos\s+anteriores\b")
-_RE_EXPLICIT_YEAR = re.compile(r"\b(?:ano\s+de\s+|ano\s+|em\s+|de\s+)?(20\d{2})\b")
+_RE_EXPLICIT_YEAR = re.compile(r"(?<![/\d])(?:ano\s+de\s+|ano\s+|em\s+|de\s+)?(20\d{2})(?!\d|/)")
+_RE_YEAR_MONTH_NUMERIC = re.compile(r"(?<![\d/])(20\d{2})[-/](0?[1-9]|1[0-2])(?!\d)")
+_RE_MONTH_YEAR_NUMERIC = re.compile(r"(?<![\d/])(0?[1-9]|1[0-2])[-/](20\d{2})(?!\d)")
+_MONTH_NAME_ALTERNATION = "|".join(
+    sorted((re.escape(name) for name in _MONTH_NAMES.keys()), key=len, reverse=True)
+)
+_RE_MONTH_WITH_YEAR = re.compile(
+    rf"\b(?:(?:em|de|no\s+m[eê]s\s+de|d[eo])\s+)?(?P<month>{_MONTH_NAME_ALTERNATION})\s*(?:de\s+)?(?P<year>20\d{{2}})\b"
+)
+_RE_YEAR_WITH_MONTH = re.compile(
+    rf"\b(?P<year>20\d{{2}})\s*(?:de\s+)?(?P<month>{_MONTH_NAME_ALTERNATION})\b"
+)
 _MONTH_NAME_PATTERNS = [
     (
         re.compile(
@@ -57,11 +68,36 @@ _MONTH_NAME_PATTERNS = [
 ]
 
 
+def _extract_month_and_year(text_lower: str) -> tuple[int, int] | None:
+    numeric_ym = _RE_YEAR_MONTH_NUMERIC.search(text_lower)
+    if numeric_ym:
+        return int(numeric_ym.group(1)), int(numeric_ym.group(2))
+
+    numeric_my = _RE_MONTH_YEAR_NUMERIC.search(text_lower)
+    if numeric_my:
+        return int(numeric_my.group(2)), int(numeric_my.group(1))
+
+    for pattern in (_RE_MONTH_WITH_YEAR, _RE_YEAR_WITH_MONTH):
+        match = pattern.search(text_lower)
+        if not match:
+            continue
+
+        month_name = (match.group("month") or "").strip().lower()
+        year = int(match.group("year"))
+        month_num = _MONTH_NAMES.get(month_name)
+        if month_num and 2000 <= year <= 2099:
+            return year, month_num
+
+    return None
+
+
 def extract_date(text: str) -> str | None:
     """Extrai data no formato YYYY-MM-DD quando houver menção explícita."""
     text_lower = text.lower()
     today = date.today()
 
+    if "amanhã" in text_lower or "amanha" in text_lower:
+        return (today + timedelta(days=1)).isoformat()
     if "anteontem" in text_lower:
         return (today - timedelta(days=2)).isoformat()
     if "ontem" in text_lower:
@@ -114,6 +150,11 @@ def extract_reference_month(text: str) -> str | None:
     text_lower = text.lower()
     today = date.today()
 
+    month_year = _extract_month_and_year(text_lower)
+    if month_year:
+        year, month_num = month_year
+        return f"{year}-{month_num:02d}"
+
     if _RE_CURRENT_YEAR.search(text_lower):
         return f"{today.year}"
     if _RE_PREV_YEAR.search(text_lower):
@@ -139,7 +180,7 @@ def extract_reference_month(text: str) -> str | None:
         return f"{year}-{month:02d}"
 
     if _RE_CURRENT_MONTH.search(text_lower):
-        return None
+        return f"{today.year}-{today.month:02d}"
 
     for month_pattern, month_num in _MONTH_NAME_PATTERNS:
         if month_pattern.search(text_lower):
