@@ -44,13 +44,6 @@ OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "minimax/minimax-m2.5:free")
 OPENROUTER_SITE_URL = os.getenv("OPENROUTER_SITE_URL", "")
 OPENROUTER_APP_NAME = os.getenv("OPENROUTER_APP_NAME", "CacoAI")
 
-# --- Meta WhatsApp Cloud API ---
-# Obtenha em: https://developers.facebook.com → Seu App → WhatsApp → API Setup
-WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN", "")              # Token de acesso permanente
-WHATSAPP_PHONE_ID = os.getenv("WHATSAPP_PHONE_ID", "")        # ID do número de telefone
-WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "")  # Token de verificação do webhook
-WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")    # App Secret para validar assinatura
-
 # --- Telegram Bot API ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_WEBHOOK_SECRET_TOKEN = os.getenv("TELEGRAM_WEBHOOK_SECRET_TOKEN", "")
@@ -61,10 +54,7 @@ TG_POLL_TIMEOUT = int(os.getenv("TG_POLL_TIMEOUT", "25"))
 # --- Banco de dados ---
 DATABASE_PATH = os.getenv("DATABASE_PATH", "financeiro.db")
 
-# --- WhatsApp Bot ---
-WA_MAX_MSG_LENGTH = 4096          # Limite de caracteres por mensagem do WhatsApp
-WA_DEDUP_TTL_SECONDS = int(os.getenv("WA_DEDUP_TTL", "300"))  # TTL para deduplicação de msgs (5 min)
-WA_SEND_TYPING = os.getenv("WA_SEND_TYPING", "true").lower() == "true"  # Indicador "digitando..."
+# --- Bot ---
 BOT_RESPONSE_DELAY_SECONDS = float(os.getenv("BOT_RESPONSE_DELAY_SECONDS", "0"))
 
 # --- Limites de entrada / segurança básica ---

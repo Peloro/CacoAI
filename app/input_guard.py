@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from app.config import (
     INBOUND_MAX_MESSAGE_CHARS,
@@ -72,24 +71,3 @@ def validate_payload_size_or_raise(body: bytes) -> None:
             "Payload muito grande para processamento. "
             "Tente enviar mensagens mais curtas."
         )
-
-
-def validate_whatsapp_payload_shape_or_raise(data: Any) -> None:
-    """Valida formato mínimo esperado do payload da Meta."""
-    if not isinstance(data, dict):
-        raise InputValidationError("Payload inválido: esperado objeto JSON.")
-
-    entries = data.get("entry", [])
-    if entries is None:
-        entries = []
-    if not isinstance(entries, list):
-        raise InputValidationError("Payload inválido: campo 'entry' mal formatado.")
-
-    for entry in entries:
-        if not isinstance(entry, dict):
-            raise InputValidationError("Payload inválido: item de 'entry' mal formatado.")
-        changes = entry.get("changes", [])
-        if changes is None:
-            changes = []
-        if not isinstance(changes, list):
-            raise InputValidationError("Payload inválido: campo 'changes' mal formatado.")

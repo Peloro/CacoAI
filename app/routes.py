@@ -1,5 +1,5 @@
 """
-Rotas REST auxiliares — para testes e integração direta (sem WhatsApp).
+Rotas REST auxiliares — para testes e integração direta.
 Útil para testar o chatbot via Postman, curl ou frontend.
 """
 from uuid import uuid4
@@ -71,7 +71,7 @@ class MensagemResponse(BaseModel):
 @router.post("/mensagem", response_model=MensagemResponse)
 def enviar_mensagem(req: MensagemRequest, request: Request):
     """
-    Endpoint direto para testar o chatbot sem precisar do WhatsApp.
+    Endpoint direto para testar o chatbot sem depender do canal Telegram.
     Envia uma mensagem e recebe a resposta.
     
     Perfeito para testar via:

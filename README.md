@@ -11,12 +11,12 @@ Principais caracteristicas:
 - Cadastro e autenticacao por usuario.
 - Sessao com expiracao automatica.
 - Isolamento de dados por conta (usuario_id).
-- Integracao com Telegram (long polling), WhatsApp Cloud API e API REST de teste.
+- Integracao com Telegram (long polling) e API REST de teste.
 
 ## Arquitetura
 
 Fluxo de alto nivel:
-1. Entrada de mensagem (Telegram, WhatsApp ou API).
+1. Entrada de mensagem (Telegram ou API).
 2. Identificacao do usuario por identificador do canal.
 3. Parser local (intencao, valor, descricao, data).
 4. Regras de negocio e operacoes no banco.
@@ -88,17 +88,6 @@ Execute:
 python run_telegram.py
 ```
 
-### WhatsApp Cloud API
-
-Defina no `.env`:
-- `WHATSAPP_TOKEN`
-- `WHATSAPP_PHONE_ID`
-- `WHATSAPP_VERIFY_TOKEN`
-- `WHATSAPP_APP_SECRET`
-
-Inicie a API e configure o webhook no endpoint:
-- `POST /webhook/whatsapp`
-
 ### API REST de teste
 
 Endpoints:
@@ -118,8 +107,6 @@ Para uso real, mantenha desabilitada por padrao e habilite apenas quando necessa
 | `APP_PORT` | Porta da API | `8000` |
 | `DEBUG` | Modo debug | `false` |
 | `TELEGRAM_BOT_TOKEN` | Token do bot Telegram | vazio |
-| `WHATSAPP_TOKEN` | Token de acesso WhatsApp Cloud | vazio |
-| `WHATSAPP_PHONE_ID` | Phone ID WhatsApp Cloud | vazio |
 | `API_TEST_ENABLED` | Habilita API REST de teste | `false` |
 | `API_TEST_TOKEN` | Token para API de teste | vazio |
 | `BOT_REQUEST_LOG_ENABLED` | Log local de requisicoes/respostas | `true` |
@@ -164,9 +151,7 @@ CacoAI/
     parser.py
     responder.py
     database.py
-    webhook.py
     routes.py
-    whatsapp_api.py
     config.py
   run.py
   run_telegram.py

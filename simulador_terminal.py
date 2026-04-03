@@ -1,5 +1,5 @@
 """
-Simulador de conversa no terminal para testar o bot sem WhatsApp.
+Simulador de conversa no terminal para testar o bot sem Telegram.
 
 Uso:
     python simulador_terminal.py
@@ -20,7 +20,7 @@ def main() -> None:
 
     print("=" * 60)
     print("Simulador do CacoAI (terminal)")
-    print("Digite mensagens como se estivesse no WhatsApp.")
+    print("Digite mensagens como se estivesse no Telegram.")
     print(f"Telefone atual: {telefone}")
     _mostrar_ajuda()
 
