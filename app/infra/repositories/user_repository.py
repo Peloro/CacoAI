@@ -8,6 +8,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHash, VerifyMismatchError
 
 from app.infra.db import db_connection
+from app.security import decrypt_text, encrypt_text, hash_phone, validate_password_policy
 
 log = logging.getLogger("caco.db")
 _password_hasher = PasswordHasher()
@@ -22,15 +23,25 @@ def hash_password_legacy(password: str) -> str:
 
 
 def get_or_create_user(phone: str, name: Optional[str] = None) -> dict:
+    phone_hash = hash_phone(phone)
+    phone_cipher = encrypt_text(phone)
+    name_cipher = encrypt_text(name or "") if name else None
+
     with db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT * FROM usuarios WHERE telefone = ?", (phone,))
+        cur.execute("SELECT * FROM usuarios WHERE telefone_hash = ?", (phone_hash,))
         row = cur.fetchone()
 
         if row:
-            return dict(row)
+            data = dict(row)
+            data["telefone"] = decrypt_text(data.get("telefone") or "")
+            data["nome"] = decrypt_text(data.get("nome") or "")
+            return data
 
-        cur.execute("INSERT INTO usuarios (telefone, nome) VALUES (?, ?)", (phone, name))
+        cur.execute(
+            "INSERT INTO usuarios (telefone, telefone_hash, nome) VALUES (?, ?, ?)",
+            (phone_cipher, phone_hash, name_cipher),
+        )
         conn.commit()
         return {"id": cur.lastrowid, "telefone": phone, "nome": name}
 
@@ -42,7 +53,8 @@ def has_completed_registration(user_id: int) -> bool:
         row = cur.fetchone()
     if not row:
         return False
-    return bool(row["nome"] and row["senha_hash"])
+    nome = decrypt_text(row["nome"] or "")
+    return bool(nome and row["senha_hash"])
 
 
 def get_registration_step(user_id: int) -> Optional[str]:
@@ -60,12 +72,16 @@ def set_registration_step(user_id: int, step: Optional[str]):
 
 
 def save_user_name(user_id: int, name: str):
+    name_cipher = encrypt_text(name)
     with db_connection() as conn:
-        conn.execute("UPDATE usuarios SET nome = ? WHERE id = ?", (name, user_id))
+        conn.execute("UPDATE usuarios SET nome = ? WHERE id = ?", (name_cipher, user_id))
         conn.commit()
 
 
 def save_user_password(user_id: int, password: str):
+    policy = validate_password_policy(password)
+    if not policy.ok:
+        raise ValueError(policy.message)
     with db_connection() as conn:
         conn.execute("UPDATE usuarios SET senha_hash = ? WHERE id = ?", (hash_password(password), user_id))
         conn.commit()
@@ -103,4 +119,7 @@ def get_user_name(user_id: int) -> Optional[str]:
         cur = conn.cursor()
         cur.execute("SELECT nome FROM usuarios WHERE id = ?", (user_id,))
         row = cur.fetchone()
-    return row["nome"] if row else None
+    if not row:
+        return None
+    nome = decrypt_text(row["nome"] or "")
+    return nome or None

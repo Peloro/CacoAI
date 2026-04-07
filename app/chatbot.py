@@ -124,6 +124,7 @@ from app.application.handlers.finance_handler import FinanceHandler, FinanceHand
 from app.application.handlers.undo_handler import UndoHandler, UndoHandlerContext, UndoHandlerState
 from app.application.operation_router import OperationRouter, OperationRouteRequest
 from app.domain.adapters import dict_to_parsed_message, validate_parsed_message
+from app.security import validate_password_policy
 
 
 log = logging.getLogger("caco.chatbot")
@@ -2213,17 +2214,20 @@ def _fluxo_cadastro(usuario_id: int, mensagem: str) -> str:
             f"Prazer, *{nome}*! 👋\n\n"
             "Agora vamos proteger sua conta.\n\n"
             "🔒 *Escolha uma senha:*\n"
-            "_(mínimo 4 caracteres)_"
+            "_(mínimo 8 caracteres, com maiúscula, minúscula, número e símbolo)_"
         )
 
     # Etapa 2: receber senha
     if etapa == "aguardando_senha":
         if cmd_msg:
             return "Agora preciso da sua *senha* para proteger a conta. 🔒"
-        if len(texto) < 4:
-            return "Senha muito curta! Precisa ter no mínimo *4 caracteres*. 🔒\nTenta de novo:"
-        if len(texto) > 50:
-            return "Senha muito longa! Máximo *50 caracteres*. 🔒\nTenta de novo:"
+        policy = validate_password_policy(texto)
+        if not policy.ok:
+            return (
+                f"Senha invalida. {policy.message} 🔒\n"
+                "Requisitos: minimo 8 caracteres, com maiuscula, minuscula, numero e simbolo.\n"
+                "Tenta de novo:"
+            )
         _senha_temporaria[usuario_id] = texto
         set_etapa_cadastro(usuario_id, "aguardando_confirmacao")
         return "🔒 *Repita a senha* para confirmar:"

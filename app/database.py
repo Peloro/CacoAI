@@ -12,6 +12,7 @@ from app.infra.db import (
     db_connection as _db,
     get_connection,
 )
+from app.security import decrypt_text, encrypt_text, hash_phone, is_encrypted_token
 from app.infra.repositories.divida_repository import (
     clear_debts,
     debts_totals,
@@ -74,7 +75,8 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS usuarios (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                telefone        TEXT    UNIQUE NOT NULL,
+                telefone        TEXT    NOT NULL,
+                telefone_hash   TEXT    UNIQUE,
                 nome            TEXT,
                 senha_hash      TEXT,
                 cadastro_etapa  TEXT    DEFAULT NULL,
@@ -158,6 +160,36 @@ def _migrar_schema(conn: sqlite3.Connection):
     if "cadastro_etapa" not in cols:
         cur.execute("ALTER TABLE usuarios ADD COLUMN cadastro_etapa TEXT DEFAULT NULL")
         changed = True
+    if "telefone_hash" not in cols:
+        cur.execute("ALTER TABLE usuarios ADD COLUMN telefone_hash TEXT")
+        changed = True
+
+    cur.execute("SELECT id, telefone, nome, telefone_hash FROM usuarios")
+    rows = cur.fetchall()
+    for row in rows:
+        user_id = int(row["id"])
+        phone_plain = decrypt_text(row["telefone"] or "")
+        name_plain = decrypt_text(row["nome"] or "")
+        phone_hash = (row["telefone_hash"] or "").strip()
+
+        if not phone_plain:
+            continue
+
+        new_phone_hash = hash_phone(phone_plain)
+        phone_needs_update = not is_encrypted_token(row["telefone"] or "")
+        name_needs_update = bool(name_plain) and not is_encrypted_token(row["nome"] or "")
+        hash_needs_update = phone_hash != new_phone_hash
+
+        if phone_needs_update or name_needs_update or hash_needs_update:
+            phone_db_value = row["telefone"] if not phone_needs_update else encrypt_text(phone_plain)
+            name_db_value = row["nome"] if not name_needs_update else encrypt_text(name_plain)
+            cur.execute(
+                "UPDATE usuarios SET telefone = ?, nome = ?, telefone_hash = ? WHERE id = ?",
+                (phone_db_value, name_db_value, new_phone_hash, user_id),
+            )
+            changed = True
+
+    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_telefone_hash ON usuarios(telefone_hash)")
     if changed:
         conn.commit()
 
