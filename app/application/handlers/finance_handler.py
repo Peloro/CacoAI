@@ -15,10 +15,12 @@ class FinanceHandlerContext:
     format_currency_fn: Callable[[float], str]
     quitar_dividas_fn: Callable[[int, str, str | None], dict]
     pagar_divida_fn: Callable[[int, float, str, str | None], dict]
+    pagar_divida_por_id_fn: Callable[[int, int, float], dict]
     is_complex_purchase_question_fn: Callable[[str], bool]
     ask_ai_purchase_reply_fn: Callable[[str], str | None]
     avaliar_gasto_fn: Callable[[int, float], dict]
     build_purchase_eval_reply_fn: Callable[[dict], str]
+    register_debt_payment_expense_fn: Callable[[int, float, str, str | None], None]
 
 
 @dataclass(slots=True)
@@ -29,6 +31,7 @@ class FinanceHandlerState:
     message: str
     mes_ref: str | None
     sufixo_dividas: str
+    data_ref: str | None
 
 
 class FinanceHandler:
@@ -65,16 +68,25 @@ class FinanceHandler:
                     return f"Não encontrei dívidas com *{creditor}* para quitar{state.sufixo_dividas}."
                 return f"Você não tem dívidas para quitar{state.sufixo_dividas}."
 
+            desc_expense = f"Quitacao de dividas ({creditor})" if creditor else "Quitacao de dividas"
+            context.register_debt_payment_expense_fn(state.user_id, total, desc_expense, state.data_ref)
+
             target = f" com *{creditor}*" if creditor else ""
             return (
                 f"✅ Dívidas quitadas{target}!\n"
                 f"🧾 {qty} dívida{'s' if qty != 1 else ''} removida{'s' if qty != 1 else ''}\n"
-                f"💰 Total quitado: {context.format_currency_fn(total)}"
+                f"💰 Total quitado: {context.format_currency_fn(total)}\n"
+                f"💸 Saída registrada: {context.format_currency_fn(total)}"
             )
 
         if state.intent == "pagar_divida" and state.valor and state.valor > 0:
             creditor = (parsed_get(parsed, "credor_divida") or "").strip()
-            result = context.pagar_divida_fn(state.user_id, float(state.valor), creditor, state.mes_ref)
+            debt_target_id = int(parsed_get(parsed, "id_divida_alvo") or 0)
+            if debt_target_id > 0:
+                result = context.pagar_divida_por_id_fn(state.user_id, debt_target_id, float(state.valor))
+                creditor = (result.get("credor") or creditor).strip()
+            else:
+                result = context.pagar_divida_fn(state.user_id, float(state.valor), creditor, state.mes_ref)
             applied = float(result.get("valor_aplicado", 0.0) or 0.0)
             left = float(result.get("valor_sobrou", 0.0) or 0.0)
             paid_count = int(result.get("qtd_quitadas", 0) or 0)
@@ -85,11 +97,15 @@ class FinanceHandler:
                     return f"Não encontrei dívidas com *{creditor}* para aplicar esse pagamento{state.sufixo_dividas}."
                 return f"Não encontrei dívidas para aplicar esse pagamento{state.sufixo_dividas}."
 
+            desc_expense = f"Pagamento de divida ({creditor})" if creditor else "Pagamento de divida"
+            context.register_debt_payment_expense_fn(state.user_id, applied, desc_expense, state.data_ref)
+
             target = f" com *{creditor}*" if creditor else ""
             reply = (
                 f"✅ Pagamento de dívida registrado{target}!\n"
                 f"💸 Valor aplicado: {context.format_currency_fn(applied)}\n"
-                f"🧾 Quitadas: {paid_count} | Atualizadas: {updated_count}"
+                f"🧾 Quitadas: {paid_count} | Atualizadas: {updated_count}\n"
+                f"💸 Saída registrada: {context.format_currency_fn(applied)}"
             )
             if left > 0:
                 reply += f"\nℹ️ Sobrou {context.format_currency_fn(left)} sem dívida correspondente."

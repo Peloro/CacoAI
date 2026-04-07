@@ -38,6 +38,8 @@ _RE_TIPO_ENTRADA_CTX = re.compile(r"\b(?:entrada|entradas|ganho|ganhos|receita|r
 _RE_TIPO_SAIDA_CTX = re.compile(r"\b(?:sa[ií]da|sa[ií]das|saida|saidas|gasto|gastos|despesa|despesas)\b", re.IGNORECASE)
 _RE_QUITAR_DIVIDAS = re.compile(r"\b(?:quitei|quitar|quitei|liquidei|liquidar|zerei|zerar|paguei\s+todas?)\b.*\b(?:d[ií]vida|divida|d[ií]vidas|dividas|devia|devendo|devo)\b", re.IGNORECASE)
 _RE_PAGAMENTO_DIVIDA = re.compile(r"(?:\b(?:paguei|pagar|pagamento|abati|amortizei|quitei|liquidei)\b.*\b(?:d[ií]vida|divida|parcela|empr[eé]stimo|emprestimo|devo|devendo|devia)\b)|(?:\b(?:d[ií]vida|divida|parcela|empr[eé]stimo|emprestimo|devo|devendo|devia)\b.*\b(?:paguei|pagar|pagamento|abati|amortizei|quitei|liquidei)\b)", re.IGNORECASE)
+_RE_DIVIDA_PENDENTE = re.compile(r"\b(?:ainda\s+)?n[aã]o\s+paguei\b|\bainda\s+(?:to|t[oô]|estou)\s+devendo\b", re.IGNORECASE)
+_RE_PAGAMENTO_DIVIDA_IMPLICITO = re.compile(r"\bpaguei\b.*\b(?:do|da|dos|das|pro|pra|para)\b", re.IGNORECASE)
 _RE_PIX_SAIDA = re.compile(r"\bpix\s+de\s+\d+(?:[.,]\d{1,2})?\s+(?:pro|pra|para)\b", re.IGNORECASE)
 _RE_PIX_ENTRADA = re.compile(r"\b(?:me\s+transferiram|transferiram\s+pra\s+mim|pix\s+(?:de|do|da)|pix\s+recebido)\b", re.IGNORECASE)
 _RE_DIVIDA_FORTE = re.compile(r"\b(?:peguei\s+\d+\s+emprestado|peguei\s+emprestado|devo\s+\d+|fiquei\s+devendo|devendo)\b", re.IGNORECASE)
@@ -202,6 +204,10 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
     if _RE_QUITAR_DIVIDAS.search(text_lower) and not value:
         return {"intencao": "quitar_dividas", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "credor_divida": debt_creditor}
     if value and _RE_PAGAMENTO_DIVIDA.search(text_lower):
+        return {"intencao": "pagar_divida", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "credor_divida": debt_creditor}
+    if _RE_DIVIDA_PENDENTE.search(text_lower):
+        return {"intencao": "registrar_divida", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "credor_divida": debt_creditor}
+    if not value and _RE_PAGAMENTO_DIVIDA_IMPLICITO.search(text_lower):
         return {"intencao": "pagar_divida", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "credor_divida": debt_creditor}
 
     if value and _RE_DIVIDA_FORTE.search(text_lower):

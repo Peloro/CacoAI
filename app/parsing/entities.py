@@ -163,7 +163,7 @@ def extract_debt_creditor(text: str) -> str | None:
 
     # Captura o credor após preposições mais comuns.
     prep_match = re.search(
-        r"\b(?:para|pra|pro|com|no|na)\s+([\wÀ-ÿ][\wÀ-ÿ\s\-\.'’]{1,80})",
+        r"\b(?:para|pra|pro|com|no|na|do|da|dos|das)\s+([\wÀ-ÿ][\wÀ-ÿ\s\-\.'’]{1,80})",
         text_norm,
         re.IGNORECASE,
     )
@@ -181,7 +181,7 @@ def extract_debt_creditor(text: str) -> str | None:
 
     match = re.search(
         r"\b(?:d[ií]vida\s+com|divida\s+com|emprestado\s+de|"
-        r"pro\s+|pra\s+|para\s+|com\s+|no\s+|na\s+)\s+([\wÀ-ÿ][\wÀ-ÿ\s\-\.'’]{1,80})",
+        r"pro\s+|pra\s+|para\s+|com\s+|no\s+|na\s+|do\s+|da\s+|dos\s+|das\s+)\s+([\wÀ-ÿ][\wÀ-ÿ\s\-\.'’]{1,80})",
         text_norm,
         re.IGNORECASE,
     )

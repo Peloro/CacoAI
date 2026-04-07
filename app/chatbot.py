@@ -375,6 +375,8 @@ _pendente_valor_registro = _EstadoMap("pendente_valor_registro")
 _pendente_confirmacao_intencao = _EstadoMap("pendente_confirmacao_intencao")
 _pendente_confirmacao_operacao = _EstadoMap("pendente_confirmacao_operacao")
 _pendente_descricao_registro = _EstadoMap("pendente_descricao_registro")
+_pendente_registro_guiado = _EstadoMap("pendente_registro_guiado")
+_pendente_pagamento_divida = _EstadoMap("pendente_pagamento_divida")
 _pendente_desambiguacao_categoria = _EstadoMap("pendente_desambiguacao_categoria")
 _aguardando_senha_login = _EstadoSet("aguardando_senha_login")
 _ultimo_registro = _EstadoMap("ultimo_registro")
@@ -702,7 +704,7 @@ _TERMOS_DESCRICAO_GENERICOS = {
     "ganhei", "ganho", "recebi", "receber", "entrada", "entradas",
     "gastei", "gasto", "gastos", "gastar", "paguei", "pagar", "comprei", "comprar",
     "saida", "saída", "saidas", "saídas", "despesa", "despesas",
-    "divida", "dívida", "dividas", "dívidas", "devo", "devendo", "endividado",
+    "divida", "dívida", "dividas", "dívidas", "devo", "devendo", "endividado", "endividei",
     "parcela", "parcelas", "prestacao", "prestação", "juros", "sem",
     "valor", "dinheiro", "conta", "lancamento", "lançamento", "movimentacao", "movimentação",
     "compensacao", "compensação", "mes", "mês", "semana", "hoje", "ontem",
@@ -2380,13 +2382,25 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     if usuario_id in _pendente_confirmacao_quitar:
         return _processar_confirmacao_quitar(usuario_id, mensagem)
 
+    # --- Verifica se há desambiguação pendente de pagamento de dívida ---
+    if usuario_id in _pendente_pagamento_divida:
+        return _processar_pendente_pagamento_divida(usuario_id, mensagem)
+
+    # --- Fluxo guiado de registro (entrada/saida/divida) ---
+    if usuario_id in _pendente_registro_guiado:
+        return _processar_fluxo_registro_guiado(usuario_id, mensagem)
+
+    tipo_fluxo_guiado = _detectar_tipo_fluxo_registro_guiado(mensagem)
+    if tipo_fluxo_guiado:
+        return _iniciar_fluxo_registro_guiado(usuario_id, tipo_fluxo_guiado, mensagem)
+
     # --- Verifica se ficou faltando apenas o valor de um lançamento ---
     if usuario_id in _pendente_valor_registro:
-        return _processar_pendente_valor_registro(usuario_id, mensagem)
+        _pendente_valor_registro.pop(usuario_id, None)
 
     # --- Verifica se faltou descrição de um lançamento ---
     if usuario_id in _pendente_descricao_registro:
-        return _processar_pendente_descricao_registro(usuario_id, mensagem)
+        _pendente_descricao_registro.pop(usuario_id, None)
 
     # Evita executar mensagens com múltiplos comandos na mesma frase.
     if _detectar_multiplos_comandos(mensagem):
@@ -2434,6 +2448,37 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     descricao = _normalizar_descricao_registro(descricao)
     parsed["descricao"] = descricao
     parsed["credor_divida"] = _normalizar_credor_texto(parsed.get("credor_divida") or "")
+
+    if intencao == "pagar_divida" and (not valor or float(valor) <= 0):
+        erro_inferencia = _tentar_inferir_pagamento_divida_sem_valor(usuario_id, parsed, mes_ref)
+        if erro_inferencia:
+            return erro_inferencia
+        valor = parsed.get("valor")
+        descricao = parsed.get("descricao") or descricao
+
+    # Frases como "paguei/quitei ..." podem cair como saída; tenta remapear para pagamento de dívida.
+    if intencao == "registrar_saida" and valor and float(valor) > 0:
+        msg_ascii = _ascii_lower(mensagem)
+        if re.search(r"\b(paguei|quitei|abati|amortizei)\b", msg_ascii):
+            parsed_pag = dict(parsed)
+            parsed_pag["intencao"] = "pagar_divida"
+            erro_match = _tentar_match_pagamento_divida_com_valor(usuario_id, parsed_pag, mes_ref, mensagem)
+            if erro_match:
+                return erro_match
+            if int(parsed_pag.get("id_divida_alvo") or 0) > 0:
+                parsed = parsed_pag
+                intencao = "pagar_divida"
+                valor = parsed.get("valor")
+                descricao = parsed.get("descricao") or descricao
+                parsed["credor_divida"] = _normalizar_credor_texto(parsed.get("credor_divida") or "")
+
+    if intencao == "pagar_divida" and valor and float(valor) > 0:
+        erro_match = _tentar_match_pagamento_divida_com_valor(usuario_id, parsed, mes_ref, mensagem)
+        if erro_match:
+            return erro_match
+        valor = parsed.get("valor")
+        descricao = parsed.get("descricao") or descricao
+
     parsed_model = dict_to_parsed_message(parsed)
     parsed_errors = validate_parsed_message(parsed_model)
     if parsed_errors:
@@ -2494,35 +2539,23 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
                 "Responda com *1*, *2* ou *3* (ou *cancelar*)."
             )
 
-    # Se regras detectaram movimento financeiro sem valor, pede o valor.
-    if intencao == "registrar_entrada" and not valor:
-        _pendente_valor_registro[usuario_id] = {
-            "intencao": "registrar_entrada",
-            "descricao": descricao,
-            "categoria_regra": categoria_regra,
-            "data_ref": data_ref,
-            "mensagem_original": mensagem,
-        }
-        return "Entendi como *ganho*, mas faltou o valor. 💚\nEx: \"ganhei 150 de pix\""
-    if intencao == "registrar_saida" and not valor:
-        _pendente_valor_registro[usuario_id] = {
-            "intencao": "registrar_saida",
-            "descricao": descricao,
-            "categoria_regra": categoria_regra,
-            "data_ref": data_ref,
-            "mensagem_original": mensagem,
-        }
-        return "Entendi como *gasto*, mas faltou o valor. 💸\nEx: \"gastei 80 no mercado\""
-    if intencao == "registrar_divida" and not valor:
-        _pendente_valor_registro[usuario_id] = {
-            "intencao": "registrar_divida",
-            "descricao": descricao,
-            "categoria_regra": categoria_regra,
-            "data_ref": data_ref,
-            "credor_divida": parsed.get("credor_divida"),
-            "mensagem_original": mensagem,
-        }
-        return "Entendi como *dívida*, mas faltou o valor. 🧾\nEx: \"fiquei devendo 300 no cartão\""
+    # Registros incompletos agora entram no fluxo guiado (sem pendências legadas).
+    if intencao in {"registrar_entrada", "registrar_saida", "registrar_divida"}:
+        credor_divida = (parsed.get("credor_divida") or "").strip()
+        faltou_valor = not valor or float(valor) <= 0
+        faltou_descricao = _descricao_insuficiente_para_registro(descricao)
+        faltou_credor_divida = intencao == "registrar_divida" and not _normalizar_credor_texto(credor_divida)
+
+        if faltou_valor or faltou_descricao or faltou_credor_divida:
+            return _iniciar_fluxo_registro_guiado(
+                usuario_id,
+                intencao,
+                mensagem,
+                valor=float(valor) if valor else None,
+                descricao=descricao,
+                credor_divida=credor_divida,
+                data_ref=data_ref,
+            )
 
     if intencao == "posso_gastar" and (not valor or valor <= 0):
         return (
@@ -2536,41 +2569,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             "Exemplo: \"tenho 300 na conta\""
         )
 
-    if intencao == "registrar_entrada" and valor and _descricao_insuficiente_para_registro(descricao):
-        _pendente_descricao_registro[usuario_id] = {
-            "intencao": "registrar_entrada",
-            "valor": float(valor),
-            "data_ref": data_ref,
-            "categoria_regra": categoria_regra,
-        }
-        return (
-            "Entendi o valor da *entrada* 💚, mas faltou dizer *de onde veio* esse dinheiro.\n"
-            "Exemplos: \"ganhei 300 de salário\", \"recebi 150 de pix do João\""
-        )
-
-    if intencao == "registrar_saida" and valor and _descricao_insuficiente_para_registro(descricao):
-        _pendente_descricao_registro[usuario_id] = {
-            "intencao": "registrar_saida",
-            "valor": float(valor),
-            "data_ref": data_ref,
-            "categoria_regra": categoria_regra,
-        }
-        return (
-            "Entendi o valor do *gasto* 💸, mas faltou dizer *com o que foi*.\n"
-            "Exemplos: \"gastei 200 com ifood\", \"paguei 80 de gasolina\""
-        )
-
-    if intencao == "registrar_divida" and valor and _descricao_insuficiente_para_registro(descricao):
-        _pendente_descricao_registro[usuario_id] = {
-            "intencao": "registrar_divida",
-            "valor": float(valor),
-            "data_ref": data_ref,
-            "credor_divida": (parsed.get("credor_divida") or "").strip(),
-        }
-        return (
-            "Entendi o valor da *dívida* 🧾, mas faltou dizer *de quê* ou *com quem*.\n"
-            "Exemplos: \"fiquei devendo 300 no cartão\", \"devo 200 pro João\""
-        )
+    # Blocos legados de pendência de descrição foram substituídos pelo fluxo guiado.
 
     if (not confirmou_operacao_manual) and _intencao_exige_confirmacao_operacao(intencao):
         parsed = _enriquecer_preview_operacao(usuario_id, parsed)
@@ -2733,10 +2732,21 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
                     credor=credor,
                     ano_mes=ano_mes,
                 ),
+                pagar_divida_por_id_fn=_pagar_divida_por_id_especifico,
                 is_complex_purchase_question_fn=_duvida_posso_gastar_e_complexa,
                 ask_ai_purchase_reply_fn=lambda msg: _resposta_ia_posso_gastar(msg),
                 avaliar_gasto_fn=avaliar_gasto,
                 build_purchase_eval_reply_fn=_montar_avaliacao_gasto,
+                register_debt_payment_expense_fn=lambda user_id, valor, descricao, data_ref: _executar_operacao_mutavel(
+                    "registrar_saida_pagamento_divida",
+                    registrar_movimentacao,
+                    usuario_id=user_id,
+                    tipo="saida",
+                    valor=float(valor),
+                    categoria="dividas",
+                    descricao=descricao,
+                    data_ref=data_ref,
+                ),
             ),
             finance_state=FinanceHandlerState(
                 user_id=usuario_id,
@@ -2745,6 +2755,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
                 message=mensagem,
                 mes_ref=mes_ref,
                 sufixo_dividas=sufixo_dividas,
+                data_ref=data_ref,
             ),
             undo_context=UndoHandlerContext(
                 get_last_record_fn=lambda user_id: _ultimo_registro.get(user_id),
@@ -3195,10 +3206,23 @@ def _processar_confirmacao_quitar(usuario_id: int, mensagem: str) -> str:
         if qtd == 0:
             return "Não encontrei dívidas para quitar neste momento."
 
+        desc_saida = f"Quitacao de dividas ({credor})" if credor else "Quitacao de dividas"
+        _executar_operacao_mutavel(
+            "registrar_saida_pagamento_divida",
+            registrar_movimentacao,
+            usuario_id=usuario_id,
+            tipo="saida",
+            valor=total,
+            categoria="dividas",
+            descricao=desc_saida,
+            data_ref=date.today().isoformat(),
+        )
+
         return (
             "✅ Dívidas quitadas com sucesso!\n"
             f"🧾 Removidas: {qtd}\n"
-            f"💰 Total quitado: {formatar_real(total)}"
+            f"💰 Total quitado: {formatar_real(total)}\n"
+            f"💸 Saída registrada: {formatar_real(total)}"
         )
 
     if texto in ("nao", "não", "n", "cancelar", "cancela", "deixa", "esquece"):
@@ -3206,6 +3230,508 @@ def _processar_confirmacao_quitar(usuario_id: int, mensagem: str) -> str:
         return "Perfeito, cancelei a quitação geral."
 
     return "Responda *sim* para confirmar a quitação geral ou *não* para cancelar."
+
+
+def _tentar_inferir_pagamento_divida_sem_valor(usuario_id: int, parsed: dict, mes_ref: str | None) -> str | None:
+    """Tenta resolver pagamento de dívida sem valor explícito usando descrição/credor."""
+    if (parsed.get("intencao") or "") != "pagar_divida":
+        return None
+
+    valor = parsed.get("valor")
+    if valor and float(valor) > 0:
+        return None
+
+    descricao = _normalizar_descricao_registro(parsed.get("descricao") or "")
+    credor = _normalizar_credor_texto(parsed.get("credor_divida") or "")
+
+    candidatas: list[dict] = []
+    if descricao and not _descricao_insuficiente_para_registro(descricao):
+        candidatas = buscar_dividas_por_descricao(usuario_id, descricao, ano_mes=mes_ref)
+
+    if credor:
+        if not candidatas:
+            candidatas = listar_dividas_recentes(usuario_id, limite=20, ano_mes=mes_ref)
+        credor_norm = _ascii_lower(credor)
+        candidatas = [d for d in candidatas if credor_norm in _ascii_lower(d.get("credor") or "")]
+
+    if descricao and candidatas:
+        desc_norm = _ascii_lower(descricao)
+        exatas = [
+            d for d in candidatas
+            if _ascii_lower(_normalizar_descricao_registro(d.get("descricao") or "")) == desc_norm
+        ]
+        if len(exatas) == 1:
+            candidatas = exatas
+
+    if not candidatas:
+        return (
+            "Entendi como *pagamento de dívida*, mas não achei uma dívida em aberto com esse contexto.\n"
+            "Se quiser, diga o valor (ex.: `paguei 20 pro marcola`) ou liste suas dívidas para escolher."
+        )
+
+    if len(candidatas) > 1:
+        _pendente_pagamento_divida[usuario_id] = {
+            "candidatas": [
+                {
+                    "id": int(d.get("id") or 0),
+                    "valor": float(d.get("valor", 0.0) or 0.0),
+                    "descricao": d.get("descricao") or "dívida",
+                    "credor": d.get("credor") or "",
+                    "data_ref": d.get("data_ref") or date.today().isoformat(),
+                }
+                for d in candidatas
+            ],
+            "mes_referencia": mes_ref,
+            "descricao_contexto": descricao,
+            "credor_contexto": credor,
+        }
+        linhas = []
+        for d in candidatas[:3]:
+            data_fmt = _formatar_data_amigavel(d.get("data_ref", ""))
+            desc = d.get("descricao") or "dívida"
+            cred = d.get("credor") or "não informado"
+            valor_fmt = formatar_real(float(d.get("valor", 0.0) or 0.0))
+            linhas.append(f"• #{d.get('id')} {desc} — {valor_fmt} ({data_fmt}) • credor: {cred}")
+        return (
+            "Entendi como *pagamento de dívida*, mas encontrei mais de uma opção:\n"
+            + "\n".join(linhas)
+            + "\n\nResponda com *#ID* da dívida (ex.: `#5`) ou com o *valor* pago."
+        )
+
+    alvo = candidatas[0]
+    parsed["valor"] = float(alvo.get("valor", 0.0) or 0.0)
+    parsed["descricao"] = _normalizar_descricao_registro(alvo.get("descricao") or descricao or "divida")
+    parsed["credor_divida"] = _normalizar_credor_texto(alvo.get("credor") or credor)
+    parsed["id_divida_alvo"] = int(alvo.get("id") or 0)
+    return None
+
+
+def _normalizar_hint_match_divida(texto: str) -> str:
+    """Normaliza hints de credor/descrição para matching de pagamento de dívida."""
+    t = _ascii_lower(texto or "")
+    if not t:
+        return ""
+    t = re.sub(r"\b(?:divida|dividas|d[ií]vida|d[ií]vidas|pagamento|paguei|quitei|quitei|abati|amortizei)\b", " ", t)
+    t = re.sub(r"\b(?:do|da|dos|das|de|pro|pra|para|com|ao|a)\b", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def _tokens_match_divida(texto: str) -> set[str]:
+    base = _normalizar_hint_match_divida(texto)
+    tokens = {tok for tok in re.findall(r"[a-z0-9]+", base) if len(tok) >= 2}
+    return tokens
+
+
+def _tentar_match_pagamento_divida_com_valor(
+    usuario_id: int,
+    parsed: dict,
+    mes_ref: str | None,
+    mensagem_original: str,
+) -> str | None:
+    """Tenta encontrar dívidas candidatas quando o usuário informa pagamento com valor."""
+    if (parsed.get("intencao") or "") != "pagar_divida":
+        return None
+    if int(parsed.get("id_divida_alvo") or 0) > 0:
+        return None
+
+    valor = float(parsed.get("valor") or 0.0)
+    if valor <= 0:
+        return None
+
+    credor_hint = _normalizar_hint_match_divida(parsed.get("credor_divida") or "")
+    descricao_hint = _normalizar_hint_match_divida(parsed.get("descricao") or "")
+    msg_tokens = _tokens_match_divida(mensagem_original)
+    hint_tokens = _tokens_match_divida(f"{credor_hint} {descricao_hint}")
+
+    candidatas = listar_dividas_recentes(usuario_id, limite=30, ano_mes=mes_ref)
+    if not candidatas:
+        candidatas = listar_dividas_recentes(usuario_id, limite=30, ano_mes=None)
+    if not candidatas:
+        return None
+
+    scored: list[tuple[int, dict]] = []
+    for d in candidatas:
+        credor_db = _ascii_lower(d.get("credor") or "")
+        desc_db = _ascii_lower(d.get("descricao") or "")
+        texto_db = f"{desc_db} {credor_db}".strip()
+        tokens_db = {tok for tok in re.findall(r"[a-z0-9]+", texto_db) if len(tok) >= 2}
+
+        score = 0
+        if credor_hint:
+            if credor_hint == credor_db:
+                score += 6
+            elif credor_hint in credor_db or credor_db in credor_hint:
+                score += 4
+
+        if descricao_hint:
+            if descricao_hint in desc_db:
+                score += 4
+            elif descricao_hint in texto_db:
+                score += 2
+
+        if hint_tokens and tokens_db:
+            overlap = len(hint_tokens.intersection(tokens_db))
+            score += overlap * 2
+
+        if msg_tokens and tokens_db:
+            msg_overlap = len(msg_tokens.intersection(tokens_db))
+            score += msg_overlap
+
+        valor_div = float(d.get("valor", 0.0) or 0.0)
+        if abs(valor_div - valor) < 0.01:
+            score += 3
+        elif valor <= valor_div + 0.01:
+            score += 1
+
+        if score > 0:
+            scored.append((score, d))
+
+    if not scored:
+        return None
+
+    scored.sort(key=lambda item: (item[0], float(item[1].get("valor", 0.0) or 0.0)), reverse=True)
+    top_score, top = scored[0]
+    second_score = scored[1][0] if len(scored) > 1 else -1
+
+    if top_score >= 5 and (len(scored) == 1 or (top_score - second_score) >= 2):
+        parsed["id_divida_alvo"] = int(top.get("id") or 0)
+        parsed["credor_divida"] = _normalizar_credor_texto(top.get("credor") or parsed.get("credor_divida") or "")
+        return None
+
+    top_candidates = [d for _, d in scored[:3]]
+    _pendente_pagamento_divida[usuario_id] = {
+        "candidatas": [
+            {
+                "id": int(d.get("id") or 0),
+                "valor": float(d.get("valor", 0.0) or 0.0),
+                "descricao": d.get("descricao") or "dívida",
+                "credor": d.get("credor") or "",
+                "data_ref": d.get("data_ref") or date.today().isoformat(),
+            }
+            for d in top_candidates
+        ],
+        "mes_referencia": mes_ref,
+        "descricao_contexto": parsed.get("descricao") or "",
+        "credor_contexto": parsed.get("credor_divida") or "",
+        "valor_fixo": valor,
+    }
+
+    linhas = []
+    for d in top_candidates:
+        data_fmt = _formatar_data_amigavel(d.get("data_ref", ""))
+        linhas.append(
+            f"• #{d.get('id')} {d.get('descricao') or 'dívida'} — {formatar_real(float(d.get('valor', 0.0) or 0.0))} ({data_fmt}) • credor: {d.get('credor') or 'não informado'}"
+        )
+    return (
+        "Encontrei possíveis dívidas para esse pagamento:\n"
+        + "\n".join(linhas)
+        + "\n\nResponda com *#ID* da dívida para aplicar os "
+        + f"{formatar_real(valor)}."
+    )
+
+
+def _pagar_divida_por_id_especifico(usuario_id: int, divida_id: int, valor_pago: float) -> dict:
+    """Aplica pagamento em uma dívida específica (por ID), sem distribuir em outras."""
+    valor = float(valor_pago or 0.0)
+    if valor <= 0:
+        return {
+            "valor_aplicado": 0.0,
+            "valor_sobrou": 0.0,
+            "qtd_quitadas": 0,
+            "qtd_atualizadas": 0,
+            "credor": "",
+        }
+
+    divida = obter_divida_por_id(usuario_id, int(divida_id))
+    if not divida:
+        return {
+            "valor_aplicado": 0.0,
+            "valor_sobrou": valor,
+            "qtd_quitadas": 0,
+            "qtd_atualizadas": 0,
+            "credor": "",
+        }
+
+    valor_divida = float(divida.get("valor", 0.0) or 0.0)
+    credor = _normalizar_credor_texto(divida.get("credor") or "")
+    if valor_divida <= 0:
+        return {
+            "valor_aplicado": 0.0,
+            "valor_sobrou": valor,
+            "qtd_quitadas": 0,
+            "qtd_atualizadas": 0,
+            "credor": credor,
+        }
+
+    if valor >= valor_divida:
+        _executar_operacao_mutavel("pagar_divida_por_id", apagar_divida_por_id, usuario_id, int(divida_id))
+        return {
+            "valor_aplicado": valor_divida,
+            "valor_sobrou": float(valor - valor_divida),
+            "qtd_quitadas": 1,
+            "qtd_atualizadas": 0,
+            "credor": credor,
+        }
+
+    novo_valor = float(valor_divida - valor)
+    _executar_operacao_mutavel("pagar_divida_por_id", atualizar_valor_divida, usuario_id, int(divida_id), novo_valor)
+    return {
+        "valor_aplicado": valor,
+        "valor_sobrou": 0.0,
+        "qtd_quitadas": 0,
+        "qtd_atualizadas": 1,
+        "credor": credor,
+    }
+
+
+def _processar_pendente_pagamento_divida(usuario_id: int, mensagem: str) -> str:
+    pendente = _pendente_pagamento_divida.get(usuario_id)
+    if not pendente:
+        return "Ops, perdi o contexto. Pode repetir o pagamento da dívida?"
+
+    texto = (mensagem or "").strip()
+    texto_lower = texto.lower()
+    if texto_lower in ("cancelar", "cancela", "nao", "não", "deixa", "esquece"):
+        _pendente_pagamento_divida.pop(usuario_id, None)
+        return "Beleza, cancelei esse pagamento de dívida."
+
+    candidatas = pendente.get("candidatas") or []
+    candidatas_por_id = {int(c.get("id") or 0): c for c in candidatas if int(c.get("id") or 0) > 0}
+
+    m_id = re.fullmatch(r"#?\s*(\d+)", texto)
+    if m_id:
+        numero = int(m_id.group(1))
+        if numero in candidatas_por_id:
+            alvo = candidatas_por_id[numero]
+            valor_fixo = float(pendente.get("valor_fixo") or 0.0)
+            valor_pagamento = valor_fixo if valor_fixo > 0 else float(alvo.get("valor", 0.0) or 0.0)
+            parsed_confirmacao = {
+                "intencao": "pagar_divida",
+                "valor": valor_pagamento,
+                "descricao": _normalizar_descricao_registro(alvo.get("descricao") or "divida"),
+                "categoria_regra": "dividas",
+                "data": date.today().isoformat(),
+                "mes_referencia": pendente.get("mes_referencia"),
+                "credor_divida": _normalizar_credor_texto(alvo.get("credor") or ""),
+                "id_divida_alvo": int(alvo.get("id") or 0),
+                "_mensagem_original": mensagem,
+            }
+            _pendente_pagamento_divida.pop(usuario_id, None)
+            parsed_confirmacao = _enriquecer_preview_operacao(usuario_id, parsed_confirmacao)
+            _iniciar_confirmacao_operacao(usuario_id, parsed=parsed_confirmacao)
+            return _montar_pergunta_confirmacao_operacao(parsed_confirmacao)
+
+    valor = _extrair_valor_selecao(texto)
+    if valor and valor > 0:
+        credores = {_normalizar_credor_texto(c.get("credor") or "") for c in candidatas}
+        credores.discard("")
+        credor_contexto = _normalizar_credor_texto(pendente.get("credor_contexto") or "")
+        credor_final = credor_contexto if credor_contexto else (next(iter(credores)) if len(credores) == 1 else "")
+
+        parsed_confirmacao = {
+            "intencao": "pagar_divida",
+            "valor": float(valor),
+            "descricao": _normalizar_descricao_registro(pendente.get("descricao_contexto") or "pagamento de divida"),
+            "categoria_regra": "dividas",
+            "data": date.today().isoformat(),
+            "mes_referencia": pendente.get("mes_referencia"),
+            "credor_divida": credor_final,
+            "_mensagem_original": mensagem,
+        }
+        _pendente_pagamento_divida.pop(usuario_id, None)
+        parsed_confirmacao = _enriquecer_preview_operacao(usuario_id, parsed_confirmacao)
+        _iniciar_confirmacao_operacao(usuario_id, parsed=parsed_confirmacao)
+        return _montar_pergunta_confirmacao_operacao(parsed_confirmacao)
+
+    linhas = []
+    for d in candidatas[:3]:
+        data_fmt = _formatar_data_amigavel(d.get("data_ref", ""))
+        linhas.append(
+            f"• #{d.get('id')} {d.get('descricao') or 'dívida'} — {formatar_real(float(d.get('valor', 0.0) or 0.0))} ({data_fmt})"
+        )
+    return (
+        "Ainda estou aguardando qual dívida você pagou.\n"
+        + "\n".join(linhas)
+        + "\n\nResponda com *#ID* da dívida ou com o *valor* pago (ou `cancelar`)."
+    )
+
+
+def _detectar_tipo_fluxo_registro_guiado(mensagem: str) -> str | None:
+    texto = (mensagem or "").strip().lower()
+    if not texto:
+        return None
+
+    verbo = re.search(r"\b(?:registrar|anotar|adicionar|cadastrar|lancar|lan[çc]ar)\b", texto)
+    if not verbo:
+        return None
+
+    if re.search(r"\b(?:d[ií]vida|d[ií]vidas|divida|dividas|emprestimo|empr[eé]stimo)\b", texto):
+        return "registrar_divida"
+    if re.search(r"\b(?:entrada|entradas|ganho|ganhos|receita|receitas)\b", texto):
+        return "registrar_entrada"
+    if re.search(r"\b(?:saida|sa[ií]da|saidas|sa[ií]das|gasto|gastos|despesa|despesas)\b", texto):
+        return "registrar_saida"
+    return None
+
+
+def _limpar_pendencias_legadas_registro(usuario_id: int) -> None:
+    _pendente_valor_registro.pop(usuario_id, None)
+    _pendente_descricao_registro.pop(usuario_id, None)
+
+
+def _iniciar_fluxo_registro_guiado(
+    usuario_id: int,
+    intencao: str,
+    mensagem_original: str,
+    *,
+    valor: float | None = None,
+    descricao: str = "",
+    credor_divida: str = "",
+    data_ref: str | None = None,
+) -> str:
+    _limpar_pendencias_legadas_registro(usuario_id)
+
+    descricao_norm = _normalizar_descricao_registro(descricao or "")
+    credor_norm = _normalizar_credor_texto(credor_divida or "")
+    etapa_inicial = "valor"
+    if valor and valor > 0:
+        etapa_inicial = "descricao"
+        if not _descricao_insuficiente_para_registro(descricao_norm):
+            etapa_inicial = "credor_divida" if (intencao == "registrar_divida" and not credor_norm) else "data"
+
+    _pendente_registro_guiado[usuario_id] = {
+        "intencao": intencao,
+        "mensagem_original": (mensagem_original or "").strip(),
+        "etapa": etapa_inicial,
+        "valor": float(valor) if valor and valor > 0 else None,
+        "descricao": descricao_norm,
+        "credor_divida": credor_norm,
+        "data_ref": data_ref,
+    }
+
+    tipo_txt = "divida" if intencao == "registrar_divida" else ("entrada" if intencao == "registrar_entrada" else "saida")
+    if etapa_inicial == "valor":
+        return (
+            f"Beleza, vamos registrar uma *{tipo_txt}*.\n"
+            "Me passe primeiro o *valor* (ex.: `300` ou `300,50`).\n"
+            "Se quiser cancelar, digite `cancelar`."
+        )
+    if etapa_inicial == "descricao":
+        return (
+            f"Perfeito, já anotei o valor de {formatar_real(float(valor or 0.0))}.\n"
+            f"Agora me diga a *descricao* da {tipo_txt} (ex.: `almoco`, `salario`, `nubank`)."
+        )
+    if etapa_inicial == "credor_divida":
+        return (
+            f"Perfeito, já anotei valor ({formatar_real(float(valor or 0.0))}) e descricao ({descricao_norm}).\n"
+            "Agora informe o *credor* da divida (ex.: `nubank`) ou digite `pular`."
+        )
+    return (
+        "Perfeito, falta só a *data*.\n"
+        "Envie `hoje`, `ontem`, `03/04` ou `pular` para usar hoje."
+    )
+
+
+def _finalizar_fluxo_registro_guiado(usuario_id: int, estado: dict) -> str:
+    intencao = estado.get("intencao") or "registrar_saida"
+    valor = float(estado.get("valor") or 0.0)
+    descricao = _normalizar_descricao_registro(estado.get("descricao") or "")
+    data_ref = (estado.get("data_ref") or date.today().isoformat()).strip()
+    credor_divida = _normalizar_credor_texto((estado.get("credor_divida") or "").strip())
+    mensagem_original = (estado.get("mensagem_original") or "").strip()
+
+    parsed_aux = detectar_intencao(f"{descricao} {valor}")
+    categoria_regra = parsed_aux.get("categoria_regra")
+
+    parsed_confirmacao = {
+        "intencao": intencao,
+        "valor": valor,
+        "descricao": descricao,
+        "categoria_regra": categoria_regra,
+        "data": data_ref,
+        "mes_referencia": data_ref[:7],
+        "credor_divida": credor_divida if intencao == "registrar_divida" else "",
+        "_mensagem_original": mensagem_original or descricao,
+        "_titulo_manual": True,
+    }
+
+    _pendente_registro_guiado.pop(usuario_id, None)
+    parsed_confirmacao = _enriquecer_preview_operacao(usuario_id, parsed_confirmacao)
+    _iniciar_confirmacao_operacao(usuario_id, parsed=parsed_confirmacao)
+    return _montar_pergunta_confirmacao_operacao(parsed_confirmacao)
+
+
+def _processar_fluxo_registro_guiado(usuario_id: int, mensagem: str) -> str:
+    estado = _pendente_registro_guiado.get(usuario_id)
+    if not estado:
+        return "Ops, perdi o contexto. Me manda o registro novamente."
+
+    reinicio = _detectar_tipo_fluxo_registro_guiado(mensagem)
+    if reinicio and reinicio != estado.get("intencao"):
+        return _iniciar_fluxo_registro_guiado(usuario_id, reinicio, mensagem)
+
+    texto = (mensagem or "").strip()
+    texto_lower = texto.lower()
+    if texto_lower in ("cancelar", "cancela", "nao", "não", "deixa", "esquece"):
+        _pendente_registro_guiado.pop(usuario_id, None)
+        return "Beleza, cancelei esse registro guiado."
+
+    etapa = (estado.get("etapa") or "valor").strip()
+    intencao = estado.get("intencao") or "registrar_saida"
+
+    if etapa == "valor":
+        valor = _extrair_valor_selecao(texto)
+        if not valor or valor <= 0:
+            return "Ainda faltou o *valor*. Manda algo como `300` ou `300,50` (ou `cancelar`)."
+
+        estado["valor"] = float(valor)
+        estado["etapa"] = "descricao"
+        _pendente_registro_guiado[usuario_id] = estado
+
+        tipo_txt = "divida" if intencao == "registrar_divida" else ("entrada" if intencao == "registrar_entrada" else "saida")
+        return f"Perfeito. Agora me diga a *descricao* da {tipo_txt} (ex.: `almoco`, `salario`, `nubank`)."
+
+    if etapa == "descricao":
+        descricao = _normalizar_descricao_registro(texto)
+        if _descricao_insuficiente_para_registro(descricao):
+            return "Preciso de uma descricao mais clara. Ex.: `almoco`, `mercado`, `salario`, `fatura nubank`."
+
+        estado["descricao"] = descricao
+        if intencao == "registrar_divida":
+            estado["etapa"] = "credor_divida"
+            _pendente_registro_guiado[usuario_id] = estado
+            return "Agora informe o *credor* da divida (ex.: `nubank`)."
+
+        estado["etapa"] = "data"
+        _pendente_registro_guiado[usuario_id] = estado
+        return "Quer registrar em qual data? (ex.: `hoje`, `ontem`, `03/04`) ou `pular` para hoje."
+
+    if etapa == "credor_divida":
+        credor = _normalizar_credor_texto(texto)
+        if not credor:
+            return "Credor é obrigatorio para registrar divida. Manda algo como `nubank` ou `joao`."
+        estado["credor_divida"] = credor
+
+        estado["etapa"] = "data"
+        _pendente_registro_guiado[usuario_id] = estado
+        return "Quer registrar em qual data? (ex.: `hoje`, `ontem`, `03/04`) ou `pular` para hoje."
+
+    if etapa == "data":
+        if texto_lower in ("pular", "hoje", "agora"):
+            estado["data_ref"] = date.today().isoformat()
+            return _finalizar_fluxo_registro_guiado(usuario_id, estado)
+
+        parsed_data = detectar_intencao(texto)
+        data_ref = parsed_data.get("data")
+        if not data_ref:
+            return "Nao consegui entender a data. Use `hoje`, `ontem` ou `03/04` (ou `pular`)."
+
+        estado["data_ref"] = data_ref
+        return _finalizar_fluxo_registro_guiado(usuario_id, estado)
+
+    _pendente_registro_guiado.pop(usuario_id, None)
+    return "Ops, perdi o contexto do registro. Pode comecar de novo com `quero registrar ...`."
 
 
 def _processar_pendente_valor_registro(usuario_id: int, mensagem: str) -> str:
