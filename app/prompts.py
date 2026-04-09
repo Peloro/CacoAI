@@ -31,6 +31,23 @@ Não inclua introdução, saudação, conclusão ou texto fora dos bullets.
 Sem valores numéricos e sem repetir ideias.
 """
 
+CHAT_PROMPT_PLANEJAR_COMPRA = """Pedido do usuário: "{mensagem}"
+
+Contexto de planejamento (não invente números):
+{contexto}
+
+Escreva uma orientação personalizada para decisão de compra.
+Formato obrigatório:
+- 3 bullets iniciando com "- "
+- Bullet 1: leitura do cenário atual
+- Bullet 2: principal risco ou cuidado
+- Bullet 3: ação prática para executar hoje
+Regras:
+- Use apenas o contexto informado
+- Não invente valores, datas ou funcionalidades
+- Tom direto e amigável, sem introdução e sem conclusão
+"""
+
 CHAT_PROMPT_OBSERVACAO_RESUMO = """Resumo (sem números):
 {contexto}
 

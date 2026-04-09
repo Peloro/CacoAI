@@ -53,6 +53,7 @@ from app.prompts import (
     SYSTEM_PROMPT_CHAT,
     CHAT_PROMPT_CONVERSA,
     CHAT_PROMPT_DICA,
+    CHAT_PROMPT_PLANEJAR_COMPRA,
     CHAT_PROMPT_OBSERVACAO_RESUMO,
     CATEGORIZATION_PROMPT,
     INTENT_CLASSIFICATION_PROMPT,
@@ -693,6 +694,61 @@ def gerar_observacao_resumo(contexto: str) -> str:
         return _normalizar_observacao_resumo(resposta, max_chars=max(180, LLM_OBSERVACAO_MAX_CHARS))
     except Exception as e:
         log.warning("Erro LLM (%s) em observacao_resumo: %s", _provedor_ativo, e)
+        return ""
+
+
+def _contexto_planejamento_compra(avaliacao: dict, descricao: str | None = None, categoria: str | None = None) -> str:
+    """Converte avaliacao local em contexto compacto para personalizacao via IA."""
+    nivel = str(avaliacao.get("nivel") or "").strip().lower() or "ok"
+    dias = int(avaliacao.get("dias_restantes", 0) or 0)
+    media = float(avaliacao.get("media_diaria_depois", 0.0) or 0.0)
+    saldo = float(avaliacao.get("saldo_atual", 0.0) or 0.0)
+    sobra = float(avaliacao.get("sobra_depois", 0.0) or 0.0)
+
+    item = (descricao or "compra").strip()
+    cat = (categoria or "compras").strip().lower()
+
+    return (
+        f"- Item: {item}\n"
+        f"- Categoria sugerida: {cat}\n"
+        f"- Nível de folga: {nivel}\n"
+        f"- Saldo atual: {saldo:.2f}\n"
+        f"- Sobra após compra: {sobra:.2f}\n"
+        f"- Dias restantes no mês: {dias}\n"
+        f"- Média diária após compra: {media:.2f}"
+    )
+
+
+def gerar_orientacao_planejamento_compra(
+    mensagem: str,
+    avaliacao: dict,
+    descricao: str | None = None,
+    categoria: str | None = None,
+) -> str:
+    """Gera orientacao curta e personalizada para decidir compra planejada."""
+    if not _llm_disponivel:
+        raise RuntimeError("LLM nao disponivel")
+
+    mensagem_compacta = _compactar_texto(mensagem, _MAX_CHARS_MSG_CHAT)
+    contexto_texto = _contexto_planejamento_compra(avaliacao, descricao=descricao, categoria=categoria)
+    prompt = CHAT_PROMPT_PLANEJAR_COMPRA.format(
+        mensagem=mensagem_compacta,
+        contexto=contexto_texto,
+    )
+
+    try:
+        resposta = _chat_llm(
+            prompt,
+            task="quality",
+            system_prompt=SYSTEM_PROMPT_CHAT,
+            temperature=0.45,
+            max_tokens=max(120, _MAX_TOKENS_DICA),
+        )
+        if resposta.startswith('"') and resposta.endswith('"'):
+            resposta = resposta[1:-1]
+        return _compactar_lista_dicas(resposta)
+    except Exception as e:
+        log.warning("Erro LLM (%s) em planejamento_compra: %s", _provedor_ativo, e)
         return ""
 
 

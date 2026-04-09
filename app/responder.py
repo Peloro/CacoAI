@@ -81,7 +81,7 @@ RESPOSTAS_AJUDA = [
         "🗑️ *Remover:* \"apagar #12\"\n"
         "🧹 *Limpar:* \"limpar mês\", \"limpar ano\", \"limpar tudo\"\n"
         "📊 *Consultar:* \"resumo do mês\", \"resumo do ano\", \"quanto tenho sobrando?\"\n"
-        "📋 *Extrato:* \"listar movimentações\" | 🧾 *Dívidas:* \"listar dívidas\"\n"
+        "📋 *Extrato:* \"listar movimentações\"\n"
         "🤔 *Planejar compra:* \"posso gastar 200?\"\n\n"   
     ),
 ]

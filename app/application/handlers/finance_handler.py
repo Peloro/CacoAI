@@ -17,9 +17,9 @@ class FinanceHandlerContext:
     pagar_divida_fn: Callable[[int, float, str, str | None], dict]
     pagar_divida_por_id_fn: Callable[[int, int, float], dict]
     is_complex_purchase_question_fn: Callable[[str], bool]
-    ask_ai_purchase_reply_fn: Callable[[str], str | None]
+    ask_ai_purchase_reply_fn: Callable[[str, dict, str | None, str | None], str | None]
     avaliar_gasto_fn: Callable[[int, float], dict]
-    build_purchase_eval_reply_fn: Callable[[dict], str]
+    build_purchase_eval_reply_fn: Callable[[dict, str | None, str | None, str | None], str]
     register_debt_payment_expense_fn: Callable[[int, float, str, str | None], None]
 
 
@@ -112,12 +112,14 @@ class FinanceHandler:
             return reply
 
         if state.intent == "posso_gastar" and state.valor and state.valor > 0:
-            if context.is_complex_purchase_question_fn(state.message):
-                ai_reply = context.ask_ai_purchase_reply_fn(state.message)
-                if ai_reply:
-                    return ai_reply
-
+            description = (parsed_get(parsed, "descricao") or "").strip() or None
+            category = (parsed_get(parsed, "categoria_regra") or "").strip() or None
             evaluation = context.avaliar_gasto_fn(state.user_id, float(state.valor))
-            return context.build_purchase_eval_reply_fn(evaluation)
+
+            ai_reply = None
+            if context.is_complex_purchase_question_fn(state.message):
+                ai_reply = context.ask_ai_purchase_reply_fn(state.message, evaluation, description, category)
+
+            return context.build_purchase_eval_reply_fn(evaluation, description, category, ai_reply)
 
         return None

@@ -745,13 +745,23 @@ def _duvida_posso_gastar_e_complexa(mensagem: str) -> bool:
     return len(texto.split()) >= 18
 
 
-def _resposta_ia_posso_gastar(mensagem: str) -> str | None:
+def _resposta_ia_posso_gastar(
+    mensagem: str,
+    avaliacao: dict,
+    descricao: str | None = None,
+    categoria: str | None = None,
+) -> str | None:
     """Executa resposta de IA para cenário complexo de planejamento de gasto."""
     try:
         _usou_ia_ctx.set(True)
-        from app.llm_service import gerar_resposta_chat
+        from app.llm_service import gerar_orientacao_planejamento_compra
 
-        return gerar_resposta_chat(mensagem=mensagem)
+        return gerar_orientacao_planejamento_compra(
+            mensagem=mensagem,
+            avaliacao=avaliacao,
+            descricao=descricao,
+            categoria=categoria,
+        )
     except Exception as e:
         log.warning("IA indisponível para dúvida complexa de compra: %s", e)
         return None
@@ -2734,7 +2744,12 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
                 ),
                 pagar_divida_por_id_fn=_pagar_divida_por_id_especifico,
                 is_complex_purchase_question_fn=_duvida_posso_gastar_e_complexa,
-                ask_ai_purchase_reply_fn=lambda msg: _resposta_ia_posso_gastar(msg),
+                ask_ai_purchase_reply_fn=lambda msg, evaluation, desc, cat: _resposta_ia_posso_gastar(
+                    msg,
+                    evaluation,
+                    descricao=desc,
+                    categoria=cat,
+                ),
                 avaliar_gasto_fn=avaliar_gasto,
                 build_purchase_eval_reply_fn=_montar_avaliacao_gasto,
                 register_debt_payment_expense_fn=lambda user_id, valor, descricao, data_ref: _executar_operacao_mutavel(
@@ -3990,34 +4005,56 @@ def _montar_resumo(resumo: dict, usuario_id: int, label_mes: str = "este mês") 
     return texto
 
 
-def _montar_avaliacao_gasto(avaliacao: dict) -> str:
-    """Monta resposta sobre se o usuário pode gastar."""
+def _montar_avaliacao_gasto(
+    avaliacao: dict,
+    descricao: str | None = None,
+    categoria: str | None = None,
+    orientacao_ia: str | None = None,
+) -> str:
+    """Monta resposta sobre planejamento de compra com contexto prático."""
     valor = avaliacao["valor_pretendido"]
+    saldo_atual = avaliacao["saldo_atual"]
     sobra = avaliacao["sobra_depois"]
     dias = avaliacao["dias_restantes"]
+    media = avaliacao["media_diaria_depois"]
     nivel = avaliacao["nivel"]
+    item = (descricao or "essa compra").strip()
+    categoria_txt = (categoria or "compras").strip().lower()
+    cabecalho = f"📌 Planejamento para *{item}* _(categoria: {categoria_txt})_"
+
+    base = (
+        f"{cabecalho}\n"
+        f"• Saldo atual: {formatar_real(saldo_atual)}\n"
+        f"• Valor da compra: {formatar_real(valor)}\n"
+        f"• Sobra no mês após compra: {formatar_real(sobra)}\n"
+        f"• Média por dia até o fim do mês: {formatar_real(media)} ({dias} dias)"
+    )
 
     if nivel == "critico":
-        return (
-            f"Olha, se gastar {formatar_real(valor)} agora, "
-            f"você fica no vermelho ({formatar_real(sobra)}). 😬\n"
-            f"Melhor segurar esse gasto se puder."
+        recomendacao = (
+            "\n\n⚠️ Esse gasto te coloca no vermelho. "
+            "Se for adiar, sua margem de segurança melhora bastante."
         )
     elif nivel == "apertado":
-        return (
-            f"Dá pra gastar {formatar_real(valor)}, mas o mês fica apertado.\n"
-            f"Sobram {formatar_real(sobra)} pra {dias} dias. Fica de olho! 👀"
+        recomendacao = (
+            "\n\n⚠️ Dá para fazer, mas o mês fica apertado. "
+            "Vale reduzir gastos variáveis nos próximos dias para não faltar caixa."
         )
     elif nivel == "ok":
-        return (
-            f"Pode gastar {formatar_real(valor)} sim! 👍\n"
-            f"Sobram {formatar_real(sobra)} pro resto do mês ({dias} dias)."
+        recomendacao = (
+            "\n\n✅ Compra viável no cenário atual. "
+            "Mantendo o ritmo de gastos, você fecha o mês com folga moderada."
         )
     else:
-        return (
-            f"Tranquilo! Pode gastar {formatar_real(valor)} sem stress. 😎\n"
-            f"Ainda sobram {formatar_real(sobra)} no mês."
+        recomendacao = (
+            "\n\n✅ Compra confortável para o seu mês. "
+            "Mesmo depois dela, a reserva diária segue em nível saudável."
         )
+
+    resposta = base + recomendacao
+    if orientacao_ia:
+        resposta += f"\n\n💡 Sugestões personalizadas:\n{orientacao_ia}"
+    return resposta
 
 
 def _montar_resposta_apagar(mov: dict | None, tipo_apagar: str | None) -> str:

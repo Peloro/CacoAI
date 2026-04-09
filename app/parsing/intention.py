@@ -25,6 +25,11 @@ _RE_CONTEXTO_LISTAGEM = re.compile(r"\b(?:movimenta(?:ç(?:ã|a)o|cao|ções|coe
 _RE_COMANDO_EDITAR_VALOR = re.compile(r"\b(?:editar|edita|edite|alterar|altera|altere|atualizar|atualiza|atualize|corrigir|corrige|corrija|mudar|muda|mude|trocar|troca|troque|ajustar|ajusta|ajuste)\b.*(?:\bvalor\b|(?:para|pra|por)\s+(?:R\$\s*)?\d+(?:[.,]\d{1,2})?|#?\d+\s+(?:para|pra|por)\s+(?:R\$\s*)?\d+(?:[.,]\d{1,2})?)", re.IGNORECASE)
 _RE_PLANEJAMENTO_COMPRA_DUVIDA = re.compile(r"(\?|\b(?:se\s+eu|vale\s+a\s+pena|vou\s+ficar|fica\s+ruim|no\s+final|parcelar|parcelado|parcela)\b)", re.IGNORECASE)
 _RE_ACAO_FUTURA_COMPRA = re.compile(r"\b(?:vou\s+comprar|quero\s+comprar|pretendo\s+comprar|compraria|comprar|parcelar|parcela|gastar|vou\s+gastar|quero\s+gastar)\b", re.IGNORECASE)
+_RE_MODAL_PLANEJAMENTO_COMPRA = re.compile(
+    r"\b(?:ser[aá]\s+que|seria|deveria|devo|poderia|poder|acho\s+que|to\s+pensando|t[oô]\s+pensando|"
+    r"vale\s+a\s+pena|compensa|faz\s+sentido)\b.*\b(?:gastar|comprar|pegar)\b",
+    re.IGNORECASE,
+)
 _RE_ACAO_REGISTRO_ENTRADA = re.compile(r"\b(ganhei|recebi|entrou|caiu\s+na\s+conta|me\s+pagaram|pagaram\s+pra\s+mim|pix\s+recebido|transferiram\s+pra\s+mim|me\s+transferiram|pingou|creditaram|devolveram|me\s+devolveram)\b", re.IGNORECASE)
 _RE_ACAO_REGISTRO_SAIDA = re.compile(r"\b(gastei|paguei|comprei|torrei|debitei|passei\s+no\s+cart[aã]o|mandei\s+pix|fiz\s+pix)\b", re.IGNORECASE)
 _RE_ACAO_REGISTRO_DIVIDA = re.compile(r"\b(devo|devendo|fiquei\s+devendo|me\s+endividei|endividei|peguei\s+emprestado|tenho\s+(?:uma|outra|nova)?\s*d[ií]vida)\b", re.IGNORECASE)
@@ -54,6 +59,42 @@ _RE_DESFAZER = re.compile(r"\b(?:desfazer|desfaz|desfaca|desfaça|undo|voltar\s+
 _RE_DELETE_VERB = re.compile(r"\b(?:remov(?:er|a|e)|apag(?:ar|a|ue)|delet(?:ar|a|e)|exclu(?:ir|i|a)|tir(?:ar|a|e))\b", re.IGNORECASE)
 _RE_DELETE_ENTRADA = re.compile(r"\b(?:recebimento|entrada|ganho|receita)\b", re.IGNORECASE)
 _RE_DELETE_SAIDA = re.compile(r"\b(?:pagamento|gasto|saida|saída|despesa|compra)\b", re.IGNORECASE)
+
+
+def _extrair_item_compra_planejada(text: str) -> str | None:
+    """Tenta capturar o item principal em frases de planejamento de compra."""
+    texto = (text or "").strip()
+    if not texto:
+        return None
+
+    padroes = [
+        r"\b(?:num|numa|no|na|em)\s+([\wÀ-ÿ][\wÀ-ÿ\s\-]{1,50})",
+        r"\b(?:comprar|pegar)\s+(?:um|uma|uns|umas|o|a)?\s*([\wÀ-ÿ][\wÀ-ÿ\s\-]{1,50})",
+        r"\bgastar\s+(?:R\$\s*)?\d+(?:[.,]\d{1,2})?\s+(?:num|numa|no|na|em)\s+([\wÀ-ÿ][\wÀ-ÿ\s\-]{1,50})",
+    ]
+
+    for pattern in padroes:
+        match = re.search(pattern, texto, re.IGNORECASE)
+        if not match:
+            continue
+
+        item = match.group(1).strip(" .,!?:;-")
+        item = re.split(r"[,.!?]", item, maxsplit=1)[0].strip()
+        item = re.sub(
+            r"\b(?:hoje|ontem|amanh[aã]|esse\s+m[eê]s|este\s+m[eê]s|m[eê]s\s+que\s+vem|"
+            r"parcelado|parcelar|parcela|com\s+juros|sem\s+juros)\b.*$",
+            "",
+            item,
+            flags=re.IGNORECASE,
+        ).strip(" .,!?:;-")
+
+        if not item:
+            continue
+        if item.lower() in {"isso", "coisa", "algo", "item"}:
+            continue
+        return item
+
+    return None
 
 
 def _detect_context_type(text_lower: str) -> str | None:
@@ -228,13 +269,20 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
         or (value and _RE_PERGUNTA_POSSO.search(text_lower))
         or (value and text.strip().endswith("?") and text_contains(text_lower, ["posso", "consigo", "dá pra", "da pra", "rola"]))
         or (value and text.strip().endswith("?") and text_contains(text_lower, palavras_duvida))
+        or (value and _RE_MODAL_PLANEJAMENTO_COMPRA.search(text_lower))
     )
     if text_contains(text_lower, palavras_divida):
         can_spend_question = False
     if can_spend_question:
+        item_planejado = _extrair_item_compra_planejada(text)
+        if item_planejado:
+            description = item_planejado
         return {"intencao": "posso_gastar", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}
 
     if _RE_ACAO_FUTURA_COMPRA.search(text_lower) and _RE_PLANEJAMENTO_COMPRA_DUVIDA.search(text_lower):
+        item_planejado = _extrair_item_compra_planejada(text)
+        if item_planejado:
+            description = item_planejado
         return {"intencao": "posso_gastar", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}
 
     if value and _RE_SALDO_INICIAL_SETUP.search(text_lower):
