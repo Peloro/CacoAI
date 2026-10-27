@@ -28,17 +28,17 @@ def _period_bounds(year_month: str) -> tuple[str, str] | None:
     return None
 
 
-def register_movement(
-    user_id: int,
-    movement_type: str,
-    value: float,
-    category: str = "outros",
-    description: str = "",
-    date_ref: Optional[str] = None,
-    recurring: bool = False,
+def registrar_movimentacao(
+    usuario_id: int,
+    tipo: str,
+    valor: float,
+    categoria: str = "outros",
+    descricao: str = "",
+    data_ref: Optional[str] = None,
+    recorrente: bool = False,
 ) -> int:
-    if date_ref is None:
-        date_ref = date.today().isoformat()
+    if data_ref is None:
+        data_ref = date.today().isoformat()
 
     with db_connection() as conn:
         cur = conn.cursor()
@@ -48,23 +48,23 @@ def register_movement(
                 (usuario_id, tipo, valor, categoria, descricao, data_ref, recorrente)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_id, movement_type, value, category.lower(), description, date_ref, int(recurring)),
+            (usuario_id, tipo, valor, categoria.lower(), descricao, data_ref, int(recorrente)),
         )
         conn.commit()
         return cur.lastrowid
 
 
-def month_summary(user_id: int, year_month: Optional[str] = None) -> dict:
-    if year_month is None:
-        year_month = date.today().strftime("%Y-%m")
+def resumo_mes(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
 
-    bounds = _period_bounds(year_month)
+    bounds = _period_bounds(ano_mes)
     if bounds:
         period_sql = "data_ref >= ? AND data_ref < ?"
         period_params: tuple[str, ...] = bounds
     else:
         period_sql = "data_ref LIKE ?"
-        period_params = (f"{year_month}%",)
+        period_params = (f"{ano_mes}%",)
 
     with db_connection() as conn:
         cur = conn.cursor()
@@ -75,7 +75,7 @@ def month_summary(user_id: int, year_month: Optional[str] = None) -> dict:
             WHERE usuario_id = ? AND {period_sql}
             GROUP BY tipo
             """,
-            (user_id, *period_params),
+            (usuario_id, *period_params),
         )
         totals = {row["tipo"]: row["total"] for row in cur.fetchall()}
         incomes = totals.get("entrada", 0.0)
@@ -89,7 +89,7 @@ def month_summary(user_id: int, year_month: Optional[str] = None) -> dict:
             GROUP BY categoria
             ORDER BY total DESC
             """,
-            (user_id, *period_params),
+            (usuario_id, *period_params),
         )
         expense_categories = {row["categoria"]: row["total"] for row in cur.fetchall()}
 
@@ -101,7 +101,7 @@ def month_summary(user_id: int, year_month: Optional[str] = None) -> dict:
             GROUP BY categoria
             ORDER BY total DESC
             """,
-            (user_id, *period_params),
+            (usuario_id, *period_params),
         )
         income_categories = {row["categoria"]: row["total"] for row in cur.fetchall()}
 
@@ -113,12 +113,12 @@ def month_summary(user_id: int, year_month: Optional[str] = None) -> dict:
             ORDER BY data_ref DESC, id DESC
             LIMIT 5
             """,
-            (user_id, *period_params),
+            (usuario_id, *period_params),
         )
         latest = [dict(row) for row in cur.fetchall()]
 
     return {
-        "ano_mes": year_month,
+        "ano_mes": ano_mes,
         "entradas": incomes,
         "saidas": expenses,
         "saldo": incomes - expenses,
@@ -129,7 +129,7 @@ def month_summary(user_id: int, year_month: Optional[str] = None) -> dict:
     }
 
 
-def category_history(user_id: int, category: str, months: int = 3) -> list[dict]:
+def historico_categoria(usuario_id: int, categoria: str, meses: int = 3) -> list[dict]:
     with db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -143,25 +143,25 @@ def category_history(user_id: int, category: str, months: int = 3) -> list[dict]
             GROUP BY mes
             ORDER BY mes DESC
             """,
-            (user_id, category.lower(), f"-{months} months"),
+            (usuario_id, categoria.lower(), f"-{meses} months"),
         )
         return [dict(row) for row in cur.fetchall()]
 
 
-def clear_movements(user_id: int, movement_type: Optional[str] = None, year_month: Optional[str] = None) -> int:
-    if year_month is None:
-        year_month = date.today().strftime("%Y-%m")
+def limpar_movimentacoes(usuario_id: int, tipo: Optional[str] = None, ano_mes: Optional[str] = None) -> int:
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
 
-    bounds = _period_bounds(year_month)
+    bounds = _period_bounds(ano_mes)
 
     with db_connection() as conn:
         cur = conn.cursor()
         filters = ["usuario_id = ?"]
-        params: list = [user_id]
+        params: list = [usuario_id]
 
-        if movement_type:
+        if tipo:
             filters.append("tipo = ?")
-            params.append(movement_type)
+            params.append(tipo)
 
         if bounds:
             filters.append("data_ref >= ?")
@@ -169,7 +169,7 @@ def clear_movements(user_id: int, movement_type: Optional[str] = None, year_mont
             params.extend(bounds)
         else:
             filters.append("data_ref LIKE ?")
-            params.append(f"{year_month}%")
+            params.append(f"{ano_mes}%")
 
         where_sql = " AND ".join(filters)
         cur.execute(f"DELETE FROM movimentacoes WHERE {where_sql}", tuple(params))
@@ -178,17 +178,17 @@ def clear_movements(user_id: int, movement_type: Optional[str] = None, year_mont
     return deleted
 
 
-def month_totals(user_id: int, year_month: Optional[str] = None) -> dict:
-    if year_month is None:
-        year_month = date.today().strftime("%Y-%m")
+def totais_mes(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
 
-    bounds = _period_bounds(year_month)
+    bounds = _period_bounds(ano_mes)
     if bounds:
         period_sql = "data_ref >= ? AND data_ref < ?"
         period_params: tuple[str, ...] = bounds
     else:
         period_sql = "data_ref LIKE ?"
-        period_params = (f"{year_month}%",)
+        period_params = (f"{ano_mes}%",)
 
     with db_connection() as conn:
         cur = conn.cursor()
@@ -199,7 +199,7 @@ def month_totals(user_id: int, year_month: Optional[str] = None) -> dict:
             WHERE usuario_id = ? AND {period_sql}
             GROUP BY tipo
             """,
-            (user_id, *period_params),
+            (usuario_id, *period_params),
         )
 
         result = {"total_entradas": 0.0, "total_saidas": 0.0, "qtd_entradas": 0, "qtd_saidas": 0}
@@ -213,25 +213,25 @@ def month_totals(user_id: int, year_month: Optional[str] = None) -> dict:
     return result
 
 
-def list_recent_movements(user_id: int, limit: int = 10, movement_type: Optional[str] = None, year_month: Optional[str] = None) -> list[dict]:
+def listar_movimentacoes_recentes(usuario_id: int, limite: int = 10, tipo: Optional[str] = None, ano_mes: Optional[str] = None) -> list[dict]:
     with db_connection() as conn:
         cur = conn.cursor()
         filters = ["usuario_id = ?"]
-        params: list = [user_id]
+        params: list = [usuario_id]
 
-        if movement_type:
+        if tipo:
             filters.append("tipo = ?")
-            params.append(movement_type)
+            params.append(tipo)
 
-        if year_month:
-            bounds = _period_bounds(year_month)
+        if ano_mes:
+            bounds = _period_bounds(ano_mes)
             if bounds:
                 filters.append("data_ref >= ?")
                 filters.append("data_ref < ?")
                 params.extend(bounds)
             else:
                 filters.append("data_ref LIKE ?")
-                params.append(f"{year_month}%")
+                params.append(f"{ano_mes}%")
 
         where_sql = " AND ".join(filters)
         cur.execute(
@@ -242,35 +242,35 @@ def list_recent_movements(user_id: int, limit: int = 10, movement_type: Optional
             ORDER BY data_ref DESC, id DESC
             LIMIT ?
             """,
-            (*params, limit),
+            (*params, limite),
         )
 
         return [dict(row) for row in cur.fetchall()]
 
 
-def find_movements_by_description(user_id: int, description: str, movement_type: Optional[str] = None, year_month: Optional[str] = None) -> list[dict]:
-    if year_month is None:
-        year_month = date.today().strftime("%Y-%m")
+def buscar_movimentacoes_por_descricao(usuario_id: int, descricao: str, tipo: Optional[str] = None, ano_mes: Optional[str] = None) -> list[dict]:
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
 
     with db_connection() as conn:
         cur = conn.cursor()
-        lowered = sem_acento(description.strip())
+        lowered = sem_acento(descricao.strip())
 
         filters = ["usuario_id = ?"]
-        params: list = [user_id]
+        params: list = [usuario_id]
 
-        if movement_type:
+        if tipo:
             filters.append("tipo = ?")
-            params.append(movement_type)
+            params.append(tipo)
 
-        bounds = _period_bounds(year_month)
+        bounds = _period_bounds(ano_mes)
         if bounds:
             filters.append("data_ref >= ?")
             filters.append("data_ref < ?")
             params.extend(bounds)
         else:
             filters.append("data_ref LIKE ?")
-            params.append(f"{year_month}%")
+            params.append(f"{ano_mes}%")
 
         filters.append("(sem_acento(descricao) LIKE ? OR sem_acento(categoria) LIKE ?)")
         params.extend([f"%{lowered}%", f"%{lowered}%"])
@@ -288,7 +288,7 @@ def find_movements_by_description(user_id: int, description: str, movement_type:
         return [dict(row) for row in cur.fetchall()]
 
 
-def delete_movement_by_id(user_id: int, movement_id: int) -> dict | None:
+def apagar_movimentacao_por_id(usuario_id: int, movimentacao_id: int) -> dict | None:
     with db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -297,19 +297,19 @@ def delete_movement_by_id(user_id: int, movement_id: int) -> dict | None:
             FROM movimentacoes
             WHERE id = ? AND usuario_id = ?
             """,
-            (movement_id, user_id),
+            (movimentacao_id, usuario_id),
         )
         row = cur.fetchone()
         if not row:
             return None
 
         movement = dict(row)
-        cur.execute("DELETE FROM movimentacoes WHERE id = ? AND usuario_id = ?", (movement_id, user_id))
+        cur.execute("DELETE FROM movimentacoes WHERE id = ? AND usuario_id = ?", (movimentacao_id, usuario_id))
         conn.commit()
     return movement
 
 
-def get_movement_by_id(user_id: int, movement_id: int) -> dict | None:
+def obter_movimentacao_por_id(usuario_id: int, movimentacao_id: int) -> dict | None:
     with db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -318,21 +318,21 @@ def get_movement_by_id(user_id: int, movement_id: int) -> dict | None:
             FROM movimentacoes
             WHERE id = ? AND usuario_id = ?
             """,
-            (movement_id, user_id),
+            (movimentacao_id, usuario_id),
         )
         row = cur.fetchone()
     return dict(row) if row else None
 
 
-def update_movement_fields(
-    user_id: int,
-    movement_id: int,
+def atualizar_movimentacao_campos(
+    usuario_id: int,
+    movimentacao_id: int,
     *,
-    new_value: Optional[float] = None,
-    new_description: Optional[str] = None,
-    new_category: Optional[str] = None,
-    new_date_ref: Optional[str] = None,
-    new_type: Optional[str] = None,
+    novo_valor: Optional[float] = None,
+    nova_descricao: Optional[str] = None,
+    nova_categoria: Optional[str] = None,
+    nova_data_ref: Optional[str] = None,
+    novo_tipo: Optional[str] = None,
 ) -> dict | None:
     with db_connection() as conn:
         cur = conn.cursor()
@@ -342,7 +342,7 @@ def update_movement_fields(
             FROM movimentacoes
             WHERE id = ? AND usuario_id = ?
             """,
-            (movement_id, user_id),
+            (movimentacao_id, usuario_id),
         )
         row = cur.fetchone()
         if not row:
@@ -353,24 +353,24 @@ def update_movement_fields(
         params: list = []
         changes: list[str] = []
 
-        if new_value is not None and float(new_value) > 0:
+        if novo_valor is not None and float(novo_valor) > 0:
             updates.append("valor = ?")
-            params.append(float(new_value))
+            params.append(float(novo_valor))
             changes.append("valor")
-        if new_description is not None and str(new_description).strip():
+        if nova_descricao is not None and str(nova_descricao).strip():
             updates.append("descricao = ?")
-            params.append(str(new_description).strip())
+            params.append(str(nova_descricao).strip())
             changes.append("descricao")
-        if new_category is not None and str(new_category).strip():
+        if nova_categoria is not None and str(nova_categoria).strip():
             updates.append("categoria = ?")
-            params.append(str(new_category).strip().lower())
+            params.append(str(nova_categoria).strip().lower())
             changes.append("categoria")
-        if new_date_ref is not None and str(new_date_ref).strip():
+        if nova_data_ref is not None and str(nova_data_ref).strip():
             updates.append("data_ref = ?")
-            params.append(str(new_date_ref).strip())
+            params.append(str(nova_data_ref).strip())
             changes.append("data")
 
-        type_norm = (new_type or "").strip().lower()
+        type_norm = (novo_tipo or "").strip().lower()
         if type_norm in ("entrada", "saida"):
             updates.append("tipo = ?")
             params.append(type_norm)
@@ -382,7 +382,7 @@ def update_movement_fields(
             current["alteracoes"] = []
             return current
 
-        params.extend([movement_id, user_id])
+        params.extend([movimentacao_id, usuario_id])
         cur.execute(f"UPDATE movimentacoes SET {', '.join(updates)} WHERE id = ? AND usuario_id = ?", params)
         cur.execute(
             """
@@ -390,7 +390,7 @@ def update_movement_fields(
             FROM movimentacoes
             WHERE id = ? AND usuario_id = ?
             """,
-            (movement_id, user_id),
+            (movimentacao_id, usuario_id),
         )
         after_row = cur.fetchone()
         conn.commit()
@@ -401,28 +401,28 @@ def update_movement_fields(
     return current
 
 
-def consult_category(user_id: int, category: str, year_month: Optional[str] = None, movement_type: Optional[str] = None) -> dict:
-    if year_month is None:
-        year_month = date.today().strftime("%Y-%m")
+def consultar_categoria(usuario_id: int, categoria: str, ano_mes: Optional[str] = None, tipo: Optional[str] = None) -> dict:
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
 
     with db_connection() as conn:
         cur = conn.cursor()
 
         filters = ["usuario_id = ?", "categoria = ?"]
-        params: list = [user_id, category.lower()]
+        params: list = [usuario_id, categoria.lower()]
 
-        bounds = _period_bounds(year_month)
+        bounds = _period_bounds(ano_mes)
         if bounds:
             filters.append("data_ref >= ?")
             filters.append("data_ref < ?")
             params.extend(bounds)
         else:
             filters.append("data_ref LIKE ?")
-            params.append(f"{year_month}%")
+            params.append(f"{ano_mes}%")
 
-        if movement_type in ("entrada", "saida"):
+        if tipo in ("entrada", "saida"):
             filters.append("tipo = ?")
-            params.append(movement_type)
+            params.append(tipo)
         where_sql = " AND ".join(filters)
 
         cur.execute(f"SELECT COUNT(*) as quantidade, SUM(valor) as total FROM movimentacoes WHERE {where_sql}", tuple(params))
@@ -442,30 +442,30 @@ def consult_category(user_id: int, category: str, year_month: Optional[str] = No
         movements = [dict(entry) for entry in cur.fetchall()]
 
     return {
-        "categoria": category.lower(),
-        "tipo": movement_type,
-        "ano_mes": year_month,
+        "categoria": categoria.lower(),
+        "tipo": tipo,
+        "ano_mes": ano_mes,
         "total": total,
         "quantidade": qty,
         "movimentacoes": movements,
     }
 
 
-def list_categories_by_type(user_id: int, movement_type: Optional[str] = None, year_month: Optional[str] = None) -> list[dict]:
-    if year_month is None:
-        year_month = date.today().strftime("%Y-%m")
+def listar_categorias_por_tipo(usuario_id: int, tipo: Optional[str] = None, ano_mes: Optional[str] = None) -> list[dict]:
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
 
-    bounds = _period_bounds(year_month)
+    bounds = _period_bounds(ano_mes)
     if bounds:
         period_sql = "data_ref >= ? AND data_ref < ?"
         period_params: tuple[str, ...] = bounds
     else:
         period_sql = "data_ref LIKE ?"
-        period_params = (f"{year_month}%",)
+        period_params = (f"{ano_mes}%",)
 
     with db_connection() as conn:
         cur = conn.cursor()
-        if movement_type in ("entrada", "saida"):
+        if tipo in ("entrada", "saida"):
             cur.execute(
                 f"""
                 SELECT tipo, categoria, COUNT(*) as quantidade, SUM(valor) as total
@@ -474,7 +474,7 @@ def list_categories_by_type(user_id: int, movement_type: Optional[str] = None, y
                 GROUP BY tipo, categoria
                 ORDER BY total DESC
                 """,
-                (user_id, movement_type, *period_params),
+                (usuario_id, tipo, *period_params),
             )
         else:
             cur.execute(
@@ -485,7 +485,7 @@ def list_categories_by_type(user_id: int, movement_type: Optional[str] = None, y
                 GROUP BY tipo, categoria
                 ORDER BY tipo ASC, total DESC
                 """,
-                (user_id, *period_params),
+                (usuario_id, *period_params),
             )
 
         return [dict(row) for row in cur.fetchall()]
@@ -512,10 +512,10 @@ def _jaccard_similarity(a: str, b: str) -> float:
     return float(inter / union) if union else 0.0
 
 
-def register_learned_category(user_id: int, description: str, category: str) -> None:
+def registrar_categoria_aprendida(usuario_id: int, descricao: str, categoria: str) -> None:
     """Memoriza a categoria final de uma descrição que as regras não cobrem."""
-    key = sem_acento(description).strip()
-    if not key or not category:
+    key = sem_acento(descricao).strip()
+    if not key or not categoria:
         return
     with db_connection() as conn:
         conn.execute(
@@ -526,27 +526,27 @@ def register_learned_category(user_id: int, description: str, category: str) -> 
                 categoria = excluded.categoria,
                 atualizado_em = datetime('now')
             """,
-            (user_id, key, category.strip().lower()),
+            (usuario_id, key, categoria.strip().lower()),
         )
         conn.commit()
 
 
-def find_learned_category(user_id: int, description: str) -> str | None:
-    key = sem_acento(description).strip()
+def buscar_categoria_aprendida(usuario_id: int, descricao: str) -> str | None:
+    key = sem_acento(descricao).strip()
     if not key:
         return None
     with db_connection() as conn:
         row = conn.execute(
             "SELECT categoria FROM categoria_aprendida WHERE usuario_id = ? AND descricao_norm = ?",
-            (user_id, key),
+            (usuario_id, key),
         ).fetchone()
     return row["categoria"] if row else None
 
 
-def register_learned_title(user_id: int, message: str, title: str, category: Optional[str] = None) -> None:
-    msg_norm = _normalize_learning_text(message)
-    clean_title = (title or "").strip()
-    category_norm = (category or "").strip().lower()
+def registrar_titulo_aprendido(usuario_id: int, mensagem: str, titulo: str, categoria: Optional[str] = None) -> None:
+    msg_norm = _normalize_learning_text(mensagem)
+    clean_title = (titulo or "").strip()
+    category_norm = (categoria or "").strip().lower()
 
     if not msg_norm or not clean_title:
         return
@@ -561,22 +561,22 @@ def register_learned_title(user_id: int, message: str, title: str, category: Opt
                 usos = titulo_aprendizado.usos + 1,
                 atualizado_em = datetime('now')
             """,
-            (user_id, msg_norm, category_norm, clean_title),
+            (usuario_id, msg_norm, category_norm, clean_title),
         )
         conn.commit()
 
 
-def find_learned_title(
-    user_id: int,
-    message: str,
-    category: Optional[str] = None,
-    min_similarity: float = 0.56,
+def buscar_titulo_aprendido(
+    usuario_id: int,
+    mensagem: str,
+    categoria: Optional[str] = None,
+    similaridade_minima: float = 0.56,
 ) -> dict | None:
-    msg_norm = _normalize_learning_text(message)
+    msg_norm = _normalize_learning_text(mensagem)
     if not msg_norm:
         return None
 
-    category_norm = (category or "").strip().lower()
+    category_norm = (categoria or "").strip().lower()
 
     with db_connection() as conn:
         cur = conn.cursor()
@@ -589,7 +589,7 @@ def find_learned_title(
                 ORDER BY atualizado_em DESC
                 LIMIT 120
                 """,
-                (user_id, category_norm),
+                (usuario_id, category_norm),
             )
         else:
             cur.execute(
@@ -600,7 +600,7 @@ def find_learned_title(
                 ORDER BY atualizado_em DESC
                 LIMIT 120
                 """,
-                (user_id,),
+                (usuario_id,),
             )
         candidates = [dict(row) for row in cur.fetchall()]
 
@@ -612,7 +612,7 @@ def find_learned_title(
             best_score = score
             best = candidate
 
-    if not best or best_score < min_similarity:
+    if not best or best_score < similaridade_minima:
         return None
 
     return {

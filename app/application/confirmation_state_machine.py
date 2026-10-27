@@ -1,23 +1,8 @@
-"""State machine para confirmação de operações mutáveis.
-
-Fase 2 (parcial): centraliza transições de confirmação sem alterar
-as regras de negócio executadas pelo orquestrador.
-"""
+"""State machine para confirmação de operações mutáveis (sim / cancelar / editar em linguagem natural)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Callable, Protocol
-
-from app.domain.adapters import dict_to_parsed_message, parsed_message_to_dict
-from app.domain.models import PendingOperation
-
-
-class ConfirmationState(str, Enum):
-    IDLE = "idle"
-    AWAITING_CONFIRMATION = "awaiting_confirmation"
-    CANCELLED = "cancelled"
-    EXECUTED = "executed"
 
 
 @dataclass(slots=True)
@@ -61,14 +46,7 @@ class ConfirmationStateMachine:
         return self._store.get(user_id) is not None
 
     def begin(self, user_id: int, parsed: dict, veio_desambiguacao: bool = False) -> None:
-        self._store.set(
-            user_id,
-            {
-                "parsed": dict(parsed or {}),
-                "veio_desambiguacao": bool(veio_desambiguacao),
-                "state": ConfirmationState.AWAITING_CONFIRMATION.value,
-            },
-        )
+        self._store.set(user_id, {"parsed": dict(parsed or {}), "veio_desambiguacao": bool(veio_desambiguacao)})
 
     def resolve(
         self,
@@ -78,15 +56,12 @@ class ConfirmationStateMachine:
         preview_fn: PreviewFn,
         render_confirmation_prompt_fn: RenderPromptFn,
     ) -> ConfirmationResolution:
-        pending_raw = self._store.get(user_id)
-        if not pending_raw:
+        pending = self._store.get(user_id)
+        if not pending:
             return ConfirmationResolution(parsed=None, reply=None)
 
-        pending = PendingOperation(
-            parsed=dict_to_parsed_message(dict(pending_raw.get("parsed") or {})),
-            veio_desambiguacao=bool(pending_raw.get("veio_desambiguacao")),
-            state=ConfirmationState(str(pending_raw.get("state") or ConfirmationState.AWAITING_CONFIRMATION.value)),
-        )
+        parsed = dict(pending.get("parsed") or {})
+        veio_desambiguacao = bool(pending.get("veio_desambiguacao"))
 
         text = (message or "").strip().lower()
         if text in CANCEL_TOKENS:
@@ -95,30 +70,19 @@ class ConfirmationStateMachine:
 
         if text in CONFIRM_TOKENS:
             self._store.pop(user_id)
-            parsed = parsed_message_to_dict(pending.parsed)
             parsed["_operacao_confirmada"] = True
             parsed["_confirmacao_manual"] = True
             return ConfirmationResolution(parsed=parsed, reply=None)
 
-        parsed_edited, changes = apply_edit_fn(parsed_message_to_dict(pending.parsed), message)
+        parsed_edited, changes = apply_edit_fn(parsed, message)
         if changes:
             parsed_edited = preview_fn(user_id, parsed_edited)
-            self._store.set(
-                user_id,
-                {
-                    "parsed": parsed_edited,
-                    "veio_desambiguacao": pending.veio_desambiguacao,
-                    "state": ConfirmationState.AWAITING_CONFIRMATION.value,
-                },
-            )
+            self.begin(user_id, parsed_edited, veio_desambiguacao)
             reply = (
                 "Perfeito, atualizei os detalhes: "
                 + ", ".join(changes)
                 + ".\n\n"
-                + render_confirmation_prompt_fn(
-                    parsed_edited,
-                    veio_desambiguacao=pending.veio_desambiguacao,
-                )
+                + render_confirmation_prompt_fn(parsed_edited, veio_desambiguacao=veio_desambiguacao)
             )
             return ConfirmationResolution(parsed=None, reply=reply)
 

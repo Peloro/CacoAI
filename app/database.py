@@ -1,60 +1,59 @@
-"""Fachada de banco legada com delegação para repositórios da camada infra."""
+"""Schema do banco e API pública de acesso a dados (reexporta os repositórios)."""
 from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import Optional
 
-from app.infra.db import ESTADO_CONVERSA_EXPIRACAO_MIN, db_connection as _db
+from app.infra.db import db_connection as _db
 from app.security import decrypt_text, encrypt_text, hash_phone, is_encrypted_token
-from app.infra.repositories.divida_repository import (
-    clear_debts,
-    debts_totals,
-    delete_debt_by_id,
-    find_debts_by_description,
-    get_debt_by_id,
-    list_recent_debts,
-    pay_debt,
-    register_debt,
-    settle_debts,
-    update_debt_fields,
-    update_debt_value,
+from app.infra.repositories.divida_repository import (  # noqa: F401 - API pública de acesso a dados
+    apagar_divida_por_id,
+    atualizar_divida_campos,
+    atualizar_valor_divida,
+    buscar_dividas_por_descricao,
+    limpar_dividas,
+    listar_dividas_recentes,
+    obter_divida_por_id,
+    pagar_divida,
+    quitar_dividas,
+    registrar_divida,
+    totais_dividas,
 )
-from app.infra.repositories.movimentacao_repository import (
-    category_history,
-    clear_movements,
-    consult_category,
-    delete_movement_by_id,
-    find_learned_category,
-    find_learned_title,
-    find_movements_by_description,
-    get_movement_by_id,
-    list_categories_by_type,
-    list_recent_movements,
-    month_summary,
-    month_totals,
-    register_learned_category,
-    register_learned_title,
-    register_movement,
-    update_movement_fields,
+from app.infra.repositories.movimentacao_repository import (  # noqa: F401 - API pública de acesso a dados
+    apagar_movimentacao_por_id,
+    atualizar_movimentacao_campos,
+    buscar_categoria_aprendida,
+    buscar_movimentacoes_por_descricao,
+    buscar_titulo_aprendido,
+    consultar_categoria,
+    historico_categoria,
+    limpar_movimentacoes,
+    listar_categorias_por_tipo,
+    listar_movimentacoes_recentes,
+    obter_movimentacao_por_id,
+    registrar_categoria_aprendida,
+    registrar_movimentacao,
+    registrar_titulo_aprendido,
+    resumo_mes,
+    totais_mes,
 )
-from app.infra.repositories.session_repository import (
-    clear_all_conversation_states,
-    clear_conversation_state,
-    create_session,
-    invalidate_session,
-    load_conversation_states,
-    renew_session_if_valid,
-    set_conversation_state,
+from app.infra.repositories.session_repository import (  # noqa: F401 - API pública de acesso a dados
+    carregar_estados_conversa,
+    clear_estado_conversa,
+    clear_todos_estados_conversa,
+    criar_sessao,
+    invalidar_sessao,
+    renovar_sessao_se_valida,
+    set_estado_conversa,
 )
-from app.infra.repositories.user_repository import (
-    get_or_create_user as _repo_get_or_create_user,
-    get_registration_step,
-    get_user_name,
-    save_user_name,
-    save_user_password,
-    set_registration_step,
-    verify_user_password,
+from app.infra.repositories.user_repository import (  # noqa: F401 - API pública de acesso a dados
+    get_etapa_cadastro,
+    get_nome_usuario,
+    get_or_create_user,
+    salvar_nome,
+    salvar_senha,
+    set_etapa_cadastro,
+    verificar_senha,
 )
 
 log = logging.getLogger("caco.db")
@@ -194,182 +193,3 @@ def _migrar_schema(conn: sqlite3.Connection):
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_telefone_hash ON usuarios(telefone_hash)")
     if changed:
         conn.commit()
-
-
-def get_or_create_user(telefone: str, nome: Optional[str] = None) -> dict:
-    return _repo_get_or_create_user(telefone, nome)
-
-
-def registrar_movimentacao(usuario_id: int, tipo: str, valor: float, categoria: str = "outros", descricao: str = "", data_ref: Optional[str] = None, recorrente: bool = False) -> int:
-    return register_movement(usuario_id, tipo, valor, categoria, descricao, data_ref, recorrente)
-
-
-def registrar_divida(usuario_id: int, valor: float, credor: str = "", descricao: str = "", data_ref: Optional[str] = None) -> int:
-    return register_debt(usuario_id, valor, credor, descricao, data_ref)
-
-
-def listar_dividas_recentes(usuario_id: int, limite: int = 20, ano_mes: Optional[str] = None) -> list[dict]:
-    return list_recent_debts(usuario_id, limite, ano_mes)
-
-
-def buscar_dividas_por_descricao(usuario_id: int, descricao: str, ano_mes: Optional[str] = None) -> list[dict]:
-    return find_debts_by_description(usuario_id, descricao, ano_mes)
-
-
-def obter_divida_por_id(usuario_id: int, divida_id: int) -> dict | None:
-    return get_debt_by_id(usuario_id, divida_id)
-
-
-def apagar_divida_por_id(usuario_id: int, divida_id: int) -> dict | None:
-    return delete_debt_by_id(usuario_id, divida_id)
-
-
-def atualizar_valor_divida(usuario_id: int, divida_id: int, novo_valor: float) -> dict | None:
-    return update_debt_value(usuario_id, divida_id, novo_valor)
-
-
-def atualizar_divida_campos(usuario_id: int, divida_id: int, *, novo_valor: Optional[float] = None, nova_descricao: Optional[str] = None, novo_credor: Optional[str] = None, nova_data_ref: Optional[str] = None) -> dict | None:
-    return update_debt_fields(
-        usuario_id,
-        divida_id,
-        new_value=novo_valor,
-        new_description=nova_descricao,
-        new_creditor=novo_credor,
-        new_date_ref=nova_data_ref,
-    )
-
-
-def limpar_dividas(usuario_id: int, ano_mes: Optional[str] = None) -> int:
-    return clear_debts(usuario_id, ano_mes)
-
-
-def totais_dividas(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
-    return debts_totals(usuario_id, ano_mes)
-
-
-def quitar_dividas(usuario_id: int, credor: Optional[str] = None, ano_mes: Optional[str] = None) -> dict:
-    return settle_debts(usuario_id, credor, ano_mes)
-
-
-def pagar_divida(usuario_id: int, valor_pago: float, credor: Optional[str] = None, ano_mes: Optional[str] = None) -> dict:
-    return pay_debt(usuario_id, valor_pago, credor, ano_mes)
-
-
-def resumo_mes(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
-    return month_summary(usuario_id, ano_mes)
-
-
-def historico_categoria(usuario_id: int, categoria: str, meses: int = 3) -> list[dict]:
-    return category_history(usuario_id, categoria, meses)
-
-
-def limpar_movimentacoes(usuario_id: int, tipo: Optional[str] = None, ano_mes: Optional[str] = None) -> int:
-    return clear_movements(usuario_id, tipo, ano_mes)
-
-
-def totais_mes(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
-    return month_totals(usuario_id, ano_mes)
-
-
-def listar_movimentacoes_recentes(usuario_id: int, limite: int = 10, tipo: Optional[str] = None, ano_mes: Optional[str] = None) -> list[dict]:
-    return list_recent_movements(usuario_id, limite, tipo, ano_mes)
-
-
-def buscar_movimentacoes_por_descricao(usuario_id: int, descricao: str, tipo: Optional[str] = None, ano_mes: Optional[str] = None) -> list[dict]:
-    return find_movements_by_description(usuario_id, descricao, tipo, ano_mes)
-
-
-def apagar_movimentacao_por_id(usuario_id: int, movimentacao_id: int) -> dict | None:
-    return delete_movement_by_id(usuario_id, movimentacao_id)
-
-
-def obter_movimentacao_por_id(usuario_id: int, movimentacao_id: int) -> dict | None:
-    return get_movement_by_id(usuario_id, movimentacao_id)
-
-
-def atualizar_movimentacao_campos(usuario_id: int, movimentacao_id: int, *, novo_valor: Optional[float] = None, nova_descricao: Optional[str] = None, nova_categoria: Optional[str] = None, nova_data_ref: Optional[str] = None, novo_tipo: Optional[str] = None) -> dict | None:
-    return update_movement_fields(
-        usuario_id,
-        movimentacao_id,
-        new_value=novo_valor,
-        new_description=nova_descricao,
-        new_category=nova_categoria,
-        new_date_ref=nova_data_ref,
-        new_type=novo_tipo,
-    )
-
-
-def consultar_categoria(usuario_id: int, categoria: str, ano_mes: Optional[str] = None, tipo: Optional[str] = None) -> dict:
-    return consult_category(usuario_id, categoria, ano_mes, tipo)
-
-
-def listar_categorias_por_tipo(usuario_id: int, tipo: Optional[str] = None, ano_mes: Optional[str] = None) -> list[dict]:
-    return list_categories_by_type(usuario_id, tipo, ano_mes)
-
-
-def registrar_titulo_aprendido(usuario_id: int, mensagem: str, titulo: str, categoria: Optional[str] = None) -> None:
-    register_learned_title(usuario_id, mensagem, titulo, categoria)
-
-
-def registrar_categoria_aprendida(usuario_id: int, descricao: str, categoria: str) -> None:
-    register_learned_category(usuario_id, descricao, categoria)
-
-
-def buscar_categoria_aprendida(usuario_id: int, descricao: str) -> str | None:
-    return find_learned_category(usuario_id, descricao)
-
-
-def buscar_titulo_aprendido(usuario_id: int, mensagem: str, categoria: Optional[str] = None, similaridade_minima: float = 0.56) -> dict | None:
-    return find_learned_title(usuario_id, mensagem, categoria, similaridade_minima)
-
-
-def set_estado_conversa(usuario_id: int, chave: str, valor, expira_minutos: int = ESTADO_CONVERSA_EXPIRACAO_MIN) -> None:
-    set_conversation_state(usuario_id, chave, valor, expira_minutos)
-
-
-def carregar_estados_conversa(usuario_id: int) -> dict[str, str]:
-    return load_conversation_states(usuario_id)
-
-
-def clear_estado_conversa(usuario_id: int, chave: str) -> None:
-    clear_conversation_state(usuario_id, chave)
-
-
-def clear_todos_estados_conversa(usuario_id: int) -> None:
-    clear_all_conversation_states(usuario_id)
-
-
-def get_etapa_cadastro(usuario_id: int) -> Optional[str]:
-    return get_registration_step(usuario_id)
-
-
-def set_etapa_cadastro(usuario_id: int, etapa: Optional[str]):
-    set_registration_step(usuario_id, etapa)
-
-
-def salvar_nome(usuario_id: int, nome: str):
-    save_user_name(usuario_id, nome)
-
-
-def salvar_senha(usuario_id: int, senha: str):
-    save_user_password(usuario_id, senha)
-
-
-def verificar_senha(usuario_id: int, senha: str) -> bool:
-    return verify_user_password(usuario_id, senha)
-
-
-def get_nome_usuario(usuario_id: int) -> Optional[str]:
-    return get_user_name(usuario_id)
-
-
-def criar_sessao(usuario_id: int) -> str:
-    return create_session(usuario_id)
-
-
-def invalidar_sessao(usuario_id: int):
-    invalidate_session(usuario_id)
-
-
-def renovar_sessao_se_valida(usuario_id: int) -> bool:
-    return renew_session_if_valid(usuario_id)

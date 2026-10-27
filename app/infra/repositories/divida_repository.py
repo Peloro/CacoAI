@@ -28,9 +28,9 @@ def _period_bounds(year_month: str) -> tuple[str, str] | None:
     return None
 
 
-def register_debt(user_id: int, value: float, creditor: str = "", description: str = "", date_ref: Optional[str] = None) -> int:
-    if date_ref is None:
-        date_ref = date.today().isoformat()
+def registrar_divida(usuario_id: int, valor: float, credor: str = "", descricao: str = "", data_ref: Optional[str] = None) -> int:
+    if data_ref is None:
+        data_ref = date.today().isoformat()
 
     with db_connection() as conn:
         cur = conn.cursor()
@@ -39,17 +39,17 @@ def register_debt(user_id: int, value: float, creditor: str = "", description: s
             INSERT INTO dividas (usuario_id, valor, credor, descricao, data_ref)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (user_id, value, (creditor or "").strip(), description, date_ref),
+            (usuario_id, valor, (credor or "").strip(), descricao, data_ref),
         )
         conn.commit()
         return cur.lastrowid
 
 
-def list_recent_debts(user_id: int, limit: int = 20, year_month: Optional[str] = None) -> list[dict]:
+def listar_dividas_recentes(usuario_id: int, limite: int = 20, ano_mes: Optional[str] = None) -> list[dict]:
     with db_connection() as conn:
         cur = conn.cursor()
-        if year_month:
-            bounds = _period_bounds(year_month)
+        if ano_mes:
+            bounds = _period_bounds(ano_mes)
             if bounds:
                 cur.execute(
                     """
@@ -59,7 +59,7 @@ def list_recent_debts(user_id: int, limit: int = 20, year_month: Optional[str] =
                     ORDER BY data_ref DESC, id DESC
                     LIMIT ?
                     """,
-                    (user_id, bounds[0], bounds[1], limit),
+                    (usuario_id, bounds[0], bounds[1], limite),
                 )
             else:
                 cur.execute(
@@ -70,7 +70,7 @@ def list_recent_debts(user_id: int, limit: int = 20, year_month: Optional[str] =
                     ORDER BY data_ref DESC, id DESC
                     LIMIT ?
                     """,
-                    (user_id, f"{year_month}%", limit),
+                    (usuario_id, f"{ano_mes}%", limite),
                 )
         else:
             cur.execute(
@@ -81,17 +81,17 @@ def list_recent_debts(user_id: int, limit: int = 20, year_month: Optional[str] =
                 ORDER BY data_ref DESC, id DESC
                 LIMIT ?
                 """,
-                (user_id, limit),
+                (usuario_id, limite),
             )
         return [dict(row) for row in cur.fetchall()]
 
 
-def find_debts_by_description(user_id: int, description: str, year_month: Optional[str] = None) -> list[dict]:
+def buscar_dividas_por_descricao(usuario_id: int, descricao: str, ano_mes: Optional[str] = None) -> list[dict]:
     with db_connection() as conn:
         cur = conn.cursor()
-        lowered = sem_acento(description.strip())
-        if year_month:
-            bounds = _period_bounds(year_month)
+        lowered = sem_acento(descricao.strip())
+        if ano_mes:
+            bounds = _period_bounds(ano_mes)
             if bounds:
                 cur.execute(
                     """
@@ -103,7 +103,7 @@ def find_debts_by_description(user_id: int, description: str, year_month: Option
                       AND (sem_acento(descricao) LIKE ? OR sem_acento(credor) LIKE ?)
                     ORDER BY data_ref DESC, id DESC
                     """,
-                    (user_id, bounds[0], bounds[1], f"%{lowered}%", f"%{lowered}%"),
+                    (usuario_id, bounds[0], bounds[1], f"%{lowered}%", f"%{lowered}%"),
                 )
             else:
                 cur.execute(
@@ -115,7 +115,7 @@ def find_debts_by_description(user_id: int, description: str, year_month: Option
                       AND (sem_acento(descricao) LIKE ? OR sem_acento(credor) LIKE ?)
                     ORDER BY data_ref DESC, id DESC
                     """,
-                    (user_id, f"{year_month}%", f"%{lowered}%", f"%{lowered}%"),
+                    (usuario_id, f"{ano_mes}%", f"%{lowered}%", f"%{lowered}%"),
                 )
         else:
             cur.execute(
@@ -126,12 +126,12 @@ def find_debts_by_description(user_id: int, description: str, year_month: Option
                   AND (sem_acento(descricao) LIKE ? OR sem_acento(credor) LIKE ?)
                 ORDER BY data_ref DESC, id DESC
                 """,
-                (user_id, f"%{lowered}%", f"%{lowered}%"),
+                (usuario_id, f"%{lowered}%", f"%{lowered}%"),
             )
         return [dict(row) for row in cur.fetchall()]
 
 
-def get_debt_by_id(user_id: int, debt_id: int) -> dict | None:
+def obter_divida_por_id(usuario_id: int, divida_id: int) -> dict | None:
     with db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -140,13 +140,13 @@ def get_debt_by_id(user_id: int, debt_id: int) -> dict | None:
             FROM dividas
             WHERE id = ? AND usuario_id = ?
             """,
-            (debt_id, user_id),
+            (divida_id, usuario_id),
         )
         row = cur.fetchone()
     return dict(row) if row else None
 
 
-def delete_debt_by_id(user_id: int, debt_id: int) -> dict | None:
+def apagar_divida_por_id(usuario_id: int, divida_id: int) -> dict | None:
     with db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -155,19 +155,19 @@ def delete_debt_by_id(user_id: int, debt_id: int) -> dict | None:
             FROM dividas
             WHERE id = ? AND usuario_id = ?
             """,
-            (debt_id, user_id),
+            (divida_id, usuario_id),
         )
         row = cur.fetchone()
         if not row:
             return None
 
         debt = dict(row)
-        cur.execute("DELETE FROM dividas WHERE id = ? AND usuario_id = ?", (debt_id, user_id))
+        cur.execute("DELETE FROM dividas WHERE id = ? AND usuario_id = ?", (divida_id, usuario_id))
         conn.commit()
     return debt
 
 
-def update_debt_value(user_id: int, debt_id: int, new_value: float) -> dict | None:
+def atualizar_valor_divida(usuario_id: int, divida_id: int, novo_valor: float) -> dict | None:
     with db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -176,7 +176,7 @@ def update_debt_value(user_id: int, debt_id: int, new_value: float) -> dict | No
             FROM dividas
             WHERE id = ? AND usuario_id = ?
             """,
-            (debt_id, user_id),
+            (divida_id, usuario_id),
         )
         row = cur.fetchone()
         if not row:
@@ -184,22 +184,22 @@ def update_debt_value(user_id: int, debt_id: int, new_value: float) -> dict | No
 
         current = dict(row)
         previous_value = float(current["valor"])
-        cur.execute("UPDATE dividas SET valor = ? WHERE id = ? AND usuario_id = ?", (new_value, debt_id, user_id))
+        cur.execute("UPDATE dividas SET valor = ? WHERE id = ? AND usuario_id = ?", (novo_valor, divida_id, usuario_id))
         conn.commit()
 
     current["valor_anterior"] = previous_value
-    current["valor"] = float(new_value)
+    current["valor"] = float(novo_valor)
     return current
 
 
-def update_debt_fields(
-    user_id: int,
-    debt_id: int,
+def atualizar_divida_campos(
+    usuario_id: int,
+    divida_id: int,
     *,
-    new_value: Optional[float] = None,
-    new_description: Optional[str] = None,
-    new_creditor: Optional[str] = None,
-    new_date_ref: Optional[str] = None,
+    novo_valor: Optional[float] = None,
+    nova_descricao: Optional[str] = None,
+    novo_credor: Optional[str] = None,
+    nova_data_ref: Optional[str] = None,
 ) -> dict | None:
     with db_connection() as conn:
         cur = conn.cursor()
@@ -209,7 +209,7 @@ def update_debt_fields(
             FROM dividas
             WHERE id = ? AND usuario_id = ?
             """,
-            (debt_id, user_id),
+            (divida_id, usuario_id),
         )
         row = cur.fetchone()
         if not row:
@@ -220,21 +220,21 @@ def update_debt_fields(
         params: list = []
         changes: list[str] = []
 
-        if new_value is not None and float(new_value) > 0:
+        if novo_valor is not None and float(novo_valor) > 0:
             updates.append("valor = ?")
-            params.append(float(new_value))
+            params.append(float(novo_valor))
             changes.append("valor")
-        if new_description is not None and str(new_description).strip():
+        if nova_descricao is not None and str(nova_descricao).strip():
             updates.append("descricao = ?")
-            params.append(str(new_description).strip())
+            params.append(str(nova_descricao).strip())
             changes.append("descricao")
-        if new_creditor is not None and str(new_creditor).strip():
+        if novo_credor is not None and str(novo_credor).strip():
             updates.append("credor = ?")
-            params.append(str(new_creditor).strip())
+            params.append(str(novo_credor).strip())
             changes.append("credor")
-        if new_date_ref is not None and str(new_date_ref).strip():
+        if nova_data_ref is not None and str(nova_data_ref).strip():
             updates.append("data_ref = ?")
-            params.append(str(new_date_ref).strip())
+            params.append(str(nova_data_ref).strip())
             changes.append("data")
 
         if not updates:
@@ -243,7 +243,7 @@ def update_debt_fields(
             current["alteracoes"] = []
             return current
 
-        params.extend([debt_id, user_id])
+        params.extend([divida_id, usuario_id])
         cur.execute(f"UPDATE dividas SET {', '.join(updates)} WHERE id = ? AND usuario_id = ?", params)
         cur.execute(
             """
@@ -251,7 +251,7 @@ def update_debt_fields(
             FROM dividas
             WHERE id = ? AND usuario_id = ?
             """,
-            (debt_id, user_id),
+            (divida_id, usuario_id),
         )
         after_row = cur.fetchone()
         conn.commit()
@@ -262,31 +262,31 @@ def update_debt_fields(
     return current
 
 
-def clear_debts(user_id: int, year_month: Optional[str] = None) -> int:
-    if year_month is None:
-        year_month = date.today().strftime("%Y-%m")
+def limpar_dividas(usuario_id: int, ano_mes: Optional[str] = None) -> int:
+    if ano_mes is None:
+        ano_mes = date.today().strftime("%Y-%m")
 
-    bounds = _period_bounds(year_month)
+    bounds = _period_bounds(ano_mes)
 
     with db_connection() as conn:
         cur = conn.cursor()
         if bounds:
             cur.execute(
                 "DELETE FROM dividas WHERE usuario_id = ? AND data_ref >= ? AND data_ref < ?",
-                (user_id, bounds[0], bounds[1]),
+                (usuario_id, bounds[0], bounds[1]),
             )
         else:
-            cur.execute("DELETE FROM dividas WHERE usuario_id = ? AND data_ref LIKE ?", (user_id, f"{year_month}%"))
+            cur.execute("DELETE FROM dividas WHERE usuario_id = ? AND data_ref LIKE ?", (usuario_id, f"{ano_mes}%"))
         deleted = cur.rowcount
         conn.commit()
     return deleted
 
 
-def debts_totals(user_id: int, year_month: Optional[str] = None) -> dict:
+def totais_dividas(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
     with db_connection() as conn:
         cur = conn.cursor()
-        if year_month:
-            bounds = _period_bounds(year_month)
+        if ano_mes:
+            bounds = _period_bounds(ano_mes)
             if bounds:
                 cur.execute(
                     """
@@ -294,7 +294,7 @@ def debts_totals(user_id: int, year_month: Optional[str] = None) -> dict:
                     FROM dividas
                     WHERE usuario_id = ? AND data_ref >= ? AND data_ref < ?
                     """,
-                    (user_id, bounds[0], bounds[1]),
+                    (usuario_id, bounds[0], bounds[1]),
                 )
             else:
                 cur.execute(
@@ -303,7 +303,7 @@ def debts_totals(user_id: int, year_month: Optional[str] = None) -> dict:
                     FROM dividas
                     WHERE usuario_id = ? AND data_ref LIKE ?
                     """,
-                    (user_id, f"{year_month}%"),
+                    (usuario_id, f"{ano_mes}%"),
                 )
         else:
             cur.execute(
@@ -312,7 +312,7 @@ def debts_totals(user_id: int, year_month: Optional[str] = None) -> dict:
                 FROM dividas
                 WHERE usuario_id = ?
                 """,
-                (user_id,),
+                (usuario_id,),
             )
         row = cur.fetchone()
 
@@ -322,23 +322,23 @@ def debts_totals(user_id: int, year_month: Optional[str] = None) -> dict:
     }
 
 
-def settle_debts(user_id: int, creditor: Optional[str] = None, year_month: Optional[str] = None) -> dict:
+def quitar_dividas(usuario_id: int, credor: Optional[str] = None, ano_mes: Optional[str] = None) -> dict:
     filters = ["usuario_id = ?"]
-    params: list = [user_id]
+    params: list = [usuario_id]
 
-    if year_month:
-        bounds = _period_bounds(year_month)
+    if ano_mes:
+        bounds = _period_bounds(ano_mes)
         if bounds:
             filters.append("data_ref >= ?")
             filters.append("data_ref < ?")
             params.extend(bounds)
         else:
             filters.append("data_ref LIKE ?")
-            params.append(f"{year_month}%")
+            params.append(f"{ano_mes}%")
 
-    if creditor and creditor.strip():
+    if credor and credor.strip():
         filters.append("sem_acento(credor) LIKE ?")
-        params.append(f"%{sem_acento(creditor.strip())}%")
+        params.append(f"%{sem_acento(credor.strip())}%")
 
     where_sql = " AND ".join(filters)
 
@@ -356,25 +356,25 @@ def settle_debts(user_id: int, creditor: Optional[str] = None, year_month: Optio
     return {"qtd_quitadas": qty, "valor_quitado": total}
 
 
-def pay_debt(user_id: int, paid_value: float, creditor: Optional[str] = None, year_month: Optional[str] = None) -> dict:
-    remaining = float(paid_value or 0.0)
+def pagar_divida(usuario_id: int, valor_pago: float, credor: Optional[str] = None, ano_mes: Optional[str] = None) -> dict:
+    remaining = float(valor_pago or 0.0)
     if remaining <= 0:
         return {"valor_aplicado": 0.0, "valor_sobrou": 0.0, "qtd_quitadas": 0, "qtd_atualizadas": 0}
 
     filters = ["usuario_id = ?"]
-    params: list = [user_id]
-    if year_month:
-        bounds = _period_bounds(year_month)
+    params: list = [usuario_id]
+    if ano_mes:
+        bounds = _period_bounds(ano_mes)
         if bounds:
             filters.append("data_ref >= ?")
             filters.append("data_ref < ?")
             params.extend(bounds)
         else:
             filters.append("data_ref LIKE ?")
-            params.append(f"{year_month}%")
-    if creditor and creditor.strip():
+            params.append(f"{ano_mes}%")
+    if credor and credor.strip():
         filters.append("sem_acento(credor) LIKE ?")
-        params.append(f"%{sem_acento(creditor.strip())}%")
+        params.append(f"%{sem_acento(credor.strip())}%")
 
     where_sql = " AND ".join(filters)
 
@@ -397,13 +397,13 @@ def pay_debt(user_id: int, paid_value: float, creditor: Optional[str] = None, ye
                 continue
 
             if remaining >= debt_value:
-                cur.execute("DELETE FROM dividas WHERE id = ? AND usuario_id = ?", (debt_id, user_id))
+                cur.execute("DELETE FROM dividas WHERE id = ? AND usuario_id = ?", (debt_id, usuario_id))
                 remaining -= debt_value
                 applied += debt_value
                 quit_count += 1
             else:
                 new_value = debt_value - remaining
-                cur.execute("UPDATE dividas SET valor = ? WHERE id = ? AND usuario_id = ?", (new_value, debt_id, user_id))
+                cur.execute("UPDATE dividas SET valor = ? WHERE id = ? AND usuario_id = ?", (new_value, debt_id, usuario_id))
                 applied += remaining
                 remaining = 0.0
                 updated_count += 1

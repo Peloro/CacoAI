@@ -22,8 +22,8 @@ def hash_password_legacy(password: str) -> str:
     return hashlib.sha256(f"caco_salt_{password}".encode()).hexdigest()
 
 
-def get_or_create_user(phone: str, name: Optional[str] = None) -> dict:
-    phone_hash = hash_phone(phone)
+def get_or_create_user(telefone: str, nome: Optional[str] = None) -> dict:
+    phone_hash = hash_phone(telefone)
 
     with db_connection() as conn:
         cur = conn.cursor()
@@ -39,46 +39,46 @@ def get_or_create_user(phone: str, name: Optional[str] = None) -> dict:
         # Criptografa só no cadastro (antes rodava Fernet a cada mensagem).
         cur.execute(
             "INSERT INTO usuarios (telefone, telefone_hash, nome) VALUES (?, ?, ?)",
-            (encrypt_text(phone), phone_hash, encrypt_text(name) if name else None),
+            (encrypt_text(telefone), phone_hash, encrypt_text(nome) if nome else None),
         )
         conn.commit()
-        return {"id": cur.lastrowid, "telefone": phone, "nome": name}
+        return {"id": cur.lastrowid, "telefone": telefone, "nome": nome}
 
 
-def get_registration_step(user_id: int) -> Optional[str]:
+def get_etapa_cadastro(usuario_id: int) -> Optional[str]:
     with db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT cadastro_etapa FROM usuarios WHERE id = ?", (user_id,))
+        cur.execute("SELECT cadastro_etapa FROM usuarios WHERE id = ?", (usuario_id,))
         row = cur.fetchone()
     return row["cadastro_etapa"] if row else None
 
 
-def set_registration_step(user_id: int, step: Optional[str]):
+def set_etapa_cadastro(usuario_id: int, etapa: Optional[str]):
     with db_connection() as conn:
-        conn.execute("UPDATE usuarios SET cadastro_etapa = ? WHERE id = ?", (step, user_id))
+        conn.execute("UPDATE usuarios SET cadastro_etapa = ? WHERE id = ?", (etapa, usuario_id))
         conn.commit()
 
 
-def save_user_name(user_id: int, name: str):
-    name_cipher = encrypt_text(name)
+def salvar_nome(usuario_id: int, nome: str):
+    name_cipher = encrypt_text(nome)
     with db_connection() as conn:
-        conn.execute("UPDATE usuarios SET nome = ? WHERE id = ?", (name_cipher, user_id))
+        conn.execute("UPDATE usuarios SET nome = ? WHERE id = ?", (name_cipher, usuario_id))
         conn.commit()
 
 
-def save_user_password(user_id: int, password: str):
-    policy = validate_password_policy(password)
+def salvar_senha(usuario_id: int, senha: str):
+    policy = validate_password_policy(senha)
     if not policy.ok:
         raise ValueError(policy.message)
     with db_connection() as conn:
-        conn.execute("UPDATE usuarios SET senha_hash = ? WHERE id = ?", (hash_password(password), user_id))
+        conn.execute("UPDATE usuarios SET senha_hash = ? WHERE id = ?", (hash_password(senha), usuario_id))
         conn.commit()
 
 
-def verify_user_password(user_id: int, password: str) -> bool:
+def verificar_senha(usuario_id: int, senha: str) -> bool:
     with db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT senha_hash FROM usuarios WHERE id = ?", (user_id,))
+        cur.execute("SELECT senha_hash FROM usuarios WHERE id = ?", (usuario_id,))
         row = cur.fetchone()
     if not row or not row["senha_hash"]:
         return False
@@ -86,26 +86,26 @@ def verify_user_password(user_id: int, password: str) -> bool:
     stored_hash = row["senha_hash"]
     if isinstance(stored_hash, str) and stored_hash.startswith("$argon2"):
         try:
-            return bool(_password_hasher.verify(stored_hash, password))
+            return bool(_password_hasher.verify(stored_hash, senha))
         except (VerifyMismatchError, InvalidHash):
             return False
         except Exception:
             return False
 
-    if stored_hash == hash_password_legacy(password):
+    if stored_hash == hash_password_legacy(senha):
         try:
-            save_user_password(user_id, password)
+            salvar_senha(usuario_id, senha)
         except Exception:
-            log.warning("Falha ao migrar hash legado para Argon2 (usuario_id=%s)", user_id)
+            log.warning("Falha ao migrar hash legado para Argon2 (usuario_id=%s)", usuario_id)
         return True
 
     return False
 
 
-def get_user_name(user_id: int) -> Optional[str]:
+def get_nome_usuario(usuario_id: int) -> Optional[str]:
     with db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT nome FROM usuarios WHERE id = ?", (user_id,))
+        cur.execute("SELECT nome FROM usuarios WHERE id = ?", (usuario_id,))
         row = cur.fetchone()
     if not row:
         return None
