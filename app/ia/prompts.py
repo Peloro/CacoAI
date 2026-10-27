@@ -18,6 +18,35 @@ except Exception:
 CATEGORIAS_PROMPT = ", ".join(sorted(CATEGORIAS_VALIDAS))
 
 
+# Schemas de saída estruturada estrita (Groq + gpt-oss): o JSON sempre traz estes campos e valores.
+def _schema(nome: str, propriedades: dict) -> dict:
+    return {
+        "name": nome,
+        "schema": {
+            "type": "object",
+            "properties": propriedades,
+            "required": list(propriedades),
+            "additionalProperties": False,
+        },
+    }
+
+
+SCHEMA_CATEGORIA = _schema("categoria", {"categoria": {"type": "string", "enum": sorted(CATEGORIAS_VALIDAS)}})
+
+SCHEMA_TITULO = _schema("titulo", {"titulo": {"type": "string"}, "confianca": {"type": "number"}})
+
+SCHEMA_EXTRACAO = _schema("movimentacao", {
+    "tipo": {"type": "string", "enum": ["entrada", "saida", "divida", "nao_financeiro", "incerto"]},
+    "valor": {"type": "number"},
+    "descricao": {"type": "string"},
+    "categoria": {"type": "string", "enum": sorted(CATEGORIAS_VALIDAS) + [""]},
+    "meio_pagamento": {"type": "string"},
+    "origem_destino": {"type": "string"},
+    "data_ref": {"type": ["string", "null"]},
+    "confianca": {"type": "number"},
+})
+
+
 SYSTEM_PROMPT_CHAT = """Você é o Caco, assistente financeiro em pt-BR.
 Responda com clareza, tom amigável e objetividade (1-2 frases).
 Regras: não inventar números, não fazer cálculos, não prometer funções fora do bot.
@@ -36,7 +65,7 @@ CHAT_PROMPT_DICA = """Usuário: "{mensagem}"
 Contexto opcional do usuário (sem valores):
 {contexto}
 
-Gere 4 a 6 dicas práticas, curtas e acionáveis.
+Gere 4 a 5 dicas práticas e acionáveis, cada uma com no máximo 15 palavras.
 Formato obrigatório: apenas lista em bullets, uma dica por linha, começando com "- ".
 Não inclua introdução, saudação, conclusão ou texto fora dos bullets.
 Sem valores numéricos e sem repetir ideias.
@@ -50,7 +79,7 @@ Contexto de planejamento (não invente números):
 
 Escreva uma orientação personalizada para decisão de compra.
 Formato obrigatório:
-- 3 bullets iniciando com "- "
+- 3 bullets iniciando com "- ", cada um com no máximo 20 palavras
 - Bullet 1: leitura do cenário atual
 - Bullet 2: principal risco ou cuidado
 - Bullet 3: ação prática para executar hoje
@@ -64,7 +93,7 @@ Regras:
 CHAT_PROMPT_OBSERVACAO_RESUMO = """Resumo (sem números):
 {contexto}
 
-Escreva EXATAMENTE 2 frases úteis para fechamento do resumo:
+Escreva EXATAMENTE 2 frases úteis e curtas (máximo 25 palavras cada) para fechamento do resumo:
 - Frase 1: principal leitura do mês (ponto forte ou ponto de atenção).
 - Frase 2: ação prática para o próximo período.
 Formato obrigatório: texto corrido, sem markdown, sem bullets e sem títulos.
@@ -107,5 +136,5 @@ Retorne APENAS JSON valido:
   "titulo": "",
   "confianca": 0.0
 }}
-Regras: 2-4 palavras; sem artigo no inicio; evitar termos vagos; nao inventar.
+Regras: 2-4 palavras nomeando o item ou destino (ex.: "racao cachorro", "uber trabalho"); sem verbos, sem numeros/valores, sem artigo no inicio; evitar termos vagos; nao inventar.
 """

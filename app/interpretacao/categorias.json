@@ -142,8 +142,6 @@
     "salão", "salao", "manicure", "pedicure", "depilação", "depilacao",
     "massagem", "spa", "estética", "estetica",
     "tatuagem", "piercing",
-    "pet shop", "petshop", "veterinário", "veterinario", "banho e tosa",
-    "ração", "racao", "vacina do pet", "remédio do pet",
     "lavanderia", "tinturaria", "costureira", "alfaiate",
     "chaveiro", "vidraceiro", "serralheiro", "dedetização", "dedetizacao",
     "seguro", "seguro de vida", "seguro saúde",
@@ -175,6 +173,8 @@
   ],
   "pets": [
     "pet", "cachorro", "gato", "animal", "bicho",
+    "pet shop", "petshop", "veterinário", "veterinario", "banho e tosa",
+    "ração", "racao", "vacina do pet", "remédio do pet",
     "ração animal", "racao animal", "petisco",
     "veterinário animal", "consulta vet", "vacina animal",
     "antipulga", "vermífugo", "vermifugo",

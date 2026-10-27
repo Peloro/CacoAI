@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import httpx
 import logging
+import re
+import time
 from json import JSONDecodeError
 from typing import Optional
 from urllib.parse import urlparse
@@ -12,13 +14,16 @@ from app.config import (
     GROQ_BASE_URL,
     GROQ_MODEL,
     GROQ_MODEL_FAST,
+    GROQ_REASONING_EFFORT,
     LLM_PROVIDER,
+    LLM_RESERVA_RACIOCINIO,
     OPENROUTER_API_KEY,
     OPENROUTER_APP_NAME,
     OPENROUTER_BASE_URL,
     OPENROUTER_MODEL,
     OPENROUTER_SITE_URL,
 )
+from app.metrics import inc_counter
 
 
 log = logging.getLogger("caco.llm")
@@ -111,14 +116,66 @@ def _headers_groq() -> dict:
     }
 
 
+class _CotaEsgotada(Exception):
+    """HTTP 429: limite gratuito do modelo atingido (por minuto ou por dia)."""
+
+
+class _RespostaCortada(Exception):
+    """O raciocínio consumiu o orçamento de tokens e a resposta veio vazia."""
+
+
+# Modelo -> instante (time.time) até quando não vale a pena chamá-lo (cota esgotada).
+_bloqueado_ate: dict[str, float] = {}
+# Uso das últimas chamadas (para o diagnóstico `python run.py ia`).
+historico_uso: list[dict] = []
+
+
+def _segundos(valor: str | None) -> float:
+    """Converte durações da Groq ("2m59.56s", "7.66s", "120ms", "1h2m") em segundos."""
+    unidades = {"h": 3600, "m": 60, "s": 1, "ms": 0.001}
+    return sum(float(n) * unidades[u] for n, u in re.findall(r"([\d.]+)(h|ms|m|s)", valor or ""))
+
+
+def _modelo_liberado(model: str) -> bool:
+    return time.time() >= _bloqueado_ate.get(model, 0.0)
+
+
+def _registrar_limites(model: str, response) -> None:
+    """Lê os cabeçalhos de rate limit e pausa o modelo quando a cota acaba (evita erros repetidos)."""
+    headers = response.headers
+    if response.status_code == 429:
+        espera = float(headers.get("retry-after") or 0) or _segundos(headers.get("x-ratelimit-reset-requests")) or 60.0
+    elif headers.get("x-ratelimit-remaining-requests") == "0":
+        # x-ratelimit-*-requests sempre se refere à cota DIÁRIA de requisições.
+        espera = _segundos(headers.get("x-ratelimit-reset-requests")) or 60.0
+    else:
+        return
+    _bloqueado_ate[model] = time.time() + espera
+    log.warning("Cota gratuita de %s atingida; pausando o modelo por %.0fs.", model, espera)
+
+
+def _parametros_raciocinio(model: str) -> dict:
+    """gpt-oss sempre raciocina: usa o mínimo e não devolve o texto do raciocínio."""
+    if model.startswith("openai/gpt-oss"):
+        return {"reasoning_effort": GROQ_REASONING_EFFORT, "include_reasoning": False}
+    if model.startswith("qwen/qwen3"):
+        return {"reasoning_effort": "none"}
+    return {}
+
+
+def _eh_modelo_raciocinio(model: str) -> bool:
+    return model.startswith(("openai/gpt-oss", "qwen/qwen3"))
+
+
 def _chat_groq(
     user_prompt: str,
     *,
-    model: Optional[str] = None,
+    model: str,
     system_prompt: Optional[str] = None,
     temperature: float = 0.7,
     max_tokens: int = 300,
     json_mode: bool = False,
+    schema: dict | None = None,
 ) -> str:
     messages = []
     if system_prompt:
@@ -129,24 +186,52 @@ def _chat_groq(
     endpoint = f"{base}/chat/completions" if not base.endswith("/chat/completions") else base
 
     payload = {
-        "model": model or GROQ_MODEL,
+        "model": model,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        # max_tokens das tarefas = tamanho da RESPOSTA; o raciocínio ganha uma reserva própria.
+        "max_tokens": max_tokens + (LLM_RESERVA_RACIOCINIO if _eh_modelo_raciocinio(model) else 0),
+        **_parametros_raciocinio(model),
     }
-    if json_mode:
-        # Força JSON válido (dispensa o parse com regex e evita texto extra gastando tokens).
+    if schema:
+        # Saída estruturada estrita: o JSON sempre segue o schema (campos e valores permitidos).
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": schema["name"], "strict": True, "schema": schema["schema"]},
+        }
+    elif json_mode:
         payload["response_format"] = {"type": "json_object"}
 
+    inicio = time.perf_counter()
     response = _cliente_http().post(endpoint, headers=_headers_groq(), json=payload)
+    _registrar_limites(model, response)
+    if response.status_code == 429:
+        raise _CotaEsgotada(model)
     response.raise_for_status()
     data = response.json()
 
-    conteudo = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    escolha = (data.get("choices") or [{}])[0]
+    conteudo = (escolha.get("message") or {}).get("content") or ""
     if isinstance(conteudo, list):
-        partes = [item.get("text", "") for item in conteudo if isinstance(item, dict)]
-        conteudo = "".join(partes)
-    return str(conteudo).strip()
+        conteudo = "".join(item.get("text", "") for item in conteudo if isinstance(item, dict))
+    conteudo = str(conteudo).strip()
+
+    uso = data.get("usage") or {}
+    inc_counter(f"ia.{model}.chamadas")
+    inc_counter(f"ia.{model}.tokens", int(uso.get("total_tokens") or 0))
+    historico_uso.append({
+        "modelo": model,
+        "ms": round((time.perf_counter() - inicio) * 1000),
+        "prompt_tokens": uso.get("prompt_tokens"),
+        "completion_tokens": uso.get("completion_tokens"),
+        "reasoning_tokens": (uso.get("completion_tokens_details") or {}).get("reasoning_tokens"),
+        "finish_reason": escolha.get("finish_reason"),
+    })
+    del historico_uso[:-50]
+
+    if not conteudo and escolha.get("finish_reason") == "length":
+        raise _RespostaCortada(model)
+    return conteudo
 
 
 def _headers_openrouter() -> dict:
@@ -325,20 +410,31 @@ def conversar(
     temperature: float = 0.7,
     max_tokens: int = 300,
     json_mode: bool = False,
+    schema: dict | None = None,
 ) -> str:
-    if ativo == "groq":
-        model = GROQ_MODEL_FAST if task == "fast" else GROQ_MODEL
-        return _chat_groq(
+    """Chama a IA. Na Groq: usa o modelo da tarefa e, se a cota dele acabar, o outro (cotas separadas)."""
+    if ativo != "groq":
+        return _chat_openrouter(
             user_prompt,
-            model=model,
             system_prompt=system_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
-            json_mode=json_mode,
         )
-    return _chat_openrouter(
-        user_prompt,
-        system_prompt=system_prompt,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
+
+    preferido, alternativo = (GROQ_MODEL_FAST, GROQ_MODEL) if task == "fast" else (GROQ_MODEL, GROQ_MODEL_FAST)
+    modelos = [m for m in dict.fromkeys((preferido, alternativo)) if _modelo_liberado(m)]
+    if not modelos:
+        raise RuntimeError("cota gratuita da IA esgotada no momento; usando respostas locais")
+
+    kwargs = {"system_prompt": system_prompt, "temperature": temperature, "json_mode": json_mode, "schema": schema}
+    for model in modelos:
+        try:
+            try:
+                return _chat_groq(user_prompt, model=model, max_tokens=max_tokens, **kwargs)
+            except _RespostaCortada:
+                # Raciocínio mais longo que o previsto: uma nova tentativa com o dobro de espaço.
+                log.info("Resposta de %s cortada pelo limite de tokens; repetindo com mais espaço.", model)
+                return _chat_groq(user_prompt, model=model, max_tokens=max_tokens * 2 + LLM_RESERVA_RACIOCINIO, **kwargs)
+        except _CotaEsgotada:
+            continue
+    raise RuntimeError("cota gratuita da IA esgotada no momento; usando respostas locais")

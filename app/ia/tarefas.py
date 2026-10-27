@@ -25,6 +25,8 @@ from app.ia.prompts import (
     CHAT_PROMPT_DICA,
     CHAT_PROMPT_OBSERVACAO_RESUMO,
     CHAT_PROMPT_PLANEJAR_COMPRA,
+    SCHEMA_CATEGORIA,
+    SCHEMA_TITULO,
     SYSTEM_PROMPT_CHAT,
     TITLE_GENERATION_PROMPT,
     CATEGORIAS_PROMPT,
@@ -66,9 +68,12 @@ def categorizar_transacao(descricao: str) -> str:
             task="fast",
             temperature=0.0,
             max_tokens=LLM_MAX_TOKENS_CATEGORIZACAO,
-        ).lower()
-        # Remove aspas, pontuação
-        categoria = re.sub(r'["\'\.\!\?\,]', '', categoria).strip()
+            schema=SCHEMA_CATEGORIA,
+        )
+        # Groq devolve {"categoria": ...} (schema); outros provedores, o nome em texto.
+        dados = parse_json(categoria)
+        categoria = str(dados.get("categoria", "")) if dados else categoria
+        categoria = re.sub(r'["\'\.\!\?\,]', '', categoria.lower()).strip()
 
         # Valida se é uma categoria conhecida
         if categoria in CATEGORIAS_VALIDAS:
@@ -292,6 +297,7 @@ def gerar_titulo_canonico(mensagem: str, descricao: str = "", categoria: str = "
             temperature=0.0,
             max_tokens=LLM_MAX_TOKENS_TITULO,
             json_mode=True,
+            schema=SCHEMA_TITULO,
         )
 
         data = parse_json(bruto)

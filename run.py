@@ -5,6 +5,7 @@ Uso:
     python run.py              API FastAPI (padrão)
     python run.py telegram     Bot do Telegram (long polling)
     python run.py terminal     Simulador de conversa no terminal
+    python run.py ia           Diagnóstico da IA (testa cada tarefa e mostra tokens gastos)
 """
 import sys
 
@@ -24,6 +25,10 @@ def main() -> None:
         executar()
     elif modo == "terminal":
         from app.canais.terminal import executar
+
+        executar()
+    elif modo == "ia":
+        from app.ia.diagnostico import executar
 
         executar()
     else:

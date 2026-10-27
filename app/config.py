@@ -34,8 +34,13 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
 # Groq
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
-GROQ_MODEL_FAST = os.getenv("GROQ_MODEL_FAST", "llama-3.1-8b-instant")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+# Modelos de produção do plano gratuito (os Llama 3.x saíram do free tier em 16/08/2026).
+# Cada modelo tem cota própria; se a de um acabar, o app usa o outro.
+# (`or` faz uma variável vazia no .env, ex. "GROQ_MODEL=", cair no padrão.)
+GROQ_MODEL_FAST = os.getenv("GROQ_MODEL_FAST") or "openai/gpt-oss-20b"
+GROQ_MODEL = os.getenv("GROQ_MODEL") or "openai/gpt-oss-120b"
+# gpt-oss sempre raciocina: "low" é o mínimo aceito (menos tokens e latência).
+GROQ_REASONING_EFFORT = os.getenv("GROQ_REASONING_EFFORT") or "low"
 
 # OpenRouter
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
@@ -88,10 +93,13 @@ TITLE_CONFIRM_MIN_SCORE = float(os.getenv("TITLE_CONFIRM_MIN_SCORE", "0.73"))
 TITLE_CONFIRM_MIN_MARGIN = float(os.getenv("TITLE_CONFIRM_MIN_MARGIN", "0.10"))
 
 # --- LLM / Eficiência de tokens ---
-LLM_MAX_TOKENS_CATEGORIZACAO = int(os.getenv("LLM_MAX_TOKENS_CATEGORIZACAO", "16"))
+# LLM_MAX_TOKENS_* = tamanho da RESPOSTA de cada tarefa. Em modelos que raciocinam,
+# o raciocínio também consome tokens: esta reserva é somada ao limite de cada chamada.
+LLM_RESERVA_RACIOCINIO = int(os.getenv("LLM_RESERVA_RACIOCINIO", "384"))
+LLM_MAX_TOKENS_CATEGORIZACAO = int(os.getenv("LLM_MAX_TOKENS_CATEGORIZACAO", "24"))
 LLM_MAX_TOKENS_CHAT = int(os.getenv("LLM_MAX_TOKENS_CHAT", "96"))
-LLM_MAX_TOKENS_EXTRACAO = int(os.getenv("LLM_MAX_TOKENS_EXTRACAO", "120"))
-LLM_MAX_TOKENS_DICA = int(os.getenv("LLM_MAX_TOKENS_DICA", "180"))
+LLM_MAX_TOKENS_EXTRACAO = int(os.getenv("LLM_MAX_TOKENS_EXTRACAO", "160"))
+LLM_MAX_TOKENS_DICA = int(os.getenv("LLM_MAX_TOKENS_DICA", "220"))
 LLM_MAX_TOKENS_OBSERVACAO_RESUMO = int(os.getenv("LLM_MAX_TOKENS_OBSERVACAO_RESUMO", "128"))
 LLM_MAX_TOKENS_TITULO = int(os.getenv("LLM_MAX_TOKENS_TITULO", "56"))
 

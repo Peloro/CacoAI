@@ -6,7 +6,7 @@ import re
 import unicodedata
 
 from app.config import LLM_MAX_CHARS_MSG_EXTRACAO, LLM_MAX_TOKENS_EXTRACAO
-from app.ia.prompts import TRANSACTION_EXTRACTION_PROMPT, CATEGORIAS_PROMPT
+from app.ia.prompts import CATEGORIAS_PROMPT, SCHEMA_EXTRACAO, TRANSACTION_EXTRACTION_PROMPT
 from app.ia import provedores
 from app.ia.texto import compactar_texto, parse_json
 
@@ -275,6 +275,7 @@ def extrair_movimentacao_estruturada(mensagem: str) -> dict:
             temperature=0.0,
             max_tokens=LLM_MAX_TOKENS_EXTRACAO,
             json_mode=True,
+            schema=SCHEMA_EXTRACAO,
         )
 
         data = parse_json(bruto)
