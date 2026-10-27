@@ -294,6 +294,8 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
     if edit_cmd:
         movement_id = extract_movement_id(text)
         new_value = extract_new_edit_value(text, movement_id)
+        if movement_id is not None and value == movement_id:
+            value = None  # o número capturado era o ID, não um valor
         return {"intencao": "editar_movimentacao", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "id_movimentacao": movement_id, "novo_valor": new_value}
 
     if text_contains(text_lower, palavras_apagar):
@@ -325,7 +327,9 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
     if _RE_DICA_DIRETA.search(text_lower) or _RE_PEDIR_DICAS.search(text_lower):
         return {"intencao": "pedir_dica", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}
 
-    ask_list = bool(_RE_VER_MOSTRAR.search(text_lower)) and bool(_RE_CONTEXTO_LISTAGEM.search(text_lower))
+    ask_list = bool(
+        _RE_VER_MOSTRAR.search(text_lower) or _RE_PEDIDO_LISTAGEM_EXPLICITA.search(text_lower)
+    ) and bool(_RE_CONTEXTO_LISTAGEM.search(text_lower))
     ask_year_summary = bool(re.search(r"\b(?:como\s+foi|como\s+ta|como\s+est[aá]|quero\s+ver)\b.*\b(?:meu\s+ano|ano\s+passado|ano\s+anterior|anos\s+anteriores|20\d{2})\b", text_lower))
     if (
         text_contains(text_lower, palavras_resumo)

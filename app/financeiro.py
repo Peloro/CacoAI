@@ -14,32 +14,6 @@ def formatar_real(valor: float) -> str:
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def calcular_resumo_texto(usuario_id: int) -> str:
-    """Gera texto de resumo para incluir no contexto do LLM."""
-    resumo = resumo_mes(usuario_id)
-
-    entradas = resumo["entradas"]
-    saidas = resumo["saidas"]
-    saldo = resumo["saldo"]
-
-    # Texto das categorias
-    cats = resumo["categorias"]
-    if cats:
-        top_cats = ", ".join(
-            f"{cat} ({formatar_real(val)})" for cat, val in list(cats.items())[:4]
-        )
-    else:
-        top_cats = "nenhuma ainda"
-
-    return {
-        "entradas": entradas,
-        "saidas": saidas,
-        "saldo": saldo,
-        "categorias_top": top_cats,
-        "resumo_completo": resumo,
-    }
-
-
 def avaliar_gasto(usuario_id: int, valor_pretendido: float) -> dict:
     """
     Avalia se o usuário "pode" gastar determinado valor.

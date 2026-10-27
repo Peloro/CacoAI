@@ -24,8 +24,6 @@ def hash_password_legacy(password: str) -> str:
 
 def get_or_create_user(phone: str, name: Optional[str] = None) -> dict:
     phone_hash = hash_phone(phone)
-    phone_cipher = encrypt_text(phone)
-    name_cipher = encrypt_text(name or "") if name else None
 
     with db_connection() as conn:
         cur = conn.cursor()
@@ -38,23 +36,13 @@ def get_or_create_user(phone: str, name: Optional[str] = None) -> dict:
             data["nome"] = decrypt_text(data.get("nome") or "")
             return data
 
+        # Criptografa só no cadastro (antes rodava Fernet a cada mensagem).
         cur.execute(
             "INSERT INTO usuarios (telefone, telefone_hash, nome) VALUES (?, ?, ?)",
-            (phone_cipher, phone_hash, name_cipher),
+            (encrypt_text(phone), phone_hash, encrypt_text(name) if name else None),
         )
         conn.commit()
         return {"id": cur.lastrowid, "telefone": phone, "nome": name}
-
-
-def has_completed_registration(user_id: int) -> bool:
-    with db_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT nome, senha_hash FROM usuarios WHERE id = ?", (user_id,))
-        row = cur.fetchone()
-    if not row:
-        return False
-    nome = decrypt_text(row["nome"] or "")
-    return bool(nome and row["senha_hash"])
 
 
 def get_registration_step(user_id: int) -> Optional[str]:

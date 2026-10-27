@@ -1,21 +1,22 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
+
+
+@lru_cache(maxsize=256)
+def _compile_terms(words: tuple[str, ...]) -> re.Pattern[str] | None:
+    """Compila uma única regex com todos os termos (evita recompilar a cada chamada)."""
+    terms = sorted({w.strip().lower() for w in words if w.strip()}, key=len, reverse=True)
+    if not terms:
+        return None
+    return re.compile(r"(?<!\w)(?:" + "|".join(map(re.escape, terms)) + r")(?!\w)")
 
 
 def text_contains(text: str, words: list[str]) -> bool:
     """Verifica se alguma palavra/frase aparece no texto com fronteira de termo."""
-    text_lower = text.lower()
-
-    for word in words:
-        term = word.strip().lower()
-        if not term:
-            continue
-        pattern = r"(?<!\w)" + re.escape(term) + r"(?!\w)"
-        if re.search(pattern, text_lower):
-            return True
-
-    return False
+    pattern = _compile_terms(tuple(words))
+    return bool(pattern and pattern.search(text.lower()))
 
 
 def normalize_intent_text(text: str) -> str:

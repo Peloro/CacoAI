@@ -15,13 +15,17 @@ class ClearHandlerContext:
     totais_dividas_fn: Callable[[int, str | None], dict]
     month_name_fn: Callable[[str | None], str]
     format_currency_fn: Callable[[float], str]
-    set_pending_confirmation_fn: Callable[[int, tuple[str | None, str | None, str]], None]
+    set_pending_confirmation_fn: Callable[[int, dict], None]
 
 
 @dataclass(slots=True)
 class ClearHandlerState:
     user_id: int
     intent: str
+
+
+def _pending(clear_type: str | None, month_ref: str | None, clear_period: str) -> dict:
+    return {"tipo_limpar": clear_type, "mes_limpar": month_ref, "periodo_limpar": clear_period}
 
 
 class ClearHandler:
@@ -55,7 +59,7 @@ class ClearHandler:
             qty = int(totals.get("qtd_saidas", 0) or 0)
             if qty == 0:
                 return f"🤷 Você não tem nenhum gasto registrado{suffix}."
-            context.set_pending_confirmation_fn(state.user_id, ("saida", month_ref, clear_period))
+            context.set_pending_confirmation_fn(state.user_id, _pending("saida", month_ref, clear_period))
             return (
                 f"⚠️ *Tem certeza?*\n\n"
                 f"Isso vai apagar *{qty} gasto{'s' if qty > 1 else ''}* "
@@ -67,7 +71,7 @@ class ClearHandler:
             qty = int(totals.get("qtd_entradas", 0) or 0)
             if qty == 0:
                 return f"🤷 Você não tem nenhuma entrada registrada{suffix}."
-            context.set_pending_confirmation_fn(state.user_id, ("entrada", month_ref, clear_period))
+            context.set_pending_confirmation_fn(state.user_id, _pending("entrada", month_ref, clear_period))
             return (
                 f"⚠️ *Tem certeza?*\n\n"
                 f"Isso vai apagar *{qty} entrada{'s' if qty > 1 else ''}* "
@@ -83,7 +87,7 @@ class ClearHandler:
         if total_count == 0:
             return f"🤷 Você não tem nenhuma movimentação registrada{suffix}."
 
-        context.set_pending_confirmation_fn(state.user_id, (None, month_ref, clear_period))
+        context.set_pending_confirmation_fn(state.user_id, _pending(None, month_ref, clear_period))
         return (
             f"⚠️ *Tem certeza?*\n\n"
             f"Isso vai apagar *TODAS* as movimentações{suffix}:\n"

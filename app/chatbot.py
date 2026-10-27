@@ -31,17 +31,16 @@ import json
 import unicodedata
 from pathlib import Path
 from contextvars import ContextVar
+from functools import partial
 from uuid import uuid4
 from datetime import date, datetime
 from app.database import (
     get_or_create_user,
     registrar_movimentacao,
     resumo_mes,
-    apagar_ultima_movimentacao,
     listar_movimentacoes_recentes,
     apagar_movimentacao_por_id,
     obter_movimentacao_por_id,
-    atualizar_valor_movimentacao,
     atualizar_movimentacao_campos,
     registrar_divida,
     listar_dividas_recentes,
@@ -60,7 +59,6 @@ from app.database import (
     limpar_movimentacoes,
     totais_mes,
     # Auth
-    usuario_tem_cadastro,
     get_etapa_cadastro,
     set_etapa_cadastro,
     salvar_nome,
@@ -69,12 +67,11 @@ from app.database import (
     get_nome_usuario,
     # Sessões
     criar_sessao,
-    sessao_valida,
-    renovar_sessao,
+    renovar_sessao_se_valida,
     invalidar_sessao,
     # Estado conversacional persistido
     set_estado_conversa,
-    get_estado_conversa,
+    carregar_estados_conversa,
     clear_estado_conversa,
     clear_todos_estados_conversa,
     buscar_titulo_aprendido,
@@ -112,7 +109,7 @@ from app.input_guard import (
     validate_message_or_raise,
     validate_phone_or_raise,
 )
-from app.application.confirmation_state_machine import ConfirmationStateMachine
+from app.application.confirmation_state_machine import CANCEL_TOKENS, CONFIRM_TOKENS, ConfirmationStateMachine
 from app.application.pending_edit_service import apply_pending_operation_edit
 from app.application.intent_confirmation_service import IntentConfirmationService
 from app.application.handlers.query_handler import QueryHandler, QueryHandlerContext, QueryHandlerState
@@ -243,124 +240,53 @@ def _executar_operacao_mutavel(nome_operacao: str, fn, *args, **kwargs):
         _operation_id_ctx.set(op_id_anterior)
 
 
-def _set_estado_pendente_com_evento(
-    usuario_id: int,
-    payload: dict,
-    *,
-    store,
-    tipo_evento: str,
-    nome_evento: str,
-    usar_operation_id_payload: bool,
-) -> None:
-    final_payload = dict(payload or {})
-    if usar_operation_id_payload:
-        op_id = _definir_operation_id(final_payload.get("operation_id"))
-    else:
-        op_id = _definir_operation_id()
-    final_payload["operation_id"] = op_id
-    store[usuario_id] = final_payload
-    _emitir_evento(nome_evento, tipo=tipo_evento)
+_estados_ctx: ContextVar[tuple[int, dict[str, str]] | None] = ContextVar("estados_conversa", default=None)
 
 
-def _set_pendente_confirmacao_apagar(usuario_id: int, payload: dict) -> None:
-    _set_estado_pendente_com_evento(
-        usuario_id,
-        payload,
-        store=_pendente_confirmacao_apagar,
-        tipo_evento="apagar_movimentacao",
-        nome_evento="confirmacao_gerada",
-        usar_operation_id_payload=True,
-    )
-
-
-def _set_pendente_desambiguacao_apagar(usuario_id: int, payload: dict) -> None:
-    _set_estado_pendente_com_evento(
-        usuario_id,
-        payload,
-        store=_pendente_desambiguacao,
-        tipo_evento="apagar_movimentacao",
-        nome_evento="desambiguacao_acionada",
-        usar_operation_id_payload=True,
-    )
-
-
-def _set_pendente_desambiguacao_editar(usuario_id: int, payload: dict) -> None:
-    _set_estado_pendente_com_evento(
-        usuario_id,
-        payload,
-        store=_pendente_desambiguacao_editar,
-        tipo_evento="editar_movimentacao",
-        nome_evento="desambiguacao_acionada",
-        usar_operation_id_payload=True,
-    )
-
-
-def _set_pendente_confirmacao_limpar(usuario_id: int, payload: dict | tuple) -> None:
-    if isinstance(payload, dict):
-        final_payload = dict(payload)
-    else:
-        final_payload = {
-            "tipo_limpar": payload[0] if len(payload) > 0 else None,
-            "mes_limpar": payload[1] if len(payload) > 1 else None,
-            "periodo_limpar": payload[2] if len(payload) > 2 else "mes",
-        }
-    _set_estado_pendente_com_evento(
-        usuario_id,
-        final_payload,
-        store=_pendente_confirmacao_limpar,
-        tipo_evento="limpar_movimentacoes",
-        nome_evento="confirmacao_gerada",
-        usar_operation_id_payload=False,
-    )
-
-
-def _set_pendente_confirmacao_quitar(usuario_id: int, payload: dict) -> None:
-    _set_estado_pendente_com_evento(
-        usuario_id,
-        payload,
-        store=_pendente_confirmacao_quitar,
-        tipo_evento="quitar_dividas",
-        nome_evento="confirmacao_gerada",
-        usar_operation_id_payload=True,
-    )
+def _estados_do_usuario(usuario_id: int) -> dict[str, str]:
+    """Estados do usuário carregados uma única vez por mensagem ({chave: valor_json})."""
+    cache = _estados_ctx.get()
+    if cache is None or cache[0] != usuario_id:
+        cache = (usuario_id, carregar_estados_conversa(usuario_id))
+        _estados_ctx.set(cache)
+    return cache[1]
 
 
 class _EstadoMap:
-    """Map-like simples persistido em banco para estado conversacional por usuário."""
+    """Map-like persistido em banco para estado conversacional por usuário (lê do cache da mensagem)."""
 
     def __init__(self, chave: str):
         self._chave = chave
 
     def __contains__(self, usuario_id: int) -> bool:
-        return get_estado_conversa(usuario_id, self._chave) is not None
+        return self.get(usuario_id) is not None
 
     def __setitem__(self, usuario_id: int, valor) -> None:
         set_estado_conversa(usuario_id, self._chave, valor)
+        _estados_do_usuario(usuario_id)[self._chave] = json.dumps(valor, ensure_ascii=False)
+
+    set = __setitem__
 
     def get(self, usuario_id: int, default=None):
-        valor = get_estado_conversa(usuario_id, self._chave)
+        bruto = _estados_do_usuario(usuario_id).get(self._chave)
+        valor = json.loads(bruto) if bruto is not None else None
         return default if valor is None else valor
 
     def pop(self, usuario_id: int, default=None):
-        valor = get_estado_conversa(usuario_id, self._chave)
-        clear_estado_conversa(usuario_id, self._chave)
+        valor = self.get(usuario_id)
+        if _estados_do_usuario(usuario_id).pop(self._chave, None) is not None:
+            clear_estado_conversa(usuario_id, self._chave)
         return default if valor is None else valor
 
 
-class _EstadoSet:
+class _EstadoSet(_EstadoMap):
     """Set-like persistido em banco para flags booleanas por usuário."""
 
-    def __init__(self, chave: str):
-        self._chave = chave
-
-    def __contains__(self, usuario_id: int) -> bool:
-        return get_estado_conversa(usuario_id, self._chave) is not None
-
     def add(self, usuario_id: int) -> None:
-        set_estado_conversa(usuario_id, self._chave, True)
+        self[usuario_id] = True
 
     def discard(self, usuario_id: int) -> None:
-        clear_estado_conversa(usuario_id, self._chave)
+        self.pop(usuario_id)
 
 
 # Estados pendentes persistidos (sobrevivem reinício e múltiplos workers).
@@ -368,13 +294,10 @@ _senha_temporaria = _EstadoMap("senha_temporaria")
 _pendente_desambiguacao = _EstadoMap("pendente_desambiguacao")
 _pendente_desambiguacao_editar = _EstadoMap("pendente_desambiguacao_editar")
 _pendente_confirmacao_apagar = _EstadoMap("pendente_confirmacao_apagar")
-_pendente_confirmacao_editar = _EstadoMap("pendente_confirmacao_editar")
 _pendente_confirmacao_limpar = _EstadoMap("pendente_confirmacao_limpar")
 _pendente_confirmacao_quitar = _EstadoMap("pendente_confirmacao_quitar")
-_pendente_valor_registro = _EstadoMap("pendente_valor_registro")
 _pendente_confirmacao_intencao = _EstadoMap("pendente_confirmacao_intencao")
 _pendente_confirmacao_operacao = _EstadoMap("pendente_confirmacao_operacao")
-_pendente_descricao_registro = _EstadoMap("pendente_descricao_registro")
 _pendente_registro_guiado = _EstadoMap("pendente_registro_guiado")
 _pendente_pagamento_divida = _EstadoMap("pendente_pagamento_divida")
 _pendente_desambiguacao_categoria = _EstadoMap("pendente_desambiguacao_categoria")
@@ -382,36 +305,36 @@ _aguardando_senha_login = _EstadoSet("aguardando_senha_login")
 _ultimo_registro = _EstadoMap("ultimo_registro")
 
 
-class _PendingOperationStoreAdapter:
-    """Adapter simples para state machine usar o estado persistido existente."""
-
-    def get(self, user_id: int) -> dict | None:
-        return _pendente_confirmacao_operacao.get(user_id)
-
-    def set(self, user_id: int, value: dict) -> None:
-        _pendente_confirmacao_operacao[user_id] = value
-
-    def pop(self, user_id: int) -> dict | None:
-        return _pendente_confirmacao_operacao.pop(user_id, None)
-
-
-_confirmacao_operacao_state_machine = ConfirmationStateMachine(_PendingOperationStoreAdapter())
-
-
-class _PendingIntentStoreAdapter:
-    """Adapter para confirmação de intenção ambígua usando estado persistido atual."""
-
-    def get(self, user_id: int) -> dict | None:
-        return _pendente_confirmacao_intencao.get(user_id)
-
-    def set(self, user_id: int, value: dict) -> None:
-        _pendente_confirmacao_intencao[user_id] = value
-
-    def pop(self, user_id: int) -> dict | None:
-        return _pendente_confirmacao_intencao.pop(user_id, None)
+def _set_pendente(
+    store: _EstadoMap,
+    usuario_id: int,
+    payload: dict,
+    *,
+    tipo_evento: str,
+    nome_evento: str = "confirmacao_gerada",
+) -> None:
+    """Grava estado pendente com operation_id e emite evento de rastreio."""
+    final_payload = dict(payload or {})
+    final_payload["operation_id"] = _definir_operation_id(final_payload.get("operation_id"))
+    store[usuario_id] = final_payload
+    _emitir_evento(nome_evento, tipo=tipo_evento)
 
 
-_confirmacao_intencao_service = IntentConfirmationService(_PendingIntentStoreAdapter())
+_set_pendente_confirmacao_apagar = partial(_set_pendente, _pendente_confirmacao_apagar, tipo_evento="apagar_movimentacao")
+_set_pendente_desambiguacao_apagar = partial(
+    _set_pendente, _pendente_desambiguacao, tipo_evento="apagar_movimentacao", nome_evento="desambiguacao_acionada"
+)
+_set_pendente_desambiguacao_editar = partial(
+    _set_pendente, _pendente_desambiguacao_editar, tipo_evento="editar_movimentacao", nome_evento="desambiguacao_acionada"
+)
+_set_pendente_confirmacao_limpar = partial(_set_pendente, _pendente_confirmacao_limpar, tipo_evento="limpar_movimentacoes")
+_set_pendente_confirmacao_quitar = partial(_set_pendente, _pendente_confirmacao_quitar, tipo_evento="quitar_dividas")
+
+# Em listas de escolha, "0"/"nenhum" também cancelam.
+_CANCEL_LISTA = CANCEL_TOKENS | {"0", "nenhum", "nenhuma"}
+
+_confirmacao_operacao_state_machine = ConfirmationStateMachine(_pendente_confirmacao_operacao)
+_confirmacao_intencao_service = IntentConfirmationService(_pendente_confirmacao_intencao)
 _query_handler = QueryHandler()
 _register_handler = RegisterHandler()
 _clear_handler = ClearHandler()
@@ -428,6 +351,24 @@ _operation_router = OperationRouter(
     finance_handler=_finance_handler,
     undo_handler=_undo_handler,
 )
+
+_INTENCOES_REGISTRO = frozenset({"registrar_entrada", "registrar_saida", "registrar_divida"})
+_INTENCOES_MUTAVEIS = _INTENCOES_REGISTRO | {
+    "registrar_saldo_inicial",
+    "apagar_movimentacao",
+    "editar_movimentacao",
+    "limpar_movimentacoes",
+    "pagar_divida",
+    "quitar_dividas",
+    "desfazer_ultimo",
+}
+# Estas já têm confirmação própria (e mais informativa) nos handlers; evita perguntar duas vezes.
+_INTENCOES_COM_CONFIRMACAO = _INTENCOES_MUTAVEIS - {
+    "editar_movimentacao",
+    "quitar_dividas",
+    "apagar_movimentacao",
+    "limpar_movimentacoes",
+}
 
 # Nomes de meses para respostas amigáveis
 _NOMES_MES = {
@@ -1337,55 +1278,6 @@ def _processar_fluxo_titulo_ou_registro(
     return _executar_registro_por_payload(usuario_id, payload)
 
 
-def _processar_desfazer_ultimo(usuario_id: int) -> str:
-    """Desfaz o último registro criado pelo bot dentro da janela configurada."""
-    ult = _ultimo_registro.get(usuario_id)
-    if not ult:
-        return "Não encontrei nenhum registro recente para desfazer."
-
-    ts = float(ult.get("ts", 0.0) or 0.0)
-    if ts <= 0 or (time.time() - ts) > max(1, UNDO_WINDOW_SECONDS):
-        _ultimo_registro.pop(usuario_id, None)
-        return f"Janela de desfazer expirou (>{UNDO_WINDOW_SECONDS}s)."
-
-    reg_id = int(ult.get("id", 0) or 0)
-    tipo_registro = (ult.get("tipo_registro") or "").strip().lower()
-    if reg_id <= 0 or tipo_registro not in {"movimentacao", "divida"}:
-        _ultimo_registro.pop(usuario_id, None)
-        return "Não consegui identificar o último registro para desfazer."
-
-    if tipo_registro == "movimentacao":
-        apagada = _executar_operacao_mutavel(
-            "desfazer_movimentacao",
-            apagar_movimentacao_por_id,
-            usuario_id,
-            reg_id,
-        )
-        _ultimo_registro.pop(usuario_id, None)
-        if not apagada:
-            return "Esse registro já não está mais disponível para desfazer."
-        return (
-            "↩️ Desfiz o último lançamento.\n"
-            f"🧾 {apagada.get('descricao') or apagada.get('categoria') or 'Movimentação'} — "
-            f"{formatar_real(float(apagada.get('valor') or 0.0))}"
-        )
-
-    apagada_div = _executar_operacao_mutavel(
-        "desfazer_divida",
-        apagar_divida_por_id,
-        usuario_id,
-        reg_id,
-    )
-    _ultimo_registro.pop(usuario_id, None)
-    if not apagada_div:
-        return "Essa dívida já não está mais disponível para desfazer."
-    return (
-        "↩️ Desfiz a última dívida registrada.\n"
-        f"🧾 {apagada_div.get('descricao') or 'Dívida'} — "
-        f"{formatar_real(float(apagada_div.get('valor') or 0.0))}"
-    )
-
-
 def _normalizar_credor_texto(credor: str) -> str:
     """Normaliza credor para no máximo 4 palavras e sem prefixos genéricos."""
     texto = (credor or "").strip()
@@ -1435,7 +1327,7 @@ def _deve_forcar_extracao_ia(mensagem: str, parsed: dict) -> bool:
 
     tem_valor = bool(parsed.get("valor"))
     parece_financeiro = bool(_RE_TERMO_FINANCEIRO.search(texto_lower))
-    candidato_registro = intencao in {"registrar_entrada", "registrar_saida", "registrar_divida"}
+    candidato_registro = intencao in _INTENCOES_REGISTRO
 
     # Caso clássico ambíguo: o parser não bateu em intenção de registro,
     # mas a mensagem tem cara financeira (com valor ou com termos financeiros).
@@ -1564,19 +1456,7 @@ def _calcular_confianca_intencao(mensagem: str, parsed: dict) -> dict:
 def _deve_confirmar_intencao(parsed: dict, confianca: dict) -> bool:
     """Confirma com o usuário quando a classificação é ambígua em operações."""
     intencao = parsed.get("intencao", "")
-    intencoes_mutaveis = {
-        "registrar_entrada",
-        "registrar_saida",
-        "registrar_divida",
-        "registrar_saldo_inicial",
-        "apagar_movimentacao",
-        "editar_movimentacao",
-        "limpar_movimentacoes",
-        "pagar_divida",
-        "quitar_dividas",
-        "desfazer_ultimo",
-    }
-    if intencao not in intencoes_mutaveis:
+    if intencao not in _INTENCOES_MUTAVEIS:
         return False
 
     top_score = float(confianca.get("top_score", 0.0) or 0.0)
@@ -1587,7 +1467,7 @@ def _deve_confirmar_intencao(parsed: dict, confianca: dict) -> bool:
     # Gate configurável via .env para calibrar rigor por ambiente.
     if top_score < INTENT_CONFIRM_MIN_SCORE:
         return True
-    if segunda in intencoes_mutaveis and margem < INTENT_CONFIRM_MIN_MARGIN:
+    if segunda in _INTENCOES_MUTAVEIS and margem < INTENT_CONFIRM_MIN_MARGIN:
         return True
     return False
 
@@ -1600,19 +1480,6 @@ def _montar_pergunta_confirmacao_intencao(op1: str, op2: str) -> str:
         f"*2.* {_rotulo_intencao(op2)}\n\n"
         "Responde com *1* ou *2* (ou *cancelar*)."
     )
-
-
-def _intencao_exige_confirmacao_operacao(intencao: str) -> bool:
-    return intencao in {
-        "registrar_entrada",
-        "registrar_saida",
-        "registrar_divida",
-        "registrar_saldo_inicial",
-        "apagar_movimentacao",
-        "limpar_movimentacoes",
-        "pagar_divida",
-        "desfazer_ultimo",
-    }
 
 
 def _montar_especificacoes_operacao(parsed: dict) -> str:
@@ -1758,7 +1625,7 @@ def _enriquecer_preview_operacao(usuario_id: int, parsed_base: dict) -> dict:
         parsed["_titulo_preview"] = descricao
         return parsed
 
-    if intencao in {"registrar_entrada", "registrar_saida", "registrar_divida"} and descricao:
+    if intencao in _INTENCOES_REGISTRO and descricao:
         mensagem_original = parsed.get("_mensagem_original") or descricao
         sugestao = _sugerir_titulo_registro(
             usuario_id=usuario_id,
@@ -1779,18 +1646,7 @@ def _enriquecer_preview_operacao(usuario_id: int, parsed_base: dict) -> dict:
 
 
 def _intencao_e_operacao(intencao: str) -> bool:
-    return intencao in {
-        "registrar_entrada",
-        "registrar_saida",
-        "registrar_divida",
-        "registrar_saldo_inicial",
-        "apagar_movimentacao",
-        "editar_movimentacao",
-        "limpar_movimentacoes",
-        "pagar_divida",
-        "quitar_dividas",
-        "desfazer_ultimo",
-    }
+    return intencao in _INTENCOES_MUTAVEIS
 
 
 def _aplicar_edicao_operacao_pendente(parsed_base: dict, mensagem: str) -> tuple[dict, list[str]]:
@@ -1810,7 +1666,7 @@ def _aplicar_edicao_operacao_pendente(parsed_base: dict, mensagem: str) -> tuple
     )
 
 
-def _resolver_confirmacao_operacao(usuario_id: int, mensagem: str) -> tuple[dict | None, str | None]:
+def _resolver_confirmacao_operacao(usuario_id: int, mensagem: str) -> tuple[dict | None, str | None, bool]:
     resultado = _confirmacao_operacao_state_machine.resolve(
         user_id=usuario_id,
         message=mensagem,
@@ -1818,7 +1674,7 @@ def _resolver_confirmacao_operacao(usuario_id: int, mensagem: str) -> tuple[dict
         preview_fn=_enriquecer_preview_operacao,
         render_confirmation_prompt_fn=_montar_pergunta_confirmacao_operacao,
     )
-    return resultado.parsed, resultado.reply
+    return resultado.parsed, resultado.reply, resultado.nao_entendeu
 
 
 def _tem_confirmacao_operacao_pendente(usuario_id: int) -> bool:
@@ -1836,14 +1692,14 @@ def _iniciar_confirmacao_operacao(usuario_id: int, parsed: dict, veio_desambigua
     _emitir_evento("confirmacao_gerada", tipo="operacao_mutavel", intencao=parsed.get("intencao"))
 
 
-def _resolver_confirmacao_intencao(usuario_id: int, mensagem: str) -> tuple[dict | None, str | None]:
+def _resolver_confirmacao_intencao(usuario_id: int, mensagem: str) -> tuple[dict | None, str | None, bool]:
     """Processa escolha da desambiguação de intenção pendente."""
     resultado = _confirmacao_intencao_service.resolve(
         user_id=usuario_id,
         message=mensagem,
         intent_label_fn=_rotulo_intencao,
     )
-    return resultado.parsed, resultado.reply
+    return resultado.parsed, resultado.reply, resultado.nao_entendeu
 
 
 def _tem_confirmacao_intencao_pendente(usuario_id: int) -> bool:
@@ -2047,6 +1903,7 @@ def processar_mensagem(telefone: str, mensagem: str, trace_id: str | None = None
     _fallback_acionado_ctx.set(False)
     _trace_id_ctx.set((trace_id or "").strip() or _new_trace_id())
     _operation_id_ctx.set("")
+    _estados_ctx.set(None)
     resposta = ""
     erro_msg: str | None = None
     inicio = time.perf_counter()
@@ -2067,16 +1924,14 @@ def processar_mensagem(telefone: str, mensagem: str, trace_id: str | None = None
         usuario_id = usuario["id"]
 
         # 1. Fluxo de cadastro (primeiro acesso)
-        if not usuario_tem_cadastro(usuario_id):
+        if not (usuario.get("nome") and usuario.get("senha_hash")):
             resposta = _fluxo_cadastro(usuario_id, mensagem)
 
-        # 2. Verifica sessão (expira em 1h)
-        elif not sessao_valida(usuario_id):
+        # 2. Sessão expirada (1h) → pede senha; válida → renova e processa normalmente
+        elif not renovar_sessao_se_valida(usuario_id):
             resposta = _fluxo_login(usuario_id, mensagem)
 
-        # 3. Sessão válida → renova e processa normalmente
         else:
-            renovar_sessao(usuario_id)
             resposta = _processar_mensagem_interna(usuario_id, mensagem)
             aplicar_hint_ajuda = True
 
@@ -2112,32 +1967,6 @@ def processar_mensagem(telefone: str, mensagem: str, trace_id: str | None = None
     if _DELAY_LOCAL_SECONDS > 0:
         time.sleep(_DELAY_LOCAL_SECONDS)
     return resposta
-
-
-def prever_titulo_lancamento(mensagem: str) -> dict:
-    """Retorna sugestao de titulo canônico para avaliações offline."""
-    parsed = detectar_intencao(mensagem)
-    intencao = parsed.get("intencao") or "registrar_saida"
-    if intencao not in {"registrar_entrada", "registrar_saida", "registrar_divida"}:
-        intencao = "registrar_saida"
-
-    descricao = _normalizar_descricao_registro(parsed.get("descricao") or "")
-    categoria = parsed.get("categoria_regra")
-    sugestao = _sugerir_titulo_registro(
-        usuario_id=0,
-        mensagem_original=mensagem,
-        intencao=intencao,
-        descricao=descricao,
-        categoria=categoria,
-        credor=parsed.get("credor_divida") or "",
-    )
-
-    return {
-        "intencao": intencao,
-        "titulo": sugestao.get("titulo") or "",
-        "score": float(sugestao.get("score", 0.0) or 0.0),
-        "fonte": sugestao.get("fonte") or "local",
-    }
 
 
 def _montar_contexto_observacao_resumo(
@@ -2308,6 +2137,14 @@ def _fluxo_login(usuario_id: int, mensagem: str) -> str:
         return "❌ Senha incorreta. Tenta de novo:\n\n🔒 *Digite sua senha:*"
 
 
+_AVISO_PENDENCIA_DESCARTADA = "↪️ Deixei de lado a confirmação anterior.\n\n"
+
+
+def _e_comando_novo(mensagem: str) -> bool:
+    """Mensagem reconhecida como comando (não é resposta solta a uma pergunta pendente)."""
+    return detectar_intencao(mensagem).get("intencao") != "conversa_geral"
+
+
 def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     """Lógica interna do pipeline. Erros são capturados por processar_mensagem."""
 
@@ -2321,6 +2158,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     if msg_lower in ("sair", "logout", "bloquear", "trancar", "encerrar sessão",
                      "encerrar sessao", "travar"):
         clear_todos_estados_conversa(usuario_id)
+        _estados_do_usuario(usuario_id).clear()
         invalidar_sessao(usuario_id)
         nome = get_nome_usuario(usuario_id) or "amigo"
         return (
@@ -2339,7 +2177,10 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     mes_ref = None
 
     if _tem_confirmacao_intencao_pendente(usuario_id):
-        parsed_confirmado, resposta_confirmacao = _resolver_confirmacao_intencao(usuario_id, mensagem)
+        parsed_confirmado, resposta_confirmacao, nao_entendeu = _resolver_confirmacao_intencao(usuario_id, mensagem)
+        if nao_entendeu and _e_comando_novo(mensagem):
+            _pendente_confirmacao_intencao.pop(usuario_id, None)
+            return _AVISO_PENDENCIA_DESCARTADA + _processar_mensagem_interna(usuario_id, mensagem)
         if resposta_confirmacao:
             return resposta_confirmacao
         if parsed_confirmado:
@@ -2352,7 +2193,10 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             mes_ref = parsed.get("mes_referencia")
 
     if _tem_confirmacao_operacao_pendente(usuario_id):
-        parsed_confirmado, resposta_confirmacao = _resolver_confirmacao_operacao(usuario_id, mensagem)
+        parsed_confirmado, resposta_confirmacao, nao_entendeu = _resolver_confirmacao_operacao(usuario_id, mensagem)
+        if nao_entendeu and _e_comando_novo(mensagem):
+            _pendente_confirmacao_operacao.pop(usuario_id, None)
+            return _AVISO_PENDENCIA_DESCARTADA + _processar_mensagem_interna(usuario_id, mensagem)
         if resposta_confirmacao:
             return resposta_confirmacao
         if parsed_confirmado:
@@ -2380,10 +2224,6 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     if usuario_id in _pendente_confirmacao_apagar:
         return _processar_confirmacao_apagar(usuario_id, mensagem)
 
-    # --- Verifica se há confirmação pendente de editar ---
-    if usuario_id in _pendente_confirmacao_editar:
-        return _processar_confirmacao_editar(usuario_id, mensagem)
-
     # --- Verifica se há confirmação pendente de limpeza ---
     if usuario_id in _pendente_confirmacao_limpar:
         return _processar_confirmacao_limpar(usuario_id, mensagem)
@@ -2404,13 +2244,9 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     if tipo_fluxo_guiado:
         return _iniciar_fluxo_registro_guiado(usuario_id, tipo_fluxo_guiado, mensagem)
 
-    # --- Verifica se ficou faltando apenas o valor de um lançamento ---
-    if usuario_id in _pendente_valor_registro:
-        _pendente_valor_registro.pop(usuario_id, None)
-
-    # --- Verifica se faltou descrição de um lançamento ---
-    if usuario_id in _pendente_descricao_registro:
-        _pendente_descricao_registro.pop(usuario_id, None)
+    # "cancelar" solto sem nada pendente não deve virar pedido de apagar.
+    if msg_lower in CANCEL_TOKENS:
+        return "Beleza, não tem nada pendente pra cancelar. 👍"
 
     # Evita executar mensagens com múltiplos comandos na mesma frase.
     if _detectar_multiplos_comandos(mensagem):
@@ -2550,7 +2386,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             )
 
     # Registros incompletos agora entram no fluxo guiado (sem pendências legadas).
-    if intencao in {"registrar_entrada", "registrar_saida", "registrar_divida"}:
+    if intencao in _INTENCOES_REGISTRO:
         credor_divida = (parsed.get("credor_divida") or "").strip()
         faltou_valor = not valor or float(valor) <= 0
         faltou_descricao = _descricao_insuficiente_para_registro(descricao)
@@ -2581,7 +2417,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
 
     # Blocos legados de pendência de descrição foram substituídos pelo fluxo guiado.
 
-    if (not confirmou_operacao_manual) and _intencao_exige_confirmacao_operacao(intencao):
+    if (not confirmou_operacao_manual) and intencao in _INTENCOES_COM_CONFIRMACAO:
         parsed = _enriquecer_preview_operacao(usuario_id, parsed)
         _iniciar_confirmacao_operacao(
             usuario_id,
@@ -2836,8 +2672,7 @@ def _processar_desambiguacao(usuario_id: int, mensagem: str) -> str:
         return "Ops, perdi o contexto. 😅 Me diz de novo o que quer apagar!"
 
     # Cancelar
-    if texto in ("cancelar", "cancela", "nao", "não", "deixa", "esquece",
-                 "nenhum", "nenhuma", "nada", "0"):
+    if texto in _CANCEL_LISTA:
         _pendente_desambiguacao.pop(usuario_id, None)
         return "Ok, não apaguei nada! 👍"
 
@@ -2868,7 +2703,7 @@ def _processar_desambiguacao_categoria(usuario_id: int, mensagem: str) -> str:
         return "Ops, perdi o contexto. Me pede a categoria de novo."
 
     texto = (mensagem or "").strip().lower()
-    if texto in ("cancelar", "cancela", "nao", "não", "deixa", "esquece", "0"):
+    if texto in _CANCEL_LISTA:
         _pendente_desambiguacao_categoria.pop(usuario_id, None)
         return "Beleza, cancelei a consulta dessa categoria."
 
@@ -2910,7 +2745,7 @@ def _processar_confirmacao_apagar(usuario_id: int, mensagem: str) -> str:
     """Confirma deleção de uma movimentação específica já selecionada."""
     texto = mensagem.strip().lower()
 
-    if texto in ("sim", "s", "confirmar", "confirma", "pode", "vai", "ok", "beleza"):
+    if texto in CONFIRM_TOKENS:
         pendente = _pendente_confirmacao_apagar.pop(usuario_id, None)
         if not pendente:
             return "Ops, perdi o contexto. Me diz de novo o que quer apagar."
@@ -2944,7 +2779,7 @@ def _processar_confirmacao_apagar(usuario_id: int, mensagem: str) -> str:
             )
         return gerar_resposta_apagar_com_id(apagada)
 
-    if texto in ("nao", "não", "n", "cancelar", "cancela", "deixa", "esquece"):
+    if texto in CANCEL_TOKENS:
         _pendente_confirmacao_apagar.pop(usuario_id, None)
         return "Ok, não apaguei nada! 👍"
 
@@ -2963,7 +2798,7 @@ def _processar_desambiguacao_editar(usuario_id: int, mensagem: str) -> str:
     parsed_base = dict(pendente.get("parsed_base") or {})
     veio_desambiguacao = bool(pendente.get("veio_desambiguacao"))
 
-    if texto in ("cancelar", "cancela", "nao", "não", "deixa", "esquece", "0"):
+    if texto in _CANCEL_LISTA:
         _pendente_desambiguacao_editar.pop(usuario_id, None)
         return "Ok, não editei nada! 👍"
 
@@ -2974,11 +2809,9 @@ def _processar_desambiguacao_editar(usuario_id: int, mensagem: str) -> str:
         parsed_base["_editar_tipo_registro"] = mov.get("_tipo_registro", "movimentacao")
         if not parsed_base.get("data"):
             parsed_base["data"] = mov.get("data_ref")
-        if not parsed_base.get("valor") and mov.get("valor") is not None:
-            try:
-                parsed_base["valor"] = float(mov.get("valor"))
-            except Exception:
-                pass
+        # "Valor atual" e título partem do lançamento escolhido (como no EditHandler).
+        parsed_base["valor"] = float(mov.get("valor") or 0.0)
+        parsed_base["descricao"] = (mov.get("descricao") or "").strip()
         if parsed_base.get("_editar_tipo_registro") == "divida":
             if not parsed_base.get("credor_divida") and mov.get("credor"):
                 parsed_base["credor_divida"] = _normalizar_credor_texto(mov.get("credor") or "")
@@ -3005,57 +2838,6 @@ def _processar_desambiguacao_editar(usuario_id: int, mensagem: str) -> str:
     return "Manda o *número*, *#ID*, *data* (24/03) ou *valor* (300), ou *cancelar*."
 
 
-def _processar_confirmacao_editar(usuario_id: int, mensagem: str) -> str:
-    """Confirma atualização de valor de uma movimentação."""
-    texto = mensagem.strip().lower()
-
-    if texto in ("sim", "s", "confirmar", "confirma", "pode", "vai", "ok", "beleza"):
-        pendente = _pendente_confirmacao_editar.pop(usuario_id, None)
-        if not pendente:
-            return "Ops, perdi o contexto. Me diz de novo qual edição você quer fazer."
-
-        _definir_operation_id(pendente.get("operation_id"))
-
-        mov = pendente["movimentacao"]
-        novo_valor = float(pendente["novo_valor"])
-        tipo_registro = pendente.get("tipo_registro", "movimentacao")
-
-        if tipo_registro == "divida":
-            atualizada = _executar_operacao_mutavel(
-                "editar_valor_divida",
-                atualizar_valor_divida,
-                usuario_id,
-                mov["id"],
-                novo_valor,
-            )
-            if not atualizada:
-                return (
-                    "🤷 Não consegui editar a dívida. Ela pode não existir mais.\n"
-                    "💡 Use *listar dívidas* para confirmar o ID antes de editar."
-                )
-            return _montar_resposta_edicao(atualizada, "divida")
-
-        atualizada = _executar_operacao_mutavel(
-            "editar_valor_movimentacao",
-            atualizar_valor_movimentacao,
-            usuario_id,
-            mov["id"],
-            novo_valor,
-        )
-        if not atualizada:
-            return (
-                "🤷 Não consegui editar. Essa movimentação pode não existir mais.\n"
-                "💡 Use *listar movimentações* para confirmar o ID antes de editar."
-            )
-        return _montar_resposta_edicao(atualizada, "movimentacao")
-
-    if texto in ("nao", "não", "n", "cancelar", "cancela", "deixa", "esquece"):
-        _pendente_confirmacao_editar.pop(usuario_id, None)
-        return "Ok, não editei nada! 👍"
-
-    return "Manda *sim* pra confirmar a edição ou *não* pra cancelar."
-
-
 # ---------------------------------------------------------------------------
 # Confirmação de limpeza de movimentações
 # ---------------------------------------------------------------------------
@@ -3063,34 +2845,25 @@ def _processar_confirmacao_editar(usuario_id: int, mensagem: str) -> str:
 def _processar_confirmacao_limpar(usuario_id: int, mensagem: str) -> str:
     """
     Processa a resposta do usuário quando há confirmação pendente de limpeza.
-    Aceita 'sim' para confirmar ou 'não' para cancelar.
+    Aceita 'sim' (ou repetir o comando de limpar) para confirmar ou 'não' para cancelar.
     """
     texto = (mensagem or "").strip().lower()
     confirma_por_comando = bool(
         re.search(
             r'\b(?:limpar|limpa|limpe|apagar|apaga|apague|remover|remove|remova|excluir|exclui|exclua|deletar|deleta|delete|zerar|zera)\b',
             texto,
-            flags=re.IGNORECASE,
         )
     )
 
-    # Confirmar
-    if texto in ("sim", "s", "confirmar", "confirma", "pode", "vai", "manda",
-                 "bora", "isso", "confirmo", "yes", "ok", "beleza"):
+    if texto in CONFIRM_TOKENS or confirma_por_comando:
         pendente = _pendente_confirmacao_limpar.pop(usuario_id, None)
         if pendente is None:
             return "Ops, perdi o contexto. 😅 Me diz de novo o que quer limpar!"
 
-        if isinstance(pendente, dict):
-            _definir_operation_id(pendente.get("operation_id"))
-            tipo_limpar = pendente.get("tipo_limpar")
-            mes_limpar = pendente.get("mes_limpar")
-            periodo_limpar = pendente.get("periodo_limpar") or "mes"
-        elif isinstance(pendente, (list, tuple)) and len(pendente) >= 3:
-            tipo_limpar, mes_limpar, periodo_limpar = pendente[0], pendente[1], pendente[2]
-        else:
-            tipo_limpar, mes_limpar = pendente
-            periodo_limpar = "mes"
+        _definir_operation_id(pendente.get("operation_id"))
+        tipo_limpar = pendente.get("tipo_limpar")
+        mes_limpar = pendente.get("mes_limpar")
+        periodo_limpar = pendente.get("periodo_limpar") or "mes"
         apagados = _executar_operacao_mutavel(
             "limpar_movimentacoes",
             limpar_movimentacoes,
@@ -3098,9 +2871,8 @@ def _processar_confirmacao_limpar(usuario_id: int, mensagem: str) -> str:
             tipo=tipo_limpar,
             ano_mes=mes_limpar,
         )
-        apagados_dividas = 0
         if tipo_limpar is None:
-            apagados_dividas = _executar_operacao_mutavel(
+            apagados += _executar_operacao_mutavel(
                 "limpar_dividas",
                 limpar_dividas,
                 usuario_id,
@@ -3109,91 +2881,24 @@ def _processar_confirmacao_limpar(usuario_id: int, mensagem: str) -> str:
         if periodo_limpar == "tudo":
             sufixo = " de *todo o histórico*"
         elif periodo_limpar == "ano":
-            ano_label = (mes_limpar or str(date.today().year))
-            sufixo = f" de *{ano_label}*"
+            sufixo = f" de *{mes_limpar or date.today().year}*"
         else:
-            label = _nome_mes(mes_limpar)
-            sufixo = f" de *{label}*" if mes_limpar else " deste mês"
+            sufixo = f" de *{_nome_mes(mes_limpar)}*" if mes_limpar else " deste mês"
 
+        plural = apagados > 1
         if tipo_limpar == "saida":
-            return (
-                f"🗑️ Pronto! Apaguei *{apagados} gasto{'s' if apagados > 1 else ''}*{sufixo}.\n"
-                f"✅ Seu saldo foi atualizado."
-            )
-        elif tipo_limpar == "entrada":
-            return (
-                f"🗑️ Pronto! Apaguei *{apagados} entrada{'s' if apagados > 1 else ''}*{sufixo}.\n"
-                f"✅ Seu saldo foi atualizado."
-            )
-        else:
-            return (
-                f"🗑️ Pronto! Apaguei *{apagados + apagados_dividas} movimentação{'ões' if (apagados + apagados_dividas) > 1 else ''}*{sufixo}.\n"
-                f"🔄 Tudo zerado. Bora recomeçar!"
-            )
-
-    # Quando já existe pendência de limpeza, repetir o comando também confirma.
-    if confirma_por_comando:
-        pendente = _pendente_confirmacao_limpar.pop(usuario_id, None)
-        if pendente is None:
-            return "Ops, perdi o contexto. 😅 Me diz de novo o que quer limpar!"
-
-        if isinstance(pendente, dict):
-            _definir_operation_id(pendente.get("operation_id"))
-            tipo_limpar = pendente.get("tipo_limpar")
-            mes_limpar = pendente.get("mes_limpar")
-            periodo_limpar = pendente.get("periodo_limpar") or "mes"
-        elif isinstance(pendente, (list, tuple)) and len(pendente) >= 3:
-            tipo_limpar, mes_limpar, periodo_limpar = pendente[0], pendente[1], pendente[2]
-        else:
-            tipo_limpar, mes_limpar = pendente
-            periodo_limpar = "mes"
-        apagados = _executar_operacao_mutavel(
-            "limpar_movimentacoes",
-            limpar_movimentacoes,
-            usuario_id,
-            tipo=tipo_limpar,
-            ano_mes=mes_limpar,
+            return f"🗑️ Pronto! Apaguei *{apagados} gasto{'s' if plural else ''}*{sufixo}.\n✅ Seu saldo foi atualizado."
+        if tipo_limpar == "entrada":
+            return f"🗑️ Pronto! Apaguei *{apagados} entrada{'s' if plural else ''}*{sufixo}.\n✅ Seu saldo foi atualizado."
+        return (
+            f"🗑️ Pronto! Apaguei *{apagados} movimentação{'ões' if plural else ''}*{sufixo}.\n"
+            "🔄 Tudo zerado. Bora recomeçar!"
         )
-        apagados_dividas = 0
-        if tipo_limpar is None:
-            apagados_dividas = _executar_operacao_mutavel(
-                "limpar_dividas",
-                limpar_dividas,
-                usuario_id,
-                ano_mes=mes_limpar,
-            )
-        if periodo_limpar == "tudo":
-            sufixo = " de *todo o histórico*"
-        elif periodo_limpar == "ano":
-            ano_label = (mes_limpar or str(date.today().year))
-            sufixo = f" de *{ano_label}*"
-        else:
-            label = _nome_mes(mes_limpar)
-            sufixo = f" de *{label}*" if mes_limpar else " deste mês"
 
-        if tipo_limpar == "saida":
-            return (
-                f"🗑️ Pronto! Apaguei *{apagados} gasto{'s' if apagados > 1 else ''}*{sufixo}.\n"
-                f"✅ Seu saldo foi atualizado."
-            )
-        elif tipo_limpar == "entrada":
-            return (
-                f"🗑️ Pronto! Apaguei *{apagados} entrada{'s' if apagados > 1 else ''}*{sufixo}.\n"
-                f"✅ Seu saldo foi atualizado."
-            )
-        else:
-            return (
-                f"🗑️ Pronto! Apaguei *{apagados + apagados_dividas} movimentação{'ões' if (apagados + apagados_dividas) > 1 else ''}*{sufixo}.\n"
-                f"🔄 Tudo zerado. Bora recomeçar!"
-            )
-
-    # Cancelar
-    if texto in ("nao", "não", "n", "cancelar", "cancela", "deixa",
-                 "esquece", "nada", "não quero", "nao quero"):
+    if texto in CANCEL_TOKENS:
         _pendente_confirmacao_limpar.pop(usuario_id, None)
         return "Ok, não apaguei nada! 👍"
 
-    # Não entendeu
     return "🤔 Manda *sim* pra confirmar ou *não* pra cancelar."
 
 
@@ -3201,7 +2906,7 @@ def _processar_confirmacao_quitar(usuario_id: int, mensagem: str) -> str:
     """Confirma a quitação geral de dívidas (ação de alto risco)."""
     texto = (mensagem or "").strip().lower()
 
-    if texto in ("sim", "s", "confirmar", "confirma", "pode", "ok", "beleza"):
+    if texto in CONFIRM_TOKENS:
         pendente = _pendente_confirmacao_quitar.pop(usuario_id, None)
         if not pendente:
             return "Ops, perdi o contexto. Me pede para quitar novamente."
@@ -3240,7 +2945,7 @@ def _processar_confirmacao_quitar(usuario_id: int, mensagem: str) -> str:
             f"💸 Saída registrada: {formatar_real(total)}"
         )
 
-    if texto in ("nao", "não", "n", "cancelar", "cancela", "deixa", "esquece"):
+    if texto in CANCEL_TOKENS:
         _pendente_confirmacao_quitar.pop(usuario_id, None)
         return "Perfeito, cancelei a quitação geral."
 
@@ -3507,7 +3212,7 @@ def _processar_pendente_pagamento_divida(usuario_id: int, mensagem: str) -> str:
 
     texto = (mensagem or "").strip()
     texto_lower = texto.lower()
-    if texto_lower in ("cancelar", "cancela", "nao", "não", "deixa", "esquece"):
+    if texto_lower in CANCEL_TOKENS:
         _pendente_pagamento_divida.pop(usuario_id, None)
         return "Beleza, cancelei esse pagamento de dívida."
 
@@ -3590,11 +3295,6 @@ def _detectar_tipo_fluxo_registro_guiado(mensagem: str) -> str | None:
     return None
 
 
-def _limpar_pendencias_legadas_registro(usuario_id: int) -> None:
-    _pendente_valor_registro.pop(usuario_id, None)
-    _pendente_descricao_registro.pop(usuario_id, None)
-
-
 def _iniciar_fluxo_registro_guiado(
     usuario_id: int,
     intencao: str,
@@ -3605,8 +3305,6 @@ def _iniciar_fluxo_registro_guiado(
     credor_divida: str = "",
     data_ref: str | None = None,
 ) -> str:
-    _limpar_pendencias_legadas_registro(usuario_id)
-
     descricao_norm = _normalizar_descricao_registro(descricao or "")
     credor_norm = _normalizar_credor_texto(credor_divida or "")
     etapa_inicial = "valor"
@@ -3688,7 +3386,7 @@ def _processar_fluxo_registro_guiado(usuario_id: int, mensagem: str) -> str:
 
     texto = (mensagem or "").strip()
     texto_lower = texto.lower()
-    if texto_lower in ("cancelar", "cancela", "nao", "não", "deixa", "esquece"):
+    if texto_lower in CANCEL_TOKENS:
         _pendente_registro_guiado.pop(usuario_id, None)
         return "Beleza, cancelei esse registro guiado."
 
@@ -3747,125 +3445,6 @@ def _processar_fluxo_registro_guiado(usuario_id: int, mensagem: str) -> str:
 
     _pendente_registro_guiado.pop(usuario_id, None)
     return "Ops, perdi o contexto do registro. Pode comecar de novo com `quero registrar ...`."
-
-
-def _processar_pendente_valor_registro(usuario_id: int, mensagem: str) -> str:
-    """Completa um registro pendente quando o usuário envia só o valor."""
-    pendente = _pendente_valor_registro.get(usuario_id)
-    if not pendente:
-        return "Ops, perdi o contexto. Me manda o lançamento de novo."
-
-    texto = (mensagem or "").strip().lower()
-    if texto in ("cancelar", "cancela", "nao", "não", "deixa", "esquece"):
-        _pendente_valor_registro.pop(usuario_id, None)
-        return "Beleza, cancelei esse lançamento."
-
-    valor = _extrair_valor_selecao(mensagem)
-    if not valor or valor <= 0:
-        desc = (pendente.get("descricao") or "esse lançamento").strip()
-        return (
-            f"Ainda estou aguardando só o valor de *{desc}*.\n"
-            "Manda algo como `300` ou `300,50` (ou `cancelar`)."
-        )
-
-    intencao = pendente.get("intencao")
-    descricao = _normalizar_descricao_registro(pendente.get("descricao") or "")
-    categoria_regra = pendente.get("categoria_regra")
-    data_ref = pendente.get("data_ref") or date.today().isoformat()
-    credor = _normalizar_credor_texto((pendente.get("credor_divida") or "").strip())
-
-    parsed_followup = detectar_intencao(mensagem)
-    descricao_followup = _normalizar_descricao_registro(parsed_followup.get("descricao") or "")
-    if descricao_followup and not _descricao_insuficiente_para_registro(descricao_followup):
-        descricao = descricao_followup
-
-    categoria_followup = parsed_followup.get("categoria_regra")
-    if categoria_followup:
-        categoria_regra = categoria_followup
-
-    data_followup = parsed_followup.get("data")
-    if data_followup:
-        data_ref = data_followup
-
-    credor_followup = _normalizar_credor_texto((parsed_followup.get("credor_divida") or "").strip())
-    if intencao == "registrar_divida" and credor_followup:
-        credor = credor_followup
-
-    # Quando a segunda mensagem traz contexto (não é apenas número), usa ela para título/treino.
-    resposta_somente_valor = not bool(re.search(r"[a-zA-ZÀ-ÿ]", (mensagem or "")))
-
-    _pendente_valor_registro.pop(usuario_id, None)
-    valor = float(valor)
-    mensagem_original = (pendente.get("mensagem_original") or "").strip() or mensagem
-    if not resposta_somente_valor:
-        mensagem_original = mensagem
-
-    intencao_final = intencao if intencao in {"registrar_entrada", "registrar_saida", "registrar_divida"} else "registrar_saida"
-    descricao_final = descricao or ("Divida" if intencao_final == "registrar_divida" else "")
-    parsed_confirmacao = {
-        "intencao": intencao_final,
-        "valor": valor,
-        "descricao": descricao_final,
-        "categoria_regra": categoria_regra,
-        "data": data_ref,
-        "mes_referencia": pendente.get("mes_referencia"),
-        "credor_divida": credor if intencao_final == "registrar_divida" else "",
-        "_mensagem_original": mensagem_original,
-        # Quando o follow-up trouxe contexto textual, preserva título do usuário.
-        "_titulo_manual": bool(not resposta_somente_valor and descricao_followup),
-    }
-
-    parsed_confirmacao = _enriquecer_preview_operacao(usuario_id, parsed_confirmacao)
-    _iniciar_confirmacao_operacao(usuario_id, parsed=parsed_confirmacao)
-    return _montar_pergunta_confirmacao_operacao(parsed_confirmacao)
-
-
-def _processar_pendente_descricao_registro(usuario_id: int, mensagem: str) -> str:
-    """Completa um registro pendente quando faltou descrição/contexto."""
-    pendente = _pendente_descricao_registro.get(usuario_id)
-    if not pendente:
-        return "Ops, perdi o contexto. Me manda o lançamento de novo."
-
-    texto = (mensagem or "").strip()
-    if texto.lower() in ("cancelar", "cancela", "nao", "não", "deixa", "esquece"):
-        _pendente_descricao_registro.pop(usuario_id, None)
-        return "Beleza, cancelei esse lançamento."
-
-    descricao = _normalizar_descricao_registro(texto)
-    if _descricao_insuficiente_para_registro(descricao):
-        return (
-            "Ainda faltou uma descrição mais específica.\n"
-            "Exemplos: `mercado`, `almoço`, `salário`, `pix do João` (ou `cancelar`)."
-        )
-
-    intencao = pendente.get("intencao")
-    valor = float(pendente.get("valor", 0.0) or 0.0)
-    if valor <= 0:
-        _pendente_descricao_registro.pop(usuario_id, None)
-        return "Perdi o valor desse lançamento. Me manda tudo novamente em uma frase."
-
-    data_ref = pendente.get("data_ref") or date.today().isoformat()
-    categoria_regra = pendente.get("categoria_regra")
-    credor = (pendente.get("credor_divida") or "").strip()
-    _pendente_descricao_registro.pop(usuario_id, None)
-
-    intencao_final = intencao if intencao in {"registrar_entrada", "registrar_saida", "registrar_divida"} else "registrar_saida"
-    parsed_confirmacao = {
-        "intencao": intencao_final,
-        "valor": valor,
-        "descricao": descricao,
-        "categoria_regra": categoria_regra,
-        "data": data_ref,
-        "mes_referencia": pendente.get("mes_referencia"),
-        "credor_divida": credor if intencao_final == "registrar_divida" else "",
-        "_mensagem_original": mensagem,
-        # Descrição enviada no follow-up deve aparecer como título do usuário no preview.
-        "_titulo_manual": True,
-    }
-
-    parsed_confirmacao = _enriquecer_preview_operacao(usuario_id, parsed_confirmacao)
-    _iniciar_confirmacao_operacao(usuario_id, parsed=parsed_confirmacao)
-    return _montar_pergunta_confirmacao_operacao(parsed_confirmacao)
 
 
 # ---------------------------------------------------------------------------
@@ -4108,29 +3687,6 @@ def _montar_confirmacao_apagar(mov: dict, tipo_registro: str = "movimentacao") -
     )
 
 
-def _montar_confirmacao_editar(mov: dict, novo_valor: float, tipo_registro: str = "movimentacao") -> str:
-    """Monta mensagem de confirmação antes de editar campos da operação."""
-    if tipo_registro == "divida":
-        descricao = (mov.get("descricao") or "dívida").capitalize()
-        credor = mov.get("credor") or "não informado"
-        return (
-            "⚠️ Confirma editar esta dívida?\n"
-            f"• #{mov['id']} {descricao} (credor: {credor})\n"
-            f"• Valor atual: {formatar_real(mov['valor'])}\n"
-            f"• Novo valor: {formatar_real(novo_valor)}\n\n"
-            "Manda *sim* pra confirmar ou *não* pra cancelar."
-        )
-
-    descricao = (mov.get("descricao") or mov.get("categoria") or "movimentação").capitalize()
-    return (
-        "⚠️ Confirma editar este lançamento?\n"
-        f"• #{mov['id']} {descricao}\n"
-        f"• Valor atual: {formatar_real(mov['valor'])}\n"
-        f"• Novo valor: {formatar_real(novo_valor)}\n\n"
-        "Manda *sim* pra confirmar ou *não* pra cancelar."
-    )
-
-
 def _montar_desambiguacao_editar(movimentacoes: list[dict], descricao: str, novo_valor: float) -> str:
     """Pede escolha quando há múltiplos candidatos para edição."""
     if novo_valor and novo_valor > 0:
@@ -4151,8 +3707,12 @@ def _montar_desambiguacao_editar(movimentacoes: list[dict], descricao: str, novo
 
 def _montar_resposta_edicao(mov: dict, tipo_registro: str = "movimentacao") -> str:
     """Confirmação de edição concluída com campos alterados."""
-    alteracoes = list(mov.get("alteracoes") or [])
     antes = mov.get("antes") or {}
+    # Só lista campos cujo valor realmente mudou (o repositório marca todos os enviados).
+    alteracoes = [
+        campo for campo in (mov.get("alteracoes") or [])
+        if antes.get("data_ref" if campo == "data" else campo) != mov.get("data_ref" if campo == "data" else campo)
+    ]
 
     if tipo_registro == "divida":
         descricao = (mov.get("descricao") or "dívida").capitalize()

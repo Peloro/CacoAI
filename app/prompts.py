@@ -76,18 +76,6 @@ Responda apenas com o nome da categoria.
 # Prompt de CLASSIFICACAO DE INTENCAO FINANCEIRA
 # ---------------------------------------------------------------------------
 
-INTENT_CLASSIFICATION_PROMPT = """Classifique a mensagem financeira em um tipo: entrada, saida, divida, nao_financeiro, incerto.
-Mensagem: "{mensagem}"
-Retorne APENAS JSON valido:
-{{
-  "tipo": "entrada|saida|divida|nao_financeiro|incerto",
-  "confianca": 0.0,
-  "justificativa": "curta"
-}}
-Regras: confianca 0..1; se ambigua, use incerto; sem calculos.
-"""
-
-
 # ---------------------------------------------------------------------------
 # Prompt de EXTRACAO ESTRUTURADA DE MOVIMENTACAO
 # ---------------------------------------------------------------------------

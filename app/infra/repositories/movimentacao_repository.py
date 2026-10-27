@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import re
-import sqlite3
 from datetime import date
 from typing import Optional
 
-from app.infra.db import db_connection
+from app.infra.db import db_connection, sem_acento
 
 
 _RE_YEAR = re.compile(r"\d{4}")
@@ -149,42 +148,6 @@ def category_history(user_id: int, category: str, months: int = 3) -> list[dict]
         return [dict(row) for row in cur.fetchall()]
 
 
-def delete_last_movement(user_id: int, movement_type: Optional[str] = None) -> dict | None:
-    with db_connection() as conn:
-        cur = conn.cursor()
-        if movement_type:
-            cur.execute(
-                """
-                SELECT id, tipo, valor, categoria, descricao, data_ref
-                FROM movimentacoes
-                WHERE usuario_id = ? AND tipo = ?
-                ORDER BY id DESC
-                LIMIT 1
-                """,
-                (user_id, movement_type),
-            )
-        else:
-            cur.execute(
-                """
-                SELECT id, tipo, valor, categoria, descricao, data_ref
-                FROM movimentacoes
-                WHERE usuario_id = ?
-                ORDER BY id DESC
-                LIMIT 1
-                """,
-                (user_id,),
-            )
-
-        row = cur.fetchone()
-        if not row:
-            return None
-
-        movement = dict(row)
-        cur.execute("DELETE FROM movimentacoes WHERE id = ? AND usuario_id = ?", (movement["id"], user_id))
-        conn.commit()
-    return movement
-
-
 def clear_movements(user_id: int, movement_type: Optional[str] = None, year_month: Optional[str] = None) -> int:
     if year_month is None:
         year_month = date.today().strftime("%Y-%m")
@@ -291,7 +254,7 @@ def find_movements_by_description(user_id: int, description: str, movement_type:
 
     with db_connection() as conn:
         cur = conn.cursor()
-        lowered = description.lower().strip()
+        lowered = sem_acento(description.strip())
 
         filters = ["usuario_id = ?"]
         params: list = [user_id]
@@ -309,7 +272,7 @@ def find_movements_by_description(user_id: int, description: str, movement_type:
             filters.append("data_ref LIKE ?")
             params.append(f"{year_month}%")
 
-        filters.append("(LOWER(descricao) LIKE ? OR LOWER(categoria) LIKE ?)")
+        filters.append("(sem_acento(descricao) LIKE ? OR sem_acento(categoria) LIKE ?)")
         params.extend([f"%{lowered}%", f"%{lowered}%"])
 
         where_sql = " AND ".join(filters)
@@ -359,31 +322,6 @@ def get_movement_by_id(user_id: int, movement_id: int) -> dict | None:
         )
         row = cur.fetchone()
     return dict(row) if row else None
-
-
-def update_movement_value(user_id: int, movement_id: int, new_value: float) -> dict | None:
-    with db_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT id, tipo, valor, categoria, descricao, data_ref
-            FROM movimentacoes
-            WHERE id = ? AND usuario_id = ?
-            """,
-            (movement_id, user_id),
-        )
-        row = cur.fetchone()
-        if not row:
-            return None
-
-        current = dict(row)
-        previous_value = float(current["valor"])
-        cur.execute("UPDATE movimentacoes SET valor = ? WHERE id = ? AND usuario_id = ?", (new_value, movement_id, user_id))
-        conn.commit()
-
-    current["valor_anterior"] = previous_value
-    current["valor"] = float(new_value)
-    return current
 
 
 def update_movement_fields(
@@ -574,31 +512,6 @@ def _jaccard_similarity(a: str, b: str) -> float:
     return float(inter / union) if union else 0.0
 
 
-def _ensure_title_learning_table(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS titulo_aprendizado (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            usuario_id      INTEGER NOT NULL,
-            mensagem_norm   TEXT    NOT NULL,
-            categoria       TEXT    NOT NULL DEFAULT '',
-            titulo          TEXT    NOT NULL,
-            usos            INTEGER NOT NULL DEFAULT 1,
-            atualizado_em   TEXT    NOT NULL DEFAULT (datetime('now')),
-            FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
-            UNIQUE(usuario_id, mensagem_norm, categoria)
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_titulo_aprendizado_usuario
-            ON titulo_aprendizado(usuario_id, atualizado_em)
-        """
-    )
-    conn.commit()
-
-
 def register_learned_title(user_id: int, message: str, title: str, category: Optional[str] = None) -> None:
     msg_norm = _normalize_learning_text(message)
     clean_title = (title or "").strip()
@@ -608,7 +521,6 @@ def register_learned_title(user_id: int, message: str, title: str, category: Opt
         return
 
     with db_connection() as conn:
-        _ensure_title_learning_table(conn)
         conn.execute(
             """
             INSERT INTO titulo_aprendizado (usuario_id, mensagem_norm, categoria, titulo)
@@ -636,7 +548,6 @@ def find_learned_title(
     category_norm = (category or "").strip().lower()
 
     with db_connection() as conn:
-        _ensure_title_learning_table(conn)
         cur = conn.cursor()
         if category_norm:
             cur.execute(

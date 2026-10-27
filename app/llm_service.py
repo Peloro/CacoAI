@@ -32,14 +32,12 @@ from app.config import (
     OPENROUTER_APP_NAME,
     LLM_MAX_TOKENS_CATEGORIZACAO,
     LLM_MAX_TOKENS_CHAT,
-    LLM_MAX_TOKENS_CLASSIFICACAO,
     LLM_MAX_TOKENS_EXTRACAO,
     LLM_MAX_TOKENS_DICA,
     LLM_MAX_TOKENS_OBSERVACAO_RESUMO,
     LLM_MAX_TOKENS_TITULO,
     LLM_MAX_CHARS_DESC_CATEGORIZACAO,
     LLM_MAX_CHARS_MSG_CHAT,
-    LLM_MAX_CHARS_MSG_CLASSIFICACAO,
     LLM_MAX_CHARS_MSG_EXTRACAO,
     LLM_MAX_CHARS_CTX_OBSERVACAO,
     LLM_MAX_CHARS_MSG_TITULO,
@@ -56,7 +54,6 @@ from app.prompts import (
     CHAT_PROMPT_PLANEJAR_COMPRA,
     CHAT_PROMPT_OBSERVACAO_RESUMO,
     CATEGORIZATION_PROMPT,
-    INTENT_CLASSIFICATION_PROMPT,
     TRANSACTION_EXTRACTION_PROMPT,
     TITLE_GENERATION_PROMPT,
 )
@@ -66,7 +63,6 @@ log = logging.getLogger("caco.llm")
 # Ajustes de budget de tokens por tarefa (mais enxuto, sem perder utilidade)
 _MAX_TOKENS_CATEGORIZACAO = LLM_MAX_TOKENS_CATEGORIZACAO
 _MAX_TOKENS_CHAT = LLM_MAX_TOKENS_CHAT
-_MAX_TOKENS_CLASSIFICACAO = LLM_MAX_TOKENS_CLASSIFICACAO
 _MAX_TOKENS_EXTRACAO = LLM_MAX_TOKENS_EXTRACAO
 _MAX_TOKENS_DICA = LLM_MAX_TOKENS_DICA
 _MAX_TOKENS_OBSERVACAO_RESUMO = LLM_MAX_TOKENS_OBSERVACAO_RESUMO
@@ -74,7 +70,6 @@ _MAX_TOKENS_TITULO = LLM_MAX_TOKENS_TITULO
 
 _MAX_CHARS_DESC_CATEGORIZACAO = LLM_MAX_CHARS_DESC_CATEGORIZACAO
 _MAX_CHARS_MSG_CHAT = LLM_MAX_CHARS_MSG_CHAT
-_MAX_CHARS_MSG_CLASSIFICACAO = LLM_MAX_CHARS_MSG_CLASSIFICACAO
 _MAX_CHARS_MSG_EXTRACAO = LLM_MAX_CHARS_MSG_EXTRACAO
 _MAX_CHARS_CTX_OBSERVACAO = LLM_MAX_CHARS_CTX_OBSERVACAO
 _MAX_CHARS_MSG_TITULO = LLM_MAX_CHARS_MSG_TITULO
@@ -787,7 +782,6 @@ def _sanitizar_resposta_conversa(resposta: str) -> str:
 # 3. Classificacao de intencao financeira via LLM
 # ---------------------------------------------------------------------------
 
-_TIPOS_INTENCAO_IA = {"entrada", "saida", "divida", "nao_financeiro", "incerto", "gasto", "ganho"}
 _TIPOS_MOV_IA = {"entrada", "saida", "divida", "nao_financeiro", "incerto"}
 
 
@@ -837,39 +831,6 @@ def _override_tipo_por_regra(mensagem: str, tipo_sugerido: str) -> str:
     return tipo_sugerido
 
 
-def _normalizar_tipo_intencao_ia(tipo: str) -> str:
-    t = (tipo or "").strip().lower()
-    if t == "ganho":
-        return "entrada"
-    if t == "gasto":
-        return "saida"
-    if t in {"entrada", "saida", "divida", "nao_financeiro", "incerto"}:
-        return t
-    return "incerto"
-
-
-def _fallback_tipo_local(mensagem: str) -> str:
-    """Classificação local para cenários sem LLM (evita queda brusca em benchmark)."""
-    try:
-        from app.parser import detectar_intencao
-
-        parsed = detectar_intencao(mensagem)
-        intencao = (parsed.get("intencao") or "").strip().lower()
-        if intencao in {"registrar_entrada", "registrar_saldo_inicial"}:
-            tipo = "entrada"
-        elif intencao == "registrar_saida":
-            tipo = "saida"
-        elif intencao in {"registrar_divida", "pagar_divida", "quitar_dividas"}:
-            tipo = "divida"
-        elif intencao in {"conversa_geral", "pedir_dica"}:
-            tipo = "nao_financeiro"
-        else:
-            tipo = "incerto"
-        return _override_tipo_por_regra(mensagem, tipo)
-    except Exception:
-        return "incerto"
-
-
 def _fallback_movimentacao_local(mensagem: str) -> dict:
     """Extrai estrutura mínima por heurística local quando IA falha."""
     try:
@@ -916,90 +877,6 @@ def _fallback_movimentacao_local(mensagem: str) -> dict:
             "data_ref": None,
             "confianca": 0.0,
             "justificativa": "fallback_local_erro",
-        }
-
-
-def classificar_intencao_financeira(mensagem: str) -> dict:
-    """
-    Classifica a mensagem em: entrada, saida, divida, nao_financeiro ou incerto.
-
-    Retorna dict:
-      - tipo: str
-      - confianca: float (0.0 a 1.0)
-      - justificativa: str
-    """
-    if not mensagem or not mensagem.strip():
-        return {"tipo": "incerto", "confianca": 0.0, "justificativa": "mensagem_vazia"}
-
-    if not _llm_disponivel:
-        tipo_local = _fallback_tipo_local(mensagem)
-        return {
-            "tipo": tipo_local,
-            "confianca": 0.55 if tipo_local != "incerto" else 0.0,
-            "justificativa": "llm_indisponivel_fallback_local",
-        }
-
-    msg_compacta = _compactar_texto(mensagem, _MAX_CHARS_MSG_CLASSIFICACAO)
-    prompt = INTENT_CLASSIFICATION_PROMPT.format(mensagem=msg_compacta)
-
-    try:
-        bruto = _chat_llm(
-            prompt,
-            task="quality",
-            temperature=0.0,
-            max_tokens=_MAX_TOKENS_CLASSIFICACAO,
-        )
-
-        # Tenta parse direto e, se falhar, extrai o primeiro bloco JSON.
-        data = None
-        try:
-            data = json.loads(bruto)
-        except Exception:
-            match = re.search(r'\{[\s\S]*\}', bruto)
-            if match:
-                data = json.loads(match.group(0))
-
-        if not isinstance(data, dict):
-            tipo_local = _fallback_tipo_local(mensagem)
-            return {
-                "tipo": tipo_local,
-                "confianca": 0.55 if tipo_local != "incerto" else 0.0,
-                "justificativa": "json_invalido_fallback_local",
-            }
-
-        tipo_bruto = str(data.get("tipo", "incerto")).strip().lower()
-        tipo = _normalizar_tipo_intencao_ia(tipo_bruto if tipo_bruto in _TIPOS_INTENCAO_IA else "incerto")
-        tipo = _override_tipo_por_regra(mensagem, tipo)
-
-        try:
-            confianca = float(data.get("confianca", 0.0))
-        except (TypeError, ValueError):
-            confianca = 0.0
-        confianca = max(0.0, min(1.0, confianca))
-
-        justificativa = str(data.get("justificativa", "")).strip()
-
-        # Se a IA vier ambígua, tenta recuperar via heurística local.
-        if tipo == "incerto":
-            tipo_local = _fallback_tipo_local(mensagem)
-            if tipo_local != "incerto":
-                tipo = tipo_local
-                confianca = max(confianca, 0.55)
-                justificativa = "ia_incerta_fallback_local"
-
-        return {
-            "tipo": tipo,
-            "confianca": confianca,
-            "justificativa": justificativa,
-        }
-
-    except Exception as e:
-        log.warning("Erro LLM (%s) em classificacao_intencao: %s", _provedor_ativo, e)
-        tipo_local = _fallback_tipo_local(mensagem)
-        return {
-            "tipo": tipo_local,
-            "confianca": 0.55 if tipo_local != "incerto" else 0.0,
-            "justificativa": "erro_llm_fallback_local",
         }
 
 

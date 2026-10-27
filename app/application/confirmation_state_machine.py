@@ -24,6 +24,8 @@ class ConfirmationState(str, Enum):
 class ConfirmationResolution:
     parsed: dict | None
     reply: str | None
+    # True quando a resposta não foi confirmação, escolha nem edição reconhecida.
+    nao_entendeu: bool = False
 
 
 class PendingOperationStore(Protocol):
@@ -42,9 +44,15 @@ PreviewFn = Callable[[int, dict], dict]
 RenderPromptFn = Callable[[dict, bool], str]
 
 
+CONFIRM_TOKENS = frozenset(
+    {"sim", "s", "confirmar", "confirma", "confirmo", "pode", "vai", "manda", "bora", "isso", "yes", "ok", "beleza"}
+)
+CANCEL_TOKENS = frozenset(
+    {"nao", "não", "n", "cancelar", "cancela", "deixa", "esquece", "nada", "não quero", "nao quero"}
+)
+
+
 class ConfirmationStateMachine:
-    CANCEL_TOKENS = {"cancelar", "cancela", "nao", "não", "n"}
-    CONFIRM_TOKENS = {"sim", "s", "confirmar", "confirma", "ok", "beleza", "pode", "vai", "manda"}
 
     def __init__(self, store: PendingOperationStore):
         self._store = store
@@ -81,11 +89,11 @@ class ConfirmationStateMachine:
         )
 
         text = (message or "").strip().lower()
-        if text in self.CANCEL_TOKENS:
+        if text in CANCEL_TOKENS:
             self._store.pop(user_id)
             return ConfirmationResolution(parsed=None, reply="Beleza, operação cancelada.")
 
-        if text in self.CONFIRM_TOKENS:
+        if text in CONFIRM_TOKENS:
             self._store.pop(user_id)
             parsed = parsed_message_to_dict(pending.parsed)
             parsed["_operacao_confirmada"] = True
@@ -116,6 +124,7 @@ class ConfirmationStateMachine:
 
         return ConfirmationResolution(
             parsed=None,
+            nao_entendeu=True,
             reply=(
                 "Você pode responder *sim* para confirmar, *cancelar* para abortar, "
                 "ou editar qualquer campo em linguagem natural (ex.: \"troca o valor para 120\", "

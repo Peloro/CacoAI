@@ -121,9 +121,8 @@ def extract_new_edit_value(text: str, movement_id: int | None = None) -> float |
 
         if candidates:
             if movement_id is not None:
-                for value in reversed(candidates):
-                    if int(value) != int(movement_id):
-                        return value
+                # Se o único número é o próprio ID ("editar #1"), não há novo valor.
+                return next((v for v in reversed(candidates) if int(v) != int(movement_id)), None)
             return candidates[-1]
 
     return None

@@ -21,10 +21,3 @@ class PendingOperation:
     parsed: ParsedMessage
     veio_desambiguacao: bool = False
     state: str = "awaiting_confirmation"
-
-
-@dataclass(slots=True)
-class ExecutionResult:
-    handled: bool
-    reply: str | None = None
-    payload: dict[str, Any] | None = None

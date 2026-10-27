@@ -7,6 +7,7 @@ import importlib
 import os
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 from app.config import APP_ENV, DATABASE_PATH
@@ -41,12 +42,16 @@ def _get_encryption_key() -> str:
 
 
 def _fernet() -> Any:
+    return _fernet_for_key(_get_encryption_key())
+
+
+@lru_cache(maxsize=4)
+def _fernet_for_key(key: str) -> Any:
     try:
         fernet_mod = importlib.import_module("cryptography.fernet")
     except Exception as exc:
         raise RuntimeError("Pacote cryptography nao disponivel") from exc
-    key = _get_encryption_key().encode("utf-8")
-    return fernet_mod.Fernet(key)
+    return fernet_mod.Fernet(key.encode("utf-8"))
 
 
 def encrypt_text(value: str) -> str:

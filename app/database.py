@@ -3,15 +3,9 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import date
 from typing import Optional
 
-from app.infra.db import (
-    ESTADO_CONVERSA_EXPIRACAO_MIN,
-    SESSAO_EXPIRACAO_MIN,
-    db_connection as _db,
-    get_connection,
-)
+from app.infra.db import ESTADO_CONVERSA_EXPIRACAO_MIN, db_connection as _db
 from app.security import decrypt_text, encrypt_text, hash_phone, is_encrypted_token
 from app.infra.repositories.divida_repository import (
     clear_debts,
@@ -30,7 +24,6 @@ from app.infra.repositories.movimentacao_repository import (
     category_history,
     clear_movements,
     consult_category,
-    delete_last_movement,
     delete_movement_by_id,
     find_learned_title,
     find_movements_by_description,
@@ -42,23 +35,20 @@ from app.infra.repositories.movimentacao_repository import (
     register_learned_title,
     register_movement,
     update_movement_fields,
-    update_movement_value,
 )
 from app.infra.repositories.session_repository import (
     clear_all_conversation_states,
     clear_conversation_state,
     create_session,
-    get_conversation_state,
     invalidate_session,
-    is_session_valid,
-    renew_session,
+    load_conversation_states,
+    renew_session_if_valid,
     set_conversation_state,
 )
 from app.infra.repositories.user_repository import (
     get_or_create_user as _repo_get_or_create_user,
     get_registration_step,
     get_user_name,
-    has_completed_registration,
     save_user_name,
     save_user_password,
     set_registration_step,
@@ -70,6 +60,7 @@ log = logging.getLogger("caco.db")
 
 def init_db():
     with _db() as conn:
+        conn.execute("PRAGMA journal_mode=WAL;")
         cursor = conn.cursor()
         cursor.executescript(
             """
@@ -261,10 +252,6 @@ def historico_categoria(usuario_id: int, categoria: str, meses: int = 3) -> list
     return category_history(usuario_id, categoria, meses)
 
 
-def apagar_ultima_movimentacao(usuario_id: int, tipo: Optional[str] = None) -> dict | None:
-    return delete_last_movement(usuario_id, tipo)
-
-
 def limpar_movimentacoes(usuario_id: int, tipo: Optional[str] = None, ano_mes: Optional[str] = None) -> int:
     return clear_movements(usuario_id, tipo, ano_mes)
 
@@ -287,10 +274,6 @@ def apagar_movimentacao_por_id(usuario_id: int, movimentacao_id: int) -> dict | 
 
 def obter_movimentacao_por_id(usuario_id: int, movimentacao_id: int) -> dict | None:
     return get_movement_by_id(usuario_id, movimentacao_id)
-
-
-def atualizar_valor_movimentacao(usuario_id: int, movimentacao_id: int, novo_valor: float) -> dict | None:
-    return update_movement_value(usuario_id, movimentacao_id, novo_valor)
 
 
 def atualizar_movimentacao_campos(usuario_id: int, movimentacao_id: int, *, novo_valor: Optional[float] = None, nova_descricao: Optional[str] = None, nova_categoria: Optional[str] = None, nova_data_ref: Optional[str] = None, novo_tipo: Optional[str] = None) -> dict | None:
@@ -325,8 +308,8 @@ def set_estado_conversa(usuario_id: int, chave: str, valor, expira_minutos: int 
     set_conversation_state(usuario_id, chave, valor, expira_minutos)
 
 
-def get_estado_conversa(usuario_id: int, chave: str):
-    return get_conversation_state(usuario_id, chave)
+def carregar_estados_conversa(usuario_id: int) -> dict[str, str]:
+    return load_conversation_states(usuario_id)
 
 
 def clear_estado_conversa(usuario_id: int, chave: str) -> None:
@@ -335,10 +318,6 @@ def clear_estado_conversa(usuario_id: int, chave: str) -> None:
 
 def clear_todos_estados_conversa(usuario_id: int) -> None:
     clear_all_conversation_states(usuario_id)
-
-
-def usuario_tem_cadastro(usuario_id: int) -> bool:
-    return has_completed_registration(usuario_id)
 
 
 def get_etapa_cadastro(usuario_id: int) -> Optional[str]:
@@ -369,13 +348,9 @@ def criar_sessao(usuario_id: int) -> str:
     return create_session(usuario_id)
 
 
-def sessao_valida(usuario_id: int) -> bool:
-    return is_session_valid(usuario_id)
-
-
-def renovar_sessao(usuario_id: int):
-    renew_session(usuario_id)
-
-
 def invalidar_sessao(usuario_id: int):
     invalidate_session(usuario_id)
+
+
+def renovar_sessao_se_valida(usuario_id: int) -> bool:
+    return renew_session_if_valid(usuario_id)

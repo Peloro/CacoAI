@@ -26,25 +26,16 @@ def create_session(user_id: int) -> str:
     return token
 
 
-def is_session_valid(user_id: int) -> bool:
-    with db_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT expira_em FROM sessoes
-            WHERE usuario_id = ? AND expira_em > datetime('now', 'localtime')
-            """,
-            (user_id,),
-        )
-        row = cur.fetchone()
-    return row is not None
-
-
-def renew_session(user_id: int):
+def renew_session_if_valid(user_id: int) -> bool:
+    """Renova a sessão se ainda estiver válida; retorna False quando expirada/inexistente."""
     expires_at = (datetime.now() + timedelta(minutes=SESSAO_EXPIRACAO_MIN)).strftime("%Y-%m-%d %H:%M:%S")
     with db_connection() as conn:
-        conn.execute("UPDATE sessoes SET expira_em = ? WHERE usuario_id = ?", (expires_at, user_id))
+        cur = conn.execute(
+            "UPDATE sessoes SET expira_em = ? WHERE usuario_id = ? AND expira_em > datetime('now', 'localtime')",
+            (expires_at, user_id),
+        )
         conn.commit()
+    return cur.rowcount > 0
 
 
 def invalidate_session(user_id: int):
@@ -72,35 +63,18 @@ def set_conversation_state(user_id: int, key: str, value, expires_minutes: int =
         conn.commit()
 
 
-def get_conversation_state(user_id: int, key: str):
+def load_conversation_states(user_id: int) -> dict[str, str]:
+    """Remove estados expirados e devolve todos os válidos do usuário ({chave: valor_json})."""
     with db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
-            """
-            SELECT valor_json
-            FROM conversa_estado
-            WHERE usuario_id = ? AND chave = ? AND expira_em > datetime('now', 'localtime')
-            """,
-            (user_id, key),
+            "DELETE FROM conversa_estado WHERE usuario_id = ? AND expira_em <= datetime('now', 'localtime')",
+            (user_id,),
         )
-        row = cur.fetchone()
-
-        cur.execute(
-            """
-            DELETE FROM conversa_estado
-            WHERE usuario_id = ? AND chave = ? AND expira_em <= datetime('now', 'localtime')
-            """,
-            (user_id, key),
-        )
-        conn.commit()
-
-    if not row:
-        return None
-
-    try:
-        return json.loads(row["valor_json"])
-    except Exception:
-        return None
+        if cur.rowcount:
+            conn.commit()
+        cur.execute("SELECT chave, valor_json FROM conversa_estado WHERE usuario_id = ?", (user_id,))
+        return {row["chave"]: row["valor_json"] for row in cur.fetchall()}
 
 
 def clear_conversation_state(user_id: int, key: str) -> None:

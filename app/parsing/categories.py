@@ -77,14 +77,34 @@ def extract_category_after_token(text: str, categories_keywords: dict[str, list[
     return None
 
 
+_BOUNDARY_START = r"(?:^|[\s,;.!?\-])"
+_BOUNDARY_END = r"(?=$|[\s,;.!?\-])"
+_compiled_rules: dict[int, list[tuple[str, re.Pattern[str], list[tuple[str, re.Pattern[str]]]]]] = {}
+
+
+def _rules_for(categories_keywords: dict[str, list[str]]):
+    """Pré-compila, uma vez por dicionário, a regex agrupada e as regex por keyword."""
+    rules = _compiled_rules.get(id(categories_keywords))
+    if rules is None:
+        rules = []
+        for category, keywords in categories_keywords.items():
+            if not keywords:
+                continue
+            group = re.compile(_BOUNDARY_START + "(?:" + "|".join(map(re.escape, keywords)) + ")" + _BOUNDARY_END)
+            singles = [(kw, re.compile(_BOUNDARY_START + re.escape(kw) + _BOUNDARY_END)) for kw in keywords]
+            rules.append((category, group, singles))
+        _compiled_rules[id(categories_keywords)] = rules
+    return rules
+
+
 def categorize_by_rules(description: str, categories_keywords: dict[str, list[str]]) -> tuple[str | None, str | None]:
     """Classifica categoria por keywords com fronteira de termo."""
     description_lower = description.lower()
 
-    for category, keywords in categories_keywords.items():
-        for keyword in keywords:
-            pattern = r"(?:^|[\s,;.!?\-])" + re.escape(keyword) + r"(?:$|[\s,;.!?\-])"
-            if re.search(pattern, description_lower):
-                return category, keyword
+    for category, group, singles in _rules_for(categories_keywords):
+        if group.search(description_lower):
+            # Devolve a primeira keyword da lista (não a primeira no texto), como antes.
+            keyword = next(kw for kw, pattern in singles if pattern.search(description_lower))
+            return category, keyword
 
     return None, None

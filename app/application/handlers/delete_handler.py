@@ -17,7 +17,7 @@ class DeleteHandlerContext:
     build_confirm_delete_message_fn: Callable[[dict, str], str]
     find_movs_by_description_fn: Callable[[int, str, str | None], list]
     find_divs_by_description_fn: Callable[[int, str], list]
-    set_pending_disambiguation_fn: Callable[[int, list], None]
+    set_pending_disambiguation_fn: Callable[[int, dict], None]
     build_disambiguation_reply_fn: Callable[[list, str], str]
     list_recent_movs_fn: Callable[[int, int, str | None], list]
     build_delete_reply_fn: Callable[[dict | None, str | None], str]
@@ -76,7 +76,7 @@ class DeleteHandler:
                 return context.build_confirm_delete_message_fn(target, registro_type)
 
             if len(matches) > 1:
-                context.set_pending_disambiguation_fn(state.user_id, matches)
+                context.set_pending_disambiguation_fn(state.user_id, {"movimentacoes": matches})
                 return context.build_disambiguation_reply_fn(matches, real_description)
 
             return (

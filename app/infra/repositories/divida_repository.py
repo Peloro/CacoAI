@@ -4,7 +4,7 @@ import re
 from datetime import date
 from typing import Optional
 
-from app.infra.db import db_connection
+from app.infra.db import db_connection, sem_acento
 
 
 _RE_YEAR = re.compile(r"\d{4}")
@@ -89,7 +89,7 @@ def list_recent_debts(user_id: int, limit: int = 20, year_month: Optional[str] =
 def find_debts_by_description(user_id: int, description: str, year_month: Optional[str] = None) -> list[dict]:
     with db_connection() as conn:
         cur = conn.cursor()
-        lowered = description.lower().strip()
+        lowered = sem_acento(description.strip())
         if year_month:
             bounds = _period_bounds(year_month)
             if bounds:
@@ -100,7 +100,7 @@ def find_debts_by_description(user_id: int, description: str, year_month: Option
                     WHERE usuario_id = ?
                       AND data_ref >= ?
                       AND data_ref < ?
-                      AND (LOWER(descricao) LIKE ? OR LOWER(credor) LIKE ?)
+                      AND (sem_acento(descricao) LIKE ? OR sem_acento(credor) LIKE ?)
                     ORDER BY data_ref DESC, id DESC
                     """,
                     (user_id, bounds[0], bounds[1], f"%{lowered}%", f"%{lowered}%"),
@@ -112,7 +112,7 @@ def find_debts_by_description(user_id: int, description: str, year_month: Option
                     FROM dividas
                     WHERE usuario_id = ?
                       AND data_ref LIKE ?
-                      AND (LOWER(descricao) LIKE ? OR LOWER(credor) LIKE ?)
+                      AND (sem_acento(descricao) LIKE ? OR sem_acento(credor) LIKE ?)
                     ORDER BY data_ref DESC, id DESC
                     """,
                     (user_id, f"{year_month}%", f"%{lowered}%", f"%{lowered}%"),
@@ -123,7 +123,7 @@ def find_debts_by_description(user_id: int, description: str, year_month: Option
                 SELECT id, valor, credor, descricao, data_ref
                 FROM dividas
                 WHERE usuario_id = ?
-                  AND (LOWER(descricao) LIKE ? OR LOWER(credor) LIKE ?)
+                  AND (sem_acento(descricao) LIKE ? OR sem_acento(credor) LIKE ?)
                 ORDER BY data_ref DESC, id DESC
                 """,
                 (user_id, f"%{lowered}%", f"%{lowered}%"),
@@ -337,8 +337,8 @@ def settle_debts(user_id: int, creditor: Optional[str] = None, year_month: Optio
             params.append(f"{year_month}%")
 
     if creditor and creditor.strip():
-        filters.append("LOWER(credor) LIKE ?")
-        params.append(f"%{creditor.strip().lower()}%")
+        filters.append("sem_acento(credor) LIKE ?")
+        params.append(f"%{sem_acento(creditor.strip())}%")
 
     where_sql = " AND ".join(filters)
 
@@ -373,8 +373,8 @@ def pay_debt(user_id: int, paid_value: float, creditor: Optional[str] = None, ye
             filters.append("data_ref LIKE ?")
             params.append(f"{year_month}%")
     if creditor and creditor.strip():
-        filters.append("LOWER(credor) LIKE ?")
-        params.append(f"%{creditor.strip().lower()}%")
+        filters.append("sem_acento(credor) LIKE ?")
+        params.append(f"%{sem_acento(creditor.strip())}%")
 
     where_sql = " AND ".join(filters)
 

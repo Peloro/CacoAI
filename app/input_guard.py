@@ -3,11 +3,7 @@ from __future__ import annotations
 
 import re
 
-from app.config import (
-    INBOUND_MAX_MESSAGE_CHARS,
-    INBOUND_MAX_PHONE_CHARS,
-    INBOUND_MAX_PAYLOAD_BYTES,
-)
+from app.config import INBOUND_MAX_MESSAGE_CHARS, INBOUND_MAX_PHONE_CHARS
 
 
 _RE_CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -62,12 +58,3 @@ def validate_phone_or_raise(telefone: str) -> str:
             "Use um telefone no formato +5511999999999."
         )
     return sanitized
-
-
-def validate_payload_size_or_raise(body: bytes) -> None:
-    """Impede payloads excessivos antes de parsear JSON."""
-    if len(body or b"") > INBOUND_MAX_PAYLOAD_BYTES:
-        raise InputValidationError(
-            "Payload muito grande para processamento. "
-            "Tente enviar mensagens mais curtas."
-        )

@@ -5,11 +5,15 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Protocol
 
+from app.application.confirmation_state_machine import CANCEL_TOKENS
+
 
 @dataclass(slots=True)
 class IntentConfirmationResolution:
     parsed: dict | None
     reply: str | None
+    # True quando a resposta não foi confirmação, escolha nem edição reconhecida.
+    nao_entendeu: bool = False
 
 
 class PendingIntentStore(Protocol):
@@ -27,7 +31,6 @@ IntentLabelFn = Callable[[str], str]
 
 
 class IntentConfirmationService:
-    CANCEL_TOKENS = {"cancelar", "cancela", "nao", "não", "n"}
 
     def __init__(self, store: PendingIntentStore):
         self._store = store
@@ -57,7 +60,7 @@ class IntentConfirmationService:
 
         text = (message or "").strip().lower()
         text_clean = re.sub(r"[\s\.!,:;_-]+", " ", text).strip()
-        if text in self.CANCEL_TOKENS:
+        if text in CANCEL_TOKENS:
             self._store.pop(user_id)
             return IntentConfirmationResolution(parsed=None, reply="Beleza, cancelei essa ação.")
 
@@ -80,7 +83,9 @@ class IntentConfirmationService:
                 chosen = op2
 
         if not chosen:
-            return IntentConfirmationResolution(parsed=None, reply="Responde com *1* ou *2* (ou *cancelar*).")
+            return IntentConfirmationResolution(
+                parsed=None, reply="Responde com *1* ou *2* (ou *cancelar*).", nao_entendeu=True
+            )
 
         self._store.pop(user_id)
         parsed_base["intencao"] = chosen

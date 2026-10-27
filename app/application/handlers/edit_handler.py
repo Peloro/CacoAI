@@ -56,22 +56,16 @@ class EditHandler:
 
             if not parsed_edit.get("data"):
                 parsed_edit["data"] = target.get("data_ref")
-            if not parsed_edit.get("valor") and target.get("valor") is not None:
-                try:
-                    parsed_edit["valor"] = float(target.get("valor"))
-                except Exception:
-                    pass
+            # "Valor atual" e título partem do lançamento; a descrição do comando só serviu para localizá-lo.
+            parsed_edit["valor"] = float(target.get("valor") or 0.0)
+            parsed_edit["descricao"] = (target.get("descricao") or "").strip()
 
             if target_type == "movimentacao":
-                if not parsed_edit.get("descricao"):
-                    parsed_edit["descricao"] = (target.get("descricao") or "").strip()
                 if not parsed_edit.get("categoria_regra") and target.get("categoria"):
                     parsed_edit["categoria_regra"] = (target.get("categoria") or "").strip().lower()
                 if not parsed_edit.get("tipo_movimentacao") and target.get("tipo"):
                     parsed_edit["tipo_movimentacao"] = target.get("tipo")
             else:
-                if not parsed_edit.get("descricao"):
-                    parsed_edit["descricao"] = (target.get("descricao") or "").strip()
                 if not parsed_edit.get("credor_divida") and target.get("credor"):
                     parsed_edit["credor_divida"] = context.normalize_creditor_fn(target.get("credor") or "")
 
@@ -101,8 +95,9 @@ class EditHandler:
                 )
 
             description_raw = (state.descricao or "").strip()
+            # Remove "para 45" do fim; se o parser já tirou o número, sobra só "para".
             description = re.sub(
-                r"\s*(?:para|pra|por|valor|novo valor)\s+(?:R\$\s*)?\d+(?:[.,]\d{1,2})?\s*$",
+                r"\s*(?:para|pra|por|valor|novo valor)(?:\s+(?:R\$\s*)?\d+(?:[.,]\d{1,2})?)?\s*$",
                 "",
                 description_raw,
                 flags=re.IGNORECASE,
