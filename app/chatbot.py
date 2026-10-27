@@ -74,10 +74,14 @@ from app.database import (
     carregar_estados_conversa,
     clear_estado_conversa,
     clear_todos_estados_conversa,
+    buscar_categoria_aprendida,
     buscar_titulo_aprendido,
+    registrar_categoria_aprendida,
     registrar_titulo_aprendido,
 )
 from app.parser import detectar_intencao, CATEGORIAS_KEYWORDS, extrair_categoria_mencionada
+from app.parsing.categories import categorize_by_rules
+from app.infra.db import ESTADO_CONVERSA_EXPIRACAO_MIN
 from app.responder import (
     resposta_local,
     RESPOSTAS_NAO_ENTENDI,
@@ -255,14 +259,15 @@ def _estados_do_usuario(usuario_id: int) -> dict[str, str]:
 class _EstadoMap:
     """Map-like persistido em banco para estado conversacional por usuário (lê do cache da mensagem)."""
 
-    def __init__(self, chave: str):
+    def __init__(self, chave: str, expira_minutos: int = ESTADO_CONVERSA_EXPIRACAO_MIN):
         self._chave = chave
+        self._expira_minutos = expira_minutos
 
     def __contains__(self, usuario_id: int) -> bool:
         return self.get(usuario_id) is not None
 
     def __setitem__(self, usuario_id: int, valor) -> None:
-        set_estado_conversa(usuario_id, self._chave, valor)
+        set_estado_conversa(usuario_id, self._chave, valor, self._expira_minutos)
         _estados_do_usuario(usuario_id)[self._chave] = json.dumps(valor, ensure_ascii=False)
 
     set = __setitem__
@@ -303,6 +308,8 @@ _pendente_pagamento_divida = _EstadoMap("pendente_pagamento_divida")
 _pendente_desambiguacao_categoria = _EstadoMap("pendente_desambiguacao_categoria")
 _aguardando_senha_login = _EstadoSet("aguardando_senha_login")
 _ultimo_registro = _EstadoMap("ultimo_registro")
+# Cache da observação de IA do resumo (evita nova chamada enquanto o contexto não muda).
+_observacao_resumo = _EstadoMap("observacao_resumo", expira_minutos=12 * 60)
 
 
 def _set_pendente(
@@ -1247,11 +1254,16 @@ def _processar_fluxo_titulo_ou_registro(
     data_ref: str,
     credor_divida: str = "",
     preservar_titulo_usuario: bool = False,
+    categoria_preview: str = "",
+    descricao_categoria: str = "",
 ) -> str:
     """Resolve título sugerido e registra usando o fluxo unificado de confirmação de operação."""
-    categoria_preview = None
     if intencao in ("registrar_entrada", "registrar_saida"):
-        categoria_preview = _resolver_categoria(categoria_regra, descricao)
+        # Usa a categoria já mostrada no preview (sem nova chamada de IA) e memoriza a escolha final.
+        base_categoria = descricao_categoria or descricao
+        categoria_preview = categoria_preview or _resolver_categoria(categoria_regra, base_categoria, usuario_id)
+        _aprender_categoria(usuario_id, base_categoria, categoria_preview)
+        categoria_regra = categoria_preview
 
     titulo_final = descricao
     if not preservar_titulo_usuario:
@@ -1616,8 +1628,21 @@ def _enriquecer_preview_operacao(usuario_id: int, parsed_base: dict) -> dict:
     if descricao:
         parsed["descricao"] = descricao
 
+    # Ajustes que não mexem em descrição/categoria/credor (ex.: valor, data) reaproveitam o preview
+    # anterior, sem recalcular título/categoria (e sem novas chamadas de IA).
+    chave_preview = "|".join([
+        intencao,
+        descricao,
+        str(parsed.get("categoria_regra") or ""),
+        str(parsed.get("credor_divida") or ""),
+        "manual" if parsed.get("_titulo_manual") else "",
+    ])
+    if parsed.get("_preview_chave") == chave_preview:
+        return parsed
+    parsed["_preview_chave"] = chave_preview
+
     if intencao in {"registrar_entrada", "registrar_saida"}:
-        categoria_ref = _resolver_categoria(parsed.get("categoria_regra"), descricao or "")
+        categoria_ref = _resolver_categoria(parsed.get("categoria_regra"), descricao or "", usuario_id)
         if categoria_ref:
             parsed["_categoria_preview"] = categoria_ref
 
@@ -1781,13 +1806,26 @@ def _categorizar_com_fallback(descricao: str) -> str:
         return "outros"
 
 
-def _resolver_categoria(categoria_regra: str | None, descricao: str) -> str:
-    """Resolve categoria: regra → LLM fallback → 'outros'."""
+def _resolver_categoria(categoria_regra: str | None, descricao: str, usuario_id: int | None = None) -> str:
+    """Resolve categoria: regra → aprendida do usuário → LLM → 'outros'."""
     if categoria_regra:
         return categoria_regra
-    if descricao:
-        return _categorizar_com_fallback(descricao)
-    return "outros"
+    if not descricao:
+        return "outros"
+    if usuario_id is not None:
+        aprendida = buscar_categoria_aprendida(usuario_id, descricao)
+        if aprendida:
+            return aprendida
+    return _categorizar_com_fallback(descricao)
+
+
+def _aprender_categoria(usuario_id: int, descricao: str, categoria: str) -> None:
+    """Memoriza a categoria final (palpite da IA ou correção do usuário) de descrições sem regra."""
+    if not descricao or not categoria or categoria == "outros":
+        return
+    if categorize_by_rules(descricao, CATEGORIAS_KEYWORDS)[0]:
+        return
+    registrar_categoria_aprendida(usuario_id, descricao, categoria)
 
 
 def _resposta_chat_com_fallback(mensagem: str, contexto: dict | None = None) -> str:
@@ -1991,14 +2029,20 @@ def _montar_contexto_observacao_resumo(
     )
 
 
-def _gerar_observacao_resumo_ia(resumo: dict, totais_div: dict, label_mes: str) -> str:
+def _gerar_observacao_resumo_ia(usuario_id: int, resumo: dict, totais_div: dict, label_mes: str) -> str:
     """Gera observação curta para o resumo mensal usando IA com fallback silencioso."""
+    contexto = _montar_contexto_observacao_resumo(resumo, totais_div, label_mes)
+    cache = _observacao_resumo.get(usuario_id)
+    if cache and cache.get("contexto") == contexto:
+        return cache.get("texto") or ""
     try:
         _usou_ia_ctx.set(True)
         from app.llm_service import gerar_observacao_resumo
 
-        contexto = _montar_contexto_observacao_resumo(resumo, totais_div, label_mes)
-        return gerar_observacao_resumo(contexto)
+        texto = gerar_observacao_resumo(contexto)
+        if texto:
+            _observacao_resumo[usuario_id] = {"contexto": contexto, "texto": texto}
+        return texto
     except Exception as e:
         log.warning("IA indisponivel para observacao de resumo: %s", e)
         return ""
@@ -2483,6 +2527,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
                 credor_divida=(parsed.get("credor_divida") or ""),
                 titulo_manual=bool(parsed.get("_titulo_manual")),
                 titulo_preview=(parsed.get("_titulo_preview") or ""),
+                categoria_preview=(parsed.get("_categoria_preview") or ""),
             ),
             clear_context=ClearHandlerContext(
                 totais_mes_fn=lambda user_id, ano_mes: totais_mes(user_id, ano_mes=ano_mes),
@@ -3375,6 +3420,12 @@ def _finalizar_fluxo_registro_guiado(usuario_id: int, estado: dict) -> str:
     return _montar_pergunta_confirmacao_operacao(parsed_confirmacao)
 
 
+def _abandonar_registro_guiado(usuario_id: int, mensagem: str) -> str:
+    """Comando novo no meio do registro guiado: descarta o registro e processa o comando."""
+    _pendente_registro_guiado.pop(usuario_id, None)
+    return "↪️ Deixei de lado o registro que estava em andamento.\n\n" + _processar_mensagem_interna(usuario_id, mensagem)
+
+
 def _processar_fluxo_registro_guiado(usuario_id: int, mensagem: str) -> str:
     estado = _pendente_registro_guiado.get(usuario_id)
     if not estado:
@@ -3396,6 +3447,8 @@ def _processar_fluxo_registro_guiado(usuario_id: int, mensagem: str) -> str:
     if etapa == "valor":
         valor = _extrair_valor_selecao(texto)
         if not valor or valor <= 0:
+            if _e_comando_novo(mensagem):
+                return _abandonar_registro_guiado(usuario_id, mensagem)
             return "Ainda faltou o *valor*. Manda algo como `300` ou `300,50` (ou `cancelar`)."
 
         estado["valor"] = float(valor)
@@ -3406,8 +3459,17 @@ def _processar_fluxo_registro_guiado(usuario_id: int, mensagem: str) -> str:
         return f"Perfeito. Agora me diga a *descricao* da {tipo_txt} (ex.: `almoco`, `salario`, `nubank`)."
 
     if etapa == "descricao":
+        # Quase todo texto é descrição válida; só abandona diante de comando inequívoco
+        # (consulta/ação) ou de um registro completo, com valor.
+        parsed_desc = detectar_intencao(texto)
+        intencao_msg = parsed_desc.get("intencao")
+        if (intencao_msg in _INTENCOES_REGISTRO and parsed_desc.get("valor")) or intencao_msg not in (
+            _INTENCOES_REGISTRO | {"conversa_geral", "pedir_dica", "listar_movimentacoes", "consultar_categoria"}
+        ):
+            return _abandonar_registro_guiado(usuario_id, mensagem)
+
         descricao = _normalizar_descricao_registro(texto)
-        if _descricao_insuficiente_para_registro(descricao):
+        if texto_lower in CONFIRM_TOKENS or _descricao_insuficiente_para_registro(descricao):
             return "Preciso de uma descricao mais clara. Ex.: `almoco`, `mercado`, `salario`, `fatura nubank`."
 
         estado["descricao"] = descricao
@@ -3438,6 +3500,8 @@ def _processar_fluxo_registro_guiado(usuario_id: int, mensagem: str) -> str:
         parsed_data = detectar_intencao(texto)
         data_ref = parsed_data.get("data")
         if not data_ref:
+            if parsed_data.get("intencao") != "conversa_geral":
+                return _abandonar_registro_guiado(usuario_id, mensagem)
             return "Nao consegui entender a data. Use `hoje`, `ontem` ou `03/04` (ou `pular`)."
 
         estado["data_ref"] = data_ref
@@ -3577,7 +3641,7 @@ def _montar_resumo(resumo: dict, usuario_id: int, label_mes: str = "este mês") 
                 texto += f" _({data_fmt})_"
             texto += "\n"
 
-    observacao_ia = _gerar_observacao_resumo_ia(resumo, totais_div, label_mes)
+    observacao_ia = _gerar_observacao_resumo_ia(usuario_id, resumo, totais_div, label_mes)
     if observacao_ia:
         texto += f"\n💡 {observacao_ia}\n"
 

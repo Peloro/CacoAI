@@ -512,6 +512,37 @@ def _jaccard_similarity(a: str, b: str) -> float:
     return float(inter / union) if union else 0.0
 
 
+def register_learned_category(user_id: int, description: str, category: str) -> None:
+    """Memoriza a categoria final de uma descrição que as regras não cobrem."""
+    key = sem_acento(description).strip()
+    if not key or not category:
+        return
+    with db_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO categoria_aprendida (usuario_id, descricao_norm, categoria)
+            VALUES (?, ?, ?)
+            ON CONFLICT(usuario_id, descricao_norm) DO UPDATE SET
+                categoria = excluded.categoria,
+                atualizado_em = datetime('now')
+            """,
+            (user_id, key, category.strip().lower()),
+        )
+        conn.commit()
+
+
+def find_learned_category(user_id: int, description: str) -> str | None:
+    key = sem_acento(description).strip()
+    if not key:
+        return None
+    with db_connection() as conn:
+        row = conn.execute(
+            "SELECT categoria FROM categoria_aprendida WHERE usuario_id = ? AND descricao_norm = ?",
+            (user_id, key),
+        ).fetchone()
+    return row["categoria"] if row else None
+
+
 def register_learned_title(user_id: int, message: str, title: str, category: Optional[str] = None) -> None:
     msg_norm = _normalize_learning_text(message)
     clean_title = (title or "").strip()

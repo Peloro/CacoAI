@@ -24,6 +24,7 @@ class RegisterHandlerState:
     credor_divida: str
     titulo_manual: bool = False
     titulo_preview: str = ""
+    categoria_preview: str = ""
 
 
 class RegisterHandler:
@@ -31,7 +32,10 @@ class RegisterHandler:
         if not state.valor or float(state.valor) <= 0:
             return None
 
-        descricao_final = state.titulo_preview.strip() if state.titulo_manual and state.titulo_preview.strip() else state.descricao
+        # O título e a categoria mostrados no preview são os que serão gravados (sem recalcular).
+        titulo_preview = state.titulo_preview.strip()
+        descricao_final = titulo_preview or state.descricao
+        preservar_titulo = state.titulo_manual or bool(titulo_preview)
 
         if state.intent == "registrar_entrada":
             return context.processar_fluxo_titulo_ou_registro_fn(
@@ -42,7 +46,9 @@ class RegisterHandler:
                 descricao=descricao_final,
                 categoria_regra=state.categoria_regra,
                 data_ref=state.data_ref,
-                preservar_titulo_usuario=state.titulo_manual,
+                preservar_titulo_usuario=preservar_titulo,
+                categoria_preview=state.categoria_preview,
+                descricao_categoria=state.descricao,
             )
 
         if state.intent == "registrar_saldo_inicial":
@@ -73,7 +79,9 @@ class RegisterHandler:
                 descricao=descricao_final,
                 categoria_regra=state.categoria_regra,
                 data_ref=state.data_ref,
-                preservar_titulo_usuario=state.titulo_manual,
+                preservar_titulo_usuario=preservar_titulo,
+                categoria_preview=state.categoria_preview,
+                descricao_categoria=state.descricao,
             )
 
         if state.intent == "registrar_divida":
@@ -86,7 +94,9 @@ class RegisterHandler:
                 categoria_regra=state.categoria_regra,
                 data_ref=state.data_ref,
                 credor_divida=state.credor_divida,
-                preservar_titulo_usuario=state.titulo_manual,
+                preservar_titulo_usuario=preservar_titulo,
+                categoria_preview=state.categoria_preview,
+                descricao_categoria=state.descricao,
             )
 
         return None

@@ -25,6 +25,7 @@ from app.infra.repositories.movimentacao_repository import (
     clear_movements,
     consult_category,
     delete_movement_by_id,
+    find_learned_category,
     find_learned_title,
     find_movements_by_description,
     get_movement_by_id,
@@ -32,6 +33,7 @@ from app.infra.repositories.movimentacao_repository import (
     list_recent_movements,
     month_summary,
     month_totals,
+    register_learned_category,
     register_learned_title,
     register_movement,
     update_movement_fields,
@@ -134,6 +136,15 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_div_usuario ON dividas(usuario_id, data_ref);
             CREATE INDEX IF NOT EXISTS idx_conversa_estado_expira ON conversa_estado(expira_em);
             CREATE INDEX IF NOT EXISTS idx_titulo_aprendizado_usuario ON titulo_aprendizado(usuario_id, atualizado_em);
+
+            CREATE TABLE IF NOT EXISTS categoria_aprendida (
+                usuario_id      INTEGER NOT NULL,
+                descricao_norm  TEXT    NOT NULL,
+                categoria       TEXT    NOT NULL,
+                atualizado_em   TEXT    NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
+                PRIMARY KEY (usuario_id, descricao_norm)
+            );
             """
         )
         _migrar_schema(conn)
@@ -298,6 +309,14 @@ def listar_categorias_por_tipo(usuario_id: int, tipo: Optional[str] = None, ano_
 
 def registrar_titulo_aprendido(usuario_id: int, mensagem: str, titulo: str, categoria: Optional[str] = None) -> None:
     register_learned_title(usuario_id, mensagem, titulo, categoria)
+
+
+def registrar_categoria_aprendida(usuario_id: int, descricao: str, categoria: str) -> None:
+    register_learned_category(usuario_id, descricao, categoria)
+
+
+def buscar_categoria_aprendida(usuario_id: int, descricao: str) -> str | None:
+    return find_learned_category(usuario_id, descricao)
 
 
 def buscar_titulo_aprendido(usuario_id: int, mensagem: str, categoria: Optional[str] = None, similaridade_minima: float = 0.56) -> dict | None:

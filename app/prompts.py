@@ -64,7 +64,7 @@ Sem inventar números e sem frases genéricas como "Parabéns!" isolado.
 # ---------------------------------------------------------------------------
 
 CATEGORIZATION_PROMPT = """Classifique a descrição em uma categoria:
-moradia, alimentacao, transporte, lazer, saude, educacao, compras, servicos, freelas, salario, outros.
+{categorias}.
 
 Descrição: "{descricao}"
 
@@ -87,12 +87,11 @@ Formato:
   "tipo": "entrada|saida|divida|nao_financeiro|incerto",
   "valor": 0.0,
   "descricao": "",
-  "categoria": "",
+  "categoria": "uma de: {categorias}",
   "meio_pagamento": "",
   "origem_destino": "",
   "data_ref": "YYYY-MM-DD ou null",
-  "confianca": 0.0,
-  "justificativa": "curta"
+  "confianca": 0.0
 }}
 Regras: valor float sem moeda; sem valor explicito => 0; em nao_financeiro/incerto use campos vazios; sem inventar dados.
 """
@@ -109,8 +108,7 @@ Categoria: "{categoria}"
 Retorne APENAS JSON valido:
 {{
   "titulo": "",
-  "confianca": 0.0,
-  "justificativa": "curta"
+  "confianca": 0.0
 }}
 Regras: 2-4 palavras; sem artigo no inicio; evitar termos vagos; nao inventar.
 """

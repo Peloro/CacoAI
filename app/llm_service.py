@@ -60,20 +60,28 @@ from app.prompts import (
 
 log = logging.getLogger("caco.llm")
 
-# Ajustes de budget de tokens por tarefa (mais enxuto, sem perder utilidade)
-_MAX_TOKENS_CATEGORIZACAO = LLM_MAX_TOKENS_CATEGORIZACAO
-_MAX_TOKENS_CHAT = LLM_MAX_TOKENS_CHAT
-_MAX_TOKENS_EXTRACAO = LLM_MAX_TOKENS_EXTRACAO
-_MAX_TOKENS_DICA = LLM_MAX_TOKENS_DICA
-_MAX_TOKENS_OBSERVACAO_RESUMO = LLM_MAX_TOKENS_OBSERVACAO_RESUMO
-_MAX_TOKENS_TITULO = LLM_MAX_TOKENS_TITULO
+_http_client = None
 
-_MAX_CHARS_DESC_CATEGORIZACAO = LLM_MAX_CHARS_DESC_CATEGORIZACAO
-_MAX_CHARS_MSG_CHAT = LLM_MAX_CHARS_MSG_CHAT
-_MAX_CHARS_MSG_EXTRACAO = LLM_MAX_CHARS_MSG_EXTRACAO
-_MAX_CHARS_CTX_OBSERVACAO = LLM_MAX_CHARS_CTX_OBSERVACAO
-_MAX_CHARS_MSG_TITULO = LLM_MAX_CHARS_MSG_TITULO
 
+def _cliente_http() -> "httpx.Client":
+    """Cliente HTTP reaproveitado entre chamadas (mantém conexão/TLS abertos)."""
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.Client(timeout=30.0)
+    return _http_client
+
+
+def _parse_json(bruto: str) -> dict | None:
+    """Lê JSON da resposta; se vier com texto em volta, extrai o primeiro bloco {...}."""
+    try:
+        data = json.loads(bruto)
+    except Exception:
+        match = re.search(r'\{[\s\S]*\}', bruto)
+        try:
+            data = json.loads(match.group(0)) if match else None
+        except Exception:
+            data = None
+    return data if isinstance(data, dict) else None
 
 def _compactar_texto(texto: str, limite_chars: int) -> str:
     """Normaliza espaços e limita tamanho para economizar tokens de entrada."""
@@ -261,6 +269,8 @@ except Exception:
         "educacao", "compras", "servicos", "freelas", "salario", "outros",
     }
 
+_CATEGORIAS_PROMPT = ", ".join(sorted(CATEGORIAS_VALIDAS))
+
 # Inicializa provedor de LLM conforme configuração
 _llm_disponivel = False
 _provedor_ativo = LLM_PROVIDER
@@ -302,6 +312,7 @@ def _chat_groq(
     system_prompt: Optional[str] = None,
     temperature: float = 0.7,
     max_tokens: int = 300,
+    json_mode: bool = False,
 ) -> str:
     messages = []
     if system_prompt:
@@ -317,11 +328,13 @@ def _chat_groq(
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    if json_mode:
+        # Força JSON válido (dispensa o parse com regex e evita texto extra gastando tokens).
+        payload["response_format"] = {"type": "json_object"}
 
-    with httpx.Client(timeout=30.0) as client:
-        response = client.post(endpoint, headers=_headers_groq(), json=payload)
-        response.raise_for_status()
-        data = response.json()
+    response = _cliente_http().post(endpoint, headers=_headers_groq(), json=payload)
+    response.raise_for_status()
+    data = response.json()
 
     conteudo = data.get("choices", [{}])[0].get("message", {}).get("content", "")
     if isinstance(conteudo, list):
@@ -420,66 +433,66 @@ def _chat_openrouter(
 
     ultimo_erro = None
     data = None
-    with httpx.Client(timeout=30.0) as client:
-        for endpoint in endpoints:
+    client = _cliente_http()
+    for endpoint in endpoints:
+        try:
+            payload = _montar_payload_por_endpoint(
+                endpoint,
+                model=model,
+                messages=messages,
+                user_prompt=user_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            response = client.post(
+                endpoint,
+                headers=_headers_openrouter(),
+                json=payload,
+            )
+            response.raise_for_status()
             try:
-                payload = _montar_payload_por_endpoint(
-                    endpoint,
-                    model=model,
-                    messages=messages,
-                    user_prompt=user_prompt,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-                response = client.post(
-                    endpoint,
-                    headers=_headers_openrouter(),
-                    json=payload,
-                )
-                response.raise_for_status()
-                try:
-                    data = response.json()
-                except JSONDecodeError as e:
-                    content_type = response.headers.get("content-type", "")
-                    preview = response.text[:300].replace("\n", " ").strip()
-                    raise RuntimeError(
-                        "OpenRouter retornou resposta nao-JSON "
-                        f"(status={response.status_code}, content-type={content_type}, body={preview!r})"
-                    ) from e
-                break
-            except httpx.HTTPStatusError as e:
-                ultimo_erro = e
-                preview = e.response.text[:300].replace("\n", " ").strip()
+                data = response.json()
+            except JSONDecodeError as e:
+                content_type = response.headers.get("content-type", "")
+                preview = response.text[:300].replace("\n", " ").strip()
+                raise RuntimeError(
+                    "OpenRouter retornou resposta nao-JSON "
+                    f"(status={response.status_code}, content-type={content_type}, body={preview!r})"
+                ) from e
+            break
+        except httpx.HTTPStatusError as e:
+            ultimo_erro = e
+            preview = e.response.text[:300].replace("\n", " ").strip()
+            resposta_json = {}
+            try:
+                resposta_json = e.response.json()
+            except Exception:
                 resposta_json = {}
-                try:
-                    resposta_json = e.response.json()
-                except Exception:
-                    resposta_json = {}
 
-                mensagem_erro = ""
-                if isinstance(resposta_json, dict):
-                    erro = resposta_json.get("error", {})
-                    if isinstance(erro, dict):
-                        mensagem_erro = str(erro.get("message", ""))
+            mensagem_erro = ""
+            if isinstance(resposta_json, dict):
+                erro = resposta_json.get("error", {})
+                if isinstance(erro, dict):
+                    mensagem_erro = str(erro.get("message", ""))
 
-                if (
-                    e.response.status_code == 404
-                    and "No endpoints available matching your guardrail restrictions" in mensagem_erro
-                ):
-                    raise RuntimeError(
-                        "OpenRouter bloqueou a requisicao por guardrails/politica de dados da conta. "
-                        "Ajuste em https://openrouter.ai/settings/privacy"
-                    ) from e
+            if (
+                e.response.status_code == 404
+                and "No endpoints available matching your guardrail restrictions" in mensagem_erro
+            ):
+                raise RuntimeError(
+                    "OpenRouter bloqueou a requisicao por guardrails/politica de dados da conta. "
+                    "Ajuste em https://openrouter.ai/settings/privacy"
+                ) from e
 
-                # Se nao for 404, nao adianta testar rota alternativa.
-                if e.response.status_code != 404:
-                    raise RuntimeError(
-                        f"OpenRouter retornou HTTP {e.response.status_code} em {endpoint}: {preview!r}"
-                    ) from e
-                log.warning("Endpoint OpenRouter nao encontrado (%s): %s", e.response.status_code, endpoint)
-            except Exception as e:
-                ultimo_erro = e
-                raise
+            # Se nao for 404, nao adianta testar rota alternativa.
+            if e.response.status_code != 404:
+                raise RuntimeError(
+                    f"OpenRouter retornou HTTP {e.response.status_code} em {endpoint}: {preview!r}"
+                ) from e
+            log.warning("Endpoint OpenRouter nao encontrado (%s): %s", e.response.status_code, endpoint)
+        except Exception as e:
+            ultimo_erro = e
+            raise
 
     if data is None:
         raise RuntimeError(f"Falha ao chamar OpenRouter nos endpoints {endpoints}: {ultimo_erro}")
@@ -505,6 +518,7 @@ def _chat_llm(
     system_prompt: Optional[str] = None,
     temperature: float = 0.7,
     max_tokens: int = 300,
+    json_mode: bool = False,
 ) -> str:
     if _provedor_ativo == "groq":
         model = GROQ_MODEL_FAST if task == "fast" else GROQ_MODEL
@@ -514,6 +528,7 @@ def _chat_llm(
             system_prompt=system_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
+            json_mode=json_mode,
         )
     return _chat_openrouter(
         user_prompt,
@@ -540,15 +555,15 @@ def categorizar_transacao(descricao: str) -> str:
     if not _llm_disponivel:
         return "outros"
 
-    descricao_compacta = _compactar_texto(descricao, _MAX_CHARS_DESC_CATEGORIZACAO)
-    prompt = CATEGORIZATION_PROMPT.format(descricao=descricao_compacta)
+    descricao_compacta = _compactar_texto(descricao, LLM_MAX_CHARS_DESC_CATEGORIZACAO)
+    prompt = CATEGORIZATION_PROMPT.format(descricao=descricao_compacta, categorias=_CATEGORIAS_PROMPT)
 
     try:
         categoria = _chat_llm(
             prompt,
-            task="quality",
+            task="fast",
             temperature=0.0,
-            max_tokens=_MAX_TOKENS_CATEGORIZACAO,
+            max_tokens=LLM_MAX_TOKENS_CATEGORIZACAO,
         ).lower()
         # Remove aspas, pontuação
         categoria = re.sub(r'["\'\.\!\?\,]', '', categoria).strip()
@@ -586,7 +601,7 @@ def gerar_resposta_chat(
     if not _llm_disponivel:
         raise RuntimeError("LLM nao disponivel")
 
-    mensagem_compacta = _compactar_texto(mensagem, _MAX_CHARS_MSG_CHAT)
+    mensagem_compacta = _compactar_texto(mensagem, LLM_MAX_CHARS_MSG_CHAT)
     prompt = CHAT_PROMPT_CONVERSA.format(mensagem=mensagem_compacta)
 
     try:
@@ -595,7 +610,7 @@ def gerar_resposta_chat(
             task="fast",
             system_prompt=SYSTEM_PROMPT_CHAT,
             temperature=0.6,
-            max_tokens=_MAX_TOKENS_CHAT,
+            max_tokens=LLM_MAX_TOKENS_CHAT,
         )
         # Remove aspas envolvendo a resposta inteira
         if resposta.startswith('"') and resposta.endswith('"'):
@@ -641,7 +656,7 @@ def gerar_dica_financeira(mensagem: str, contexto: dict | None = None) -> str:
     if not _llm_disponivel:
         raise RuntimeError("LLM nao disponivel")
 
-    mensagem_compacta = _compactar_texto(mensagem, _MAX_CHARS_MSG_CHAT)
+    mensagem_compacta = _compactar_texto(mensagem, LLM_MAX_CHARS_MSG_CHAT)
     contexto_texto = _contexto_dica_sem_valores(contexto)
     prompt = CHAT_PROMPT_DICA.format(
         mensagem=mensagem_compacta,
@@ -654,7 +669,7 @@ def gerar_dica_financeira(mensagem: str, contexto: dict | None = None) -> str:
             task="quality",
             system_prompt=SYSTEM_PROMPT_CHAT,
             temperature=0.6,
-            max_tokens=_MAX_TOKENS_DICA,
+            max_tokens=LLM_MAX_TOKENS_DICA,
         )
         if resposta.startswith('"') and resposta.endswith('"'):
             resposta = resposta[1:-1]
@@ -673,7 +688,7 @@ def gerar_observacao_resumo(contexto: str) -> str:
     if not _llm_disponivel:
         raise RuntimeError("LLM nao disponivel")
 
-    contexto_compacto = _compactar_texto(contexto, _MAX_CHARS_CTX_OBSERVACAO)
+    contexto_compacto = _compactar_texto(contexto, LLM_MAX_CHARS_CTX_OBSERVACAO)
     prompt = CHAT_PROMPT_OBSERVACAO_RESUMO.format(contexto=contexto_compacto)
 
     try:
@@ -682,7 +697,7 @@ def gerar_observacao_resumo(contexto: str) -> str:
             task="quality",
             system_prompt=SYSTEM_PROMPT_CHAT,
             temperature=0.5,
-            max_tokens=_MAX_TOKENS_OBSERVACAO_RESUMO,
+            max_tokens=LLM_MAX_TOKENS_OBSERVACAO_RESUMO,
         )
         if resposta.startswith('"') and resposta.endswith('"'):
             resposta = resposta[1:-1]
@@ -724,7 +739,7 @@ def gerar_orientacao_planejamento_compra(
     if not _llm_disponivel:
         raise RuntimeError("LLM nao disponivel")
 
-    mensagem_compacta = _compactar_texto(mensagem, _MAX_CHARS_MSG_CHAT)
+    mensagem_compacta = _compactar_texto(mensagem, LLM_MAX_CHARS_MSG_CHAT)
     contexto_texto = _contexto_planejamento_compra(avaliacao, descricao=descricao, categoria=categoria)
     prompt = CHAT_PROMPT_PLANEJAR_COMPRA.format(
         mensagem=mensagem_compacta,
@@ -737,7 +752,7 @@ def gerar_orientacao_planejamento_compra(
             task="quality",
             system_prompt=SYSTEM_PROMPT_CHAT,
             temperature=0.45,
-            max_tokens=max(120, _MAX_TOKENS_DICA),
+            max_tokens=max(120, LLM_MAX_TOKENS_DICA),
         )
         if resposta.startswith('"') and resposta.endswith('"'):
             resposta = resposta[1:-1]
@@ -1033,24 +1048,19 @@ def extrair_movimentacao_estruturada(mensagem: str) -> dict:
         fallback["justificativa"] = "llm_indisponivel_fallback_local"
         return fallback
 
-    msg_compacta = _compactar_texto(mensagem, _MAX_CHARS_MSG_EXTRACAO)
-    prompt = TRANSACTION_EXTRACTION_PROMPT.format(mensagem=msg_compacta)
+    msg_compacta = _compactar_texto(mensagem, LLM_MAX_CHARS_MSG_EXTRACAO)
+    prompt = TRANSACTION_EXTRACTION_PROMPT.format(mensagem=msg_compacta, categorias=_CATEGORIAS_PROMPT)
 
     try:
         bruto = _chat_llm(
             prompt,
             task="quality",
             temperature=0.0,
-            max_tokens=_MAX_TOKENS_EXTRACAO,
+            max_tokens=LLM_MAX_TOKENS_EXTRACAO,
+            json_mode=True,
         )
 
-        data = None
-        try:
-            data = json.loads(bruto)
-        except Exception:
-            match = re.search(r'\{[\s\S]*\}', bruto)
-            if match:
-                data = json.loads(match.group(0))
+        data = _parse_json(bruto)
 
         if not isinstance(data, dict):
             fallback = _fallback_movimentacao_local(mensagem)
@@ -1147,8 +1157,8 @@ def gerar_titulo_canonico(mensagem: str, descricao: str = "", categoria: str = "
     if not _llm_disponivel:
         return vazio
 
-    msg_compacta = _compactar_texto(mensagem, _MAX_CHARS_MSG_TITULO)
-    desc_compacta = _compactar_texto(descricao or "", _MAX_CHARS_DESC_CATEGORIZACAO)
+    msg_compacta = _compactar_texto(mensagem, LLM_MAX_CHARS_MSG_TITULO)
+    desc_compacta = _compactar_texto(descricao or "", LLM_MAX_CHARS_DESC_CATEGORIZACAO)
     cat_compacta = _compactar_texto(categoria or "", 60)
 
     prompt = TITLE_GENERATION_PROMPT.format(
@@ -1160,18 +1170,13 @@ def gerar_titulo_canonico(mensagem: str, descricao: str = "", categoria: str = "
     try:
         bruto = _chat_llm(
             prompt,
-            task="quality",
+            task="fast",
             temperature=0.0,
-            max_tokens=_MAX_TOKENS_TITULO,
+            max_tokens=LLM_MAX_TOKENS_TITULO,
+            json_mode=True,
         )
 
-        data = None
-        try:
-            data = json.loads(bruto)
-        except Exception:
-            match = re.search(r'\{[\s\S]*\}', bruto)
-            if match:
-                data = json.loads(match.group(0))
+        data = _parse_json(bruto)
 
         if not isinstance(data, dict):
             return {"titulo": "", "confianca": 0.0, "justificativa": "json_invalido"}
