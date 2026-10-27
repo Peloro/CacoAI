@@ -34,6 +34,26 @@ from app.conversa.textos import (
 )
 
 
+_RE_VERBO_PAGAMENTO = re.compile(r"\b(?:paguei|pago|quitei|abati|amortizei|acertei|devolvi)\b")
+
+
+def credor_de_divida_mencionado(usuario_id: int, mensagem: str) -> str | None:
+    """Credor de uma dívida em aberto citado numa frase de pagamento ("paguei a maria", "acertei com o joão").
+
+    Usa as dívidas reais do usuário em vez de padrões de preposição: qualquer forma de citar o credor serve.
+    """
+    texto = ascii_lower(mensagem)
+    if not _RE_VERBO_PAGAMENTO.search(texto):
+        return None
+    palavras = set(re.findall(r"[a-z0-9]+", texto))
+    for divida in listar_dividas_recentes(usuario_id, limite=50, ano_mes=None):
+        credor = normalizar_credor_texto(divida.get("credor") or "")
+        tokens = [t for t in re.findall(r"[a-z0-9]+", ascii_lower(credor)) if len(t) >= 2]
+        if tokens and all(t in palavras for t in tokens):
+            return credor
+    return None
+
+
 def registrar_saida_pagamento_divida(usuario_id: int, valor: float, descricao: str, data_ref: str | None) -> int:
     """Registra como gasto o valor usado para pagar/quitar dívidas."""
     return executar_operacao_mutavel(
@@ -215,7 +235,7 @@ def tentar_match_pagamento_divida_com_valor(
         tokens_db = {tok for tok in re.findall(r"[a-z0-9]+", texto_db) if len(tok) >= 2}
 
         score = 0
-        if credor_hint:
+        if credor_hint and credor_db:
             if credor_hint == credor_db:
                 score += 6
             elif credor_hint in credor_db or credor_db in credor_hint:
@@ -234,6 +254,10 @@ def tentar_match_pagamento_divida_com_valor(
         if msg_tokens and tokens_db:
             msg_overlap = len(msg_tokens.intersection(tokens_db))
             score += msg_overlap
+
+        # O valor só desempata: sem nenhuma ligação de texto (credor/descrição), não é essa dívida.
+        if score == 0:
+            continue
 
         valor_div = float(d.get("valor", 0.0) or 0.0)
         if abs(valor_div - valor) < 0.01:

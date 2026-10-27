@@ -68,6 +68,7 @@ cp .env.example .env
 python run.py             # API FastAPI (padrao)
 python run.py telegram    # bot do Telegram (long polling)
 python run.py terminal    # simulador de conversa no terminal
+python run.py ia          # diagnostico da IA (tokens por tarefa)
 ```
 
 ## Canais de Execucao
@@ -78,6 +79,8 @@ Defina no `.env`:
 - `TELEGRAM_BOT_TOKEN`
 - `TG_POLL_TIMEOUT` (opcional)
 - `TG_SEND_TYPING` (opcional)
+
+Confirmacoes e listas de escolha aparecem como botoes (Confirmar/Cancelar, itens numerados, Desfazer).
 
 Execute:
 ```bash
@@ -108,6 +111,8 @@ Para uso real, mantenha desabilitada por padrao e habilite apenas quando necessa
 | `API_TEST_TOKEN` | Token para API de teste | vazio |
 | `BOT_REQUEST_LOG_ENABLED` | Log local de requisicoes/respostas | `false` |
 | `BOT_REQUEST_LOG_PATH` | Caminho do arquivo de log | `logs/bot_requests.log` |
+| `REGISTRO_DIRETO` | Registra lancamentos inequivocos sem pedir confirmacao | `true` |
+| `UNDO_WINDOW_SECONDS` | Janela para *desfazer* o ultimo registro | `300` |
 
 ## Seguranca e Isolamento
 
@@ -156,6 +161,7 @@ CacoAI/
       formatacao.py         datas, meses e escolha em listas
       uso_ia.py             onde a conversa recorre a IA (com fallback local)
       estado.py             estado conversacional persistido por usuario
+      opcoes.py             botoes de resposta rapida deduzidos do estado da conversa
       contexto.py           logs, trace/operation id e eventos
     interpretacao/          parser local (intencao, valores, datas, categorias) + JSONs
     dados/                  schema SQLite e repositorios por assunto

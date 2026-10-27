@@ -36,7 +36,30 @@ _RE_NUM_CONTEXT = re.compile(
 _RE_ANY_NUM = re.compile(r"\b(\d+(?:[.,]\d{1,2})?)\b")
 
 
+MULTIPLICADOR = re.compile(r"(\d+(?:[.,]\d+)*)\s*(mil|k|milh[aã]o|milh[oõ]es|mi)\b", re.IGNORECASE)
+
+
+def expandir_multiplicadores(text: str) -> str:
+    """Escreve por extenso valores com multiplicador: "300 mil" -> "300000", "1,5 mil" -> "1500", "2k" -> "2000"."""
+
+    def _expandir(m: re.Match[str]) -> str:
+        numero, sufixo = m.group(1), m.group(2).lower()
+        if re.fullmatch(r"\d{1,3}(?:\.\d{3})+", numero):  # "1.500 mil": ponto de milhar
+            base = float(numero.replace(".", ""))
+        else:
+            base = float(numero.replace(".", "").replace(",", ".") if "," in numero else numero)
+        fator = 1_000 if sufixo in ("mil", "k") else 1_000_000
+        return f"{base * fator:.2f}".rstrip("0").rstrip(".")
+
+    return MULTIPLICADOR.sub(_expandir, text or "")
+
+
+_RE_DATA_NO_TEXTO = re.compile(r"\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b|\bdia\s+\d{1,2}\b", re.IGNORECASE)
+
+
 def extract_value(text: str) -> float | None:
+    # Números de data ("dia 5", "10/03") não são valor; "300 mil" é 300000.
+    text = _RE_DATA_NO_TEXTO.sub(" ", expandir_multiplicadores(text))
     by_match = _RE_VALUE_BY.search(text)
     if by_match:
         return float(by_match.group(1).replace(",", "."))

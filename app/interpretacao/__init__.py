@@ -2,7 +2,8 @@
 Interpretação de mensagens — extrai intenção, valor, descrição e data
 usando regras e regex. NÃO depende de LLM.
 
-O LLM só é chamado depois, para categorização e resposta conversacional.
+Com IA disponível, a conversa usa a leitura da IA (app.ia.interpretar_mensagem) conferida por estas
+regras; sem IA (ou com a cota esgotada), estas regras decidem sozinhas.
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ import os
 from typing import Optional
 
 from app.interpretacao.categorias import extract_category_mentioned
-from app.interpretacao.intencao import detect_intention
+from app.interpretacao.intencao import detect_intention, evidencias_de_registro as _evidencias
 
 log = logging.getLogger("caco.interpretacao")
 
@@ -43,3 +44,8 @@ def detectar_intencao(texto: str) -> dict:
         categorias_keywords=CATEGORIAS_KEYWORDS,
         palavras=_PALAVRAS,
     )
+
+
+def evidencias_de_registro(texto: str) -> dict[str, int]:
+    """Força da evidência de entrada/saída/dívida no texto (2 = verbo explícito, 1 = palavra-chave/categoria)."""
+    return _evidencias(texto, CATEGORIAS_KEYWORDS, _PALAVRAS)

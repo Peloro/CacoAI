@@ -276,6 +276,55 @@ def processar_confirmacao_limpar(usuario_id: int, mensagem: str) -> str:
     return "🤔 Manda *sim* pra confirmar ou *não* pra cancelar."
 
 
+def _tipo_txt(intencao: str) -> str:
+    return {"registrar_divida": "divida", "registrar_entrada": "entrada"}.get(intencao, "saida")
+
+
+def _lacuna(estado: dict) -> str | None:
+    """Próximo dado que falta no registro guiado (None = completo)."""
+    if not estado.get("valor"):
+        return "valor"
+    if descricao_insuficiente_para_registro(estado.get("descricao") or ""):
+        return "descricao"
+    if estado.get("intencao") == "registrar_divida" and not estado.get("credor_divida"):
+        return "credor_divida"
+    if not estado.get("data_ref"):
+        return "data"
+    return None
+
+
+def _absorver(estado: dict, parsed: dict) -> None:
+    """Preenche com o que a frase trouxer qualquer dado que ainda falte (valor, descrição, credor, data)."""
+    if not estado.get("valor") and (parsed.get("valor") or 0) > 0:
+        estado["valor"] = float(parsed["valor"])
+    descricao = normalizar_descricao_registro(parsed.get("descricao") or "")
+    if descricao_insuficiente_para_registro(estado.get("descricao") or "") and not descricao_insuficiente_para_registro(descricao):
+        estado["descricao"] = descricao
+    if estado.get("intencao") == "registrar_divida" and not estado.get("credor_divida") and parsed.get("credor_divida"):
+        estado["credor_divida"] = normalizar_credor_texto(parsed["credor_divida"])
+    if not estado.get("data_ref") and parsed.get("data"):
+        estado["data_ref"] = parsed["data"]
+
+
+_PERGUNTA_DATA = "Quer registrar em qual data? (ex.: `hoje`, `ontem`, `03/04`) ou `pular` para hoje."
+
+
+def _perguntar(usuario_id: int, estado: dict) -> str:
+    """Salva o estado e pergunta o próximo dado que falta (ou finaliza, se completo)."""
+    lacuna = _lacuna(estado)
+    if lacuna is None:
+        return _finalizar_fluxo_registro_guiado(usuario_id, estado)
+    estado["etapa"] = lacuna
+    pendente_registro_guiado[usuario_id] = estado
+    if lacuna == "valor":
+        return "Ainda faltou o *valor*. Manda algo como `300` ou `300,50` (ou `cancelar`)."
+    if lacuna == "descricao":
+        return f"Perfeito. Agora me diga a *descricao* da {_tipo_txt(estado.get('intencao'))} (ex.: `almoco`, `salario`, `nubank`)."
+    if lacuna == "credor_divida":
+        return "Agora informe o *credor* da divida (ex.: `nubank`)."
+    return _PERGUNTA_DATA
+
+
 def iniciar_fluxo_registro_guiado(
     usuario_id: int,
     intencao: str,
@@ -286,42 +335,35 @@ def iniciar_fluxo_registro_guiado(
     credor_divida: str = "",
     data_ref: str | None = None,
 ) -> str:
-    descricao_norm = normalizar_descricao_registro(descricao or "")
-    credor_norm = normalizar_credor_texto(credor_divida or "")
-    etapa_inicial = "valor"
-    if valor and valor > 0:
-        etapa_inicial = "descricao"
-        if not descricao_insuficiente_para_registro(descricao_norm):
-            etapa_inicial = "credor_divida" if (intencao == "registrar_divida" and not credor_norm) else "data"
-
-    pendente_registro_guiado[usuario_id] = {
+    estado = {
         "intencao": intencao,
         "mensagem_original": (mensagem_original or "").strip(),
-        "etapa": etapa_inicial,
         "valor": float(valor) if valor and valor > 0 else None,
-        "descricao": descricao_norm,
-        "credor_divida": credor_norm,
-        "data_ref": data_ref,
+        "descricao": normalizar_descricao_registro(descricao or ""),
+        "credor_divida": normalizar_credor_texto(credor_divida or ""),
+        "data_ref": data_ref,  # só a data dita na frase; sem ela, o fluxo pergunta
     }
+    lacuna = _lacuna(estado)
+    estado["etapa"] = lacuna
+    pendente_registro_guiado[usuario_id] = estado
 
-    tipo_txt = "divida" if intencao == "registrar_divida" else ("entrada" if intencao == "registrar_entrada" else "saida")
-    if etapa_inicial == "valor":
+    if lacuna == "valor":
         return (
-            f"Beleza, vamos registrar uma *{tipo_txt}*.\n"
+            f"Beleza, vamos registrar uma *{_tipo_txt(intencao)}*.\n"
             "Me passe primeiro o *valor* (ex.: `300` ou `300,50`).\n"
             "Se quiser cancelar, digite `cancelar`."
         )
-    if etapa_inicial == "descricao":
+    if lacuna == "descricao":
         return (
             f"Perfeito, já anotei o valor de {formatar_real(float(valor or 0.0))}.\n"
-            f"Agora me diga a *descricao* da {tipo_txt} (ex.: `almoco`, `salario`, `nubank`)."
+            f"Agora me diga a *descricao* da {_tipo_txt(intencao)} (ex.: `almoco`, `salario`, `nubank`)."
         )
-    if etapa_inicial == "credor_divida":
+    if lacuna == "credor_divida":
         return (
-            f"Perfeito, já anotei valor ({formatar_real(float(valor or 0.0))}) e descricao ({descricao_norm}).\n"
-            "Agora informe o *credor* da divida (ex.: `nubank`) ou digite `pular`."
+            f"Perfeito, já anotei valor ({formatar_real(float(valor or 0.0))}) e descricao ({estado['descricao']}).\n"
+            "Agora informe o *credor* da divida (ex.: `nubank`)."
         )
-    return (
+    return _perguntar(usuario_id, estado) if lacuna is None else (
         "Perfeito, falta só a *data*.\n"
         "Envie `hoje`, `ontem`, `03/04` ou `pular` para usar hoje."
     )
@@ -372,74 +414,50 @@ def processar_fluxo_registro_guiado(usuario_id: int, mensagem: str) -> str | Non
         pendente_registro_guiado.pop(usuario_id, None)
         return "Beleza, cancelei esse registro guiado."
 
-    etapa = (estado.get("etapa") or "valor").strip()
-    intencao = estado.get("intencao") or "registrar_saida"
+    lacuna = _lacuna(estado)
+    parsed = detectar_intencao(texto)
 
-    if etapa == "valor":
+    # 1) O dado que foi perguntado; se a resposta não o trouxer, pode ser um comando novo.
+    if lacuna == "valor":
         valor = extrair_valor_selecao(texto)
         if not valor or valor <= 0:
             if e_comando_novo(mensagem):
                 pendente_registro_guiado.pop(usuario_id, None)
                 return None
             return "Ainda faltou o *valor*. Manda algo como `300` ou `300,50` (ou `cancelar`)."
-
         estado["valor"] = float(valor)
-        estado["etapa"] = "descricao"
-        pendente_registro_guiado[usuario_id] = estado
 
-        tipo_txt = "divida" if intencao == "registrar_divida" else ("entrada" if intencao == "registrar_entrada" else "saida")
-        return f"Perfeito. Agora me diga a *descricao* da {tipo_txt} (ex.: `almoco`, `salario`, `nubank`)."
-
-    if etapa == "descricao":
+    elif lacuna == "descricao":
         # Quase todo texto é descrição válida; só abandona diante de comando inequívoco
         # (consulta/ação) ou de um registro completo, com valor.
-        parsed_desc = detectar_intencao(texto)
-        intencao_msg = parsed_desc.get("intencao")
-        if (intencao_msg in INTENCOES_REGISTRO and parsed_desc.get("valor")) or intencao_msg not in (
+        intencao_msg = parsed.get("intencao")
+        if (intencao_msg in INTENCOES_REGISTRO and parsed.get("valor")) or intencao_msg not in (
             INTENCOES_REGISTRO | {"conversa_geral", "pedir_dica", "listar_movimentacoes", "consultar_categoria"}
         ):
             pendente_registro_guiado.pop(usuario_id, None)
             return None
-
         descricao = normalizar_descricao_registro(texto)
         if texto_lower in CONFIRM_TOKENS or descricao_insuficiente_para_registro(descricao):
             return "Preciso de uma descricao mais clara. Ex.: `almoco`, `mercado`, `salario`, `fatura nubank`."
-
         estado["descricao"] = descricao
-        if intencao == "registrar_divida":
-            estado["etapa"] = "credor_divida"
-            pendente_registro_guiado[usuario_id] = estado
-            return "Agora informe o *credor* da divida (ex.: `nubank`)."
 
-        estado["etapa"] = "data"
-        pendente_registro_guiado[usuario_id] = estado
-        return "Quer registrar em qual data? (ex.: `hoje`, `ontem`, `03/04`) ou `pular` para hoje."
-
-    if etapa == "credor_divida":
+    elif lacuna == "credor_divida":
         credor = normalizar_credor_texto(texto)
         if not credor:
             return "Credor é obrigatorio para registrar divida. Manda algo como `nubank` ou `joao`."
         estado["credor_divida"] = credor
 
-        estado["etapa"] = "data"
-        pendente_registro_guiado[usuario_id] = estado
-        return "Quer registrar em qual data? (ex.: `hoje`, `ontem`, `03/04`) ou `pular` para hoje."
-
-    if etapa == "data":
+    elif lacuna == "data":
         if texto_lower in ("pular", "hoje", "agora"):
             estado["data_ref"] = date.today().isoformat()
-            return _finalizar_fluxo_registro_guiado(usuario_id, estado)
-
-        parsed_data = detectar_intencao(texto)
-        data_ref = parsed_data.get("data")
-        if not data_ref:
-            if parsed_data.get("intencao") != "conversa_geral":
-                pendente_registro_guiado.pop(usuario_id, None)
-                return None
+        elif parsed.get("data"):
+            estado["data_ref"] = parsed["data"]
+        elif parsed.get("intencao") != "conversa_geral":
+            pendente_registro_guiado.pop(usuario_id, None)
+            return None
+        else:
             return "Nao consegui entender a data. Use `hoje`, `ontem` ou `03/04` (ou `pular`)."
 
-        estado["data_ref"] = data_ref
-        return _finalizar_fluxo_registro_guiado(usuario_id, estado)
-
-    pendente_registro_guiado.pop(usuario_id, None)
-    return "Ops, perdi o contexto do registro. Pode comecar de novo com `quero registrar ...`."
+    # 2) Aproveita o que mais a frase trouxer ("uns 80 na feirinha ontem") e pergunta só o que falta.
+    _absorver(estado, parsed)
+    return _perguntar(usuario_id, estado)

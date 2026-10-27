@@ -25,7 +25,7 @@ from app.conversa.textos import (
     normalizar_descricao_registro,
     sugerir_titulo_registro,
 )
-from app.conversa.uso_ia import resolver_categoria
+from app.conversa.uso_ia import resolver_categoria_com_fonte
 
 
 @dataclass(slots=True)
@@ -48,7 +48,6 @@ class PendingOperationStore(Protocol):
 
 
 ApplyEditFn = Callable[[dict, str], tuple[dict, list[str]]]
-
 
 PreviewFn = Callable[[int, dict], dict]
 
@@ -200,7 +199,6 @@ class IntentConfirmationService:
 
 _confirmacao_operacao_state_machine = ConfirmationStateMachine(pendente_confirmacao_operacao)
 
-
 _confirmacao_intencao_service = IntentConfirmationService(pendente_confirmacao_intencao)
 
 
@@ -348,23 +346,20 @@ def enriquecer_preview_operacao(usuario_id: int, parsed_base: dict) -> dict:
     if descricao:
         parsed["descricao"] = descricao
 
-    # Ajustes que não mexem em descrição/categoria/credor (ex.: valor, data) reaproveitam o preview
-    # anterior, sem recalcular título/categoria (e sem novas chamadas de IA).
-    chave_preview = "|".join([
-        intencao,
-        descricao,
-        str(parsed.get("categoria_regra") or ""),
-        str(parsed.get("credor_divida") or ""),
-        "manual" if parsed.get("_titulo_manual") else "",
-    ])
-    if parsed.get("_preview_chave") == chave_preview:
-        return parsed
-    parsed["_preview_chave"] = chave_preview
+    # Categoria e título só são recalculados quando o que os define muda (e sem novas chamadas de IA):
+    # ajustar valor/data não mexe em nenhum dos dois; ajustar a categoria não mexe no título.
+    chave_categoria = f"{intencao}|{descricao}|{parsed.get('categoria_regra') or ''}"
+    if intencao in {"registrar_entrada", "registrar_saida"} and parsed.get("_preview_chave_categoria") != chave_categoria:
+        parsed["_preview_chave_categoria"] = chave_categoria
+        categoria_ref, fonte = resolver_categoria_com_fonte(parsed.get("categoria_regra"), descricao or "", usuario_id)
+        parsed["_categoria_preview"] = categoria_ref
+        # Categoria preenchida pela extração da IA conta como palpite, não como regra.
+        parsed["_categoria_fonte"] = "ia" if fonte == "regra" and parsed.get("_extraido_por_ia") else fonte
 
-    if intencao in {"registrar_entrada", "registrar_saida"}:
-        categoria_ref = resolver_categoria(parsed.get("categoria_regra"), descricao or "", usuario_id)
-        if categoria_ref:
-            parsed["_categoria_preview"] = categoria_ref
+    chave_titulo = f"{intencao}|{descricao}|{parsed.get('credor_divida') or ''}|{bool(parsed.get('_titulo_manual'))}"
+    if parsed.get("_preview_chave_titulo") == chave_titulo:
+        return parsed
+    parsed["_preview_chave_titulo"] = chave_titulo
 
     if parsed.get("_titulo_manual") and descricao:
         parsed["_titulo_preview"] = descricao
@@ -383,6 +378,8 @@ def enriquecer_preview_operacao(usuario_id: int, parsed_base: dict) -> dict:
         titulo_preview = (sugestao.get("titulo") or descricao).strip()
         if titulo_preview:
             parsed["_titulo_preview"] = titulo_preview
+        parsed["_titulo_score"] = float(sugestao.get("score") or 0.0)
+        parsed["_titulo_margem"] = float(sugestao.get("margem") or 0.0)
 
     if intencao == "editar_movimentacao" and descricao:
         parsed["_titulo_preview"] = descricao

@@ -8,30 +8,25 @@ from typing import Callable
 
 DetectIntentFn = Callable[[str], dict]
 
-
 ExtractCategoryFn = Callable[[str], str | None]
 
 
 IsOperationIntentFn = Callable[[str], bool]
-
 
 IntentLabelFn = Callable[[str], str]
 
 
 FormatCurrencyFn = Callable[[float], str]
 
-
 NormalizeCreditorFn = Callable[[str], str]
 
 
 FormatDateFriendlyFn = Callable[[str], str]
 
-
 MonthNameFn = Callable[[str | None], str]
 
 
 IsWeakDescriptionFn = Callable[[str], bool]
-
 
 NormalizeDescriptionFn = Callable[[str], str]
 
@@ -45,7 +40,6 @@ _RE_SANITIZE_PREFIX = re.compile(
 
 _RE_CATEGORY_CMD = re.compile(r"\b(?:categoria|cat)\b", flags=re.IGNORECASE)
 
-
 _RE_DATE_CMD = re.compile(
     r"\b(?:data|hoje|ontem|amanh[ãa]|anteontem|dia\s+\d{1,2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b",
     flags=re.IGNORECASE,
@@ -54,12 +48,10 @@ _RE_DATE_CMD = re.compile(
 
 _RE_VALUE_CMD = re.compile(r"\b(?:valor|reais?|r\$|rs)\b", flags=re.IGNORECASE)
 
-
 _RE_TYPE_CMD = re.compile(r"\b(?:tipo|entrada|sa[ií]da|gasto|d[ií]vida|divida)\b", flags=re.IGNORECASE)
 
 
 _RE_INSTALLMENT_HINT = re.compile(r"\b(?:parcela(?:s)?|prestac(?:a|ã)o(?:es)?|x\b|vez(?:es)?)\b", flags=re.IGNORECASE)
-
 
 _RE_MONEY_HINT = re.compile(r"\b(?:valor|r\$|reais?|pre[cç]o|custou|custa|deu|foi)\b", flags=re.IGNORECASE)
 
@@ -78,7 +70,6 @@ _RE_EXPLICIT_OPERATION_CHANGE = re.compile(
 
 _RE_MOVE_TYPE = re.compile(r"\btipo\b\s*(?:=|:)?\s*(entrada|saida|sa[ií]da|gasto)\b", flags=re.IGNORECASE)
 
-
 _RE_CLEAR_ALL_SCOPE = re.compile(r"\b(?:tudo|todas|todos)\b", flags=re.IGNORECASE)
 
 
@@ -90,12 +81,10 @@ _RE_CLEAR_ALL_PERIOD = re.compile(
 
 _RE_YEAR_ONLY = re.compile(r"\d{4}")
 
-
 _RE_YEAR_MONTH = re.compile(r"\d{4}-\d{2}")
 
 
 _RE_CURRENT_MONTH = re.compile(r"\b(?:este|esse|neste)\s+m[eê]s\b", flags=re.IGNORECASE)
-
 
 _RE_TITLE_CMD = re.compile(r"\b(?:t[ií]tulo|titulo)\b\s*(?:=|:|por|para)?\s*(.+)$", flags=re.IGNORECASE)
 
@@ -349,7 +338,5 @@ def apply_pending_operation_edit(
             else:
                 changes.append(f"descrição para {normalized_description}")
 
-    if changes:
-        new_payload["_mensagem_original"] = text
-
+    # A frase original do lançamento é mantida: o ajuste ("troca a categoria para compras") não descreve o item.
     return new_payload, changes

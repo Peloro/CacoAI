@@ -3,8 +3,12 @@ from __future__ import annotations
 
 import re
 
-from app.config import INTENT_CONFIRM_MIN_MARGIN, INTENT_CONFIRM_MIN_SCORE
-from app.interpretacao import detectar_intencao
+from app.config import (
+    TITLE_CONFIRM_MIN_MARGIN,
+    TITLE_CONFIRM_MIN_SCORE,
+)
+from app.interpretacao import detectar_intencao, evidencias_de_registro
+from app.interpretacao.entidades import MULTIPLICADOR
 
 
 CONFIRM_TOKENS = frozenset(
@@ -20,9 +24,7 @@ CANCEL_TOKENS = frozenset(
 # Em listas de escolha, "0"/"nenhum" também cancelam.
 CANCEL_LISTA = CANCEL_TOKENS | {"0", "nenhum", "nenhuma"}
 
-
 INTENCOES_REGISTRO = frozenset({"registrar_entrada", "registrar_saida", "registrar_divida"})
-
 
 _INTENCOES_MUTAVEIS = INTENCOES_REGISTRO | {
     "registrar_saldo_inicial",
@@ -41,52 +43,8 @@ INTENCOES_COM_CONFIRMACAO = _INTENCOES_MUTAVEIS - {
     "quitar_dividas",
     "apagar_movimentacao",
     "limpar_movimentacoes",
+    "desfazer_ultimo",  # já é a correção pedida pelo usuário (e só vale para o registro recém-feito)
 }
-
-
-_RE_TERMO_FINANCEIRO = re.compile(
-    r"\b(?:"
-    r"gastei|gastar|paguei|pagar|comprei|comprar|recebi|receber|ganhei|ganho|"
-    r"entrada|saida|saída|despesa|gasto|divida|dívida|devo|devendo|"
-    r"endividei|faturei|freela|salario|salário|receita|"
-    r"pix|cartao|cartão|boleto|aluguel|mercado|parcela|emprestimo|empréstimo|"
-    r"valor"
-    r")\b",
-    re.IGNORECASE,
-)
-
-
-_RE_VALOR_MENSAGEM = re.compile(r'\b\d+(?:[.,]\d{1,2})?\b')
-
-
-_RE_ENTRADA_ACAO = re.compile(r'\b(recebi|ganhei|entrou|faturei|depositaram|pix\s+recebido)\b', re.IGNORECASE)
-
-
-_RE_SAIDA_ACAO = re.compile(r'\b(gastei|paguei|comprei|torrei|despesa|despesas|saiu)\b', re.IGNORECASE)
-
-
-_RE_DIVIDA_ACAO = re.compile(r'\b(devo|devendo|d[ií]vida|d[ií]vidas|fiquei\s+devendo|me\s+endividei|endividei|emprestimo|empr[eé]stimo)\b', re.IGNORECASE)
-
-
-_RE_COMANDO_RESUMO = re.compile(r'\b(resumo|extrato|historico|histórico)\b', re.IGNORECASE)
-
-
-_RE_COMANDO_SALDO = re.compile(r'\b(saldo|quanto\s+sobra|quanto\s+tenho|quanto\s+falta)\b', re.IGNORECASE)
-
-
-_RE_COMANDO_LISTAR = re.compile(r'\b(listar|lista|mostrar|mostra|ver)\b', re.IGNORECASE)
-
-
-_RE_COMANDO_APAGAR = re.compile(r'\b(apagar|apaga|deletar|deleta|remover|remove|excluir|exclui)\b', re.IGNORECASE)
-
-
-_RE_COMANDO_EDITAR = re.compile(r'\b(editar|edita|alterar|altera|atualizar|atualiza|corrigir|corrige|trocar|troca|mudar|muda)\b', re.IGNORECASE)
-
-
-_RE_COMANDO_LIMPAR = re.compile(r'\b(limpar|limpa|zerar|zera|resetar|reseta)\b', re.IGNORECASE)
-
-
-_RE_COMANDO_AJUDA = re.compile(r'\b(ajuda|help|comandos)\b', re.IGNORECASE)
 
 
 _RE_PLANEJAMENTO_COMPLEXO = re.compile(
@@ -95,57 +53,34 @@ _RE_PLANEJAMENTO_COMPLEXO = re.compile(
     re.IGNORECASE,
 )
 
-
-_RE_PAGAMENTO_DIVIDA_FRASE = re.compile(
-    r'\b(?:paguei|abati|amortizei|quitei)\b.*\b(?:d[ií]vida|divida|devo|devendo)\b',
-    re.IGNORECASE,
-)
+# Vírgula só separa quando seguida de espaço (não quebra "25,90").
+_SEPARADOR_DE_COMANDOS = re.compile(r"\s*(?:[,;](?=\s|$)|\be\s+depois\b|\bdepois\b|\be\b)\s*")
+_PEDEM_VALOR = frozenset({"registrar_entrada", "registrar_saida", "registrar_divida", "registrar_saldo_inicial", "posso_gastar"})
 
 
 def detectar_multiplos_comandos(mensagem: str) -> bool:
-    """Retorna True quando a mensagem aparenta conter mais de um comando."""
-    texto = (mensagem or "").strip().lower()
-    if not texto:
+    """Mais de um comando na mesma frase ("gastei 16 no almoço e recebi 20 de pix").
+
+    Cada trecho separado por vírgula/"e"/"depois" passa pelo parser: são vários comandos quando
+    os trechos pedem coisas diferentes, ou quando há dois lançamentos cada um com seu valor.
+    Um trecho que precisa de valor só conta se tiver o valor ou um verbo explícito ("paguei o aluguel");
+    assim "..., vale a pena?" ou "comprei arroz e feijão por 30" seguem sendo um comando só.
+    """
+    trechos = [t for t in _SEPARADOR_DE_COMANDOS.split((mensagem or "").strip()) if t]
+    if len(trechos) < 2:
         return False
 
-    # Frases de pagamento de dívida não são múltiplos comandos.
-    if _RE_PAGAMENTO_DIVIDA_FRASE.search(texto):
-        return False
+    def e_comando(trecho: str, c: dict) -> bool:
+        if c["intencao"] == "conversa_geral":
+            return False
+        if c["intencao"] not in _PEDEM_VALOR or c.get("valor"):
+            return True
+        return 2 in evidencias_de_registro(trecho).values()
 
-    comandos: set[str] = set()
-
-    # Acoes financeiras com valor (reduz falso positivo em consultas como "quanto gastei?").
-    if _RE_VALOR_MENSAGEM.search(texto):
-        if _RE_ENTRADA_ACAO.search(texto):
-            comandos.add("registrar_entrada")
-        if _RE_SAIDA_ACAO.search(texto):
-            comandos.add("registrar_saida")
-        if _RE_DIVIDA_ACAO.search(texto):
-            comandos.add("registrar_divida")
-
-    # Comandos de consulta/acao sem valor.
-    tem_resumo = bool(_RE_COMANDO_RESUMO.search(texto))
-    tem_saldo = bool(_RE_COMANDO_SALDO.search(texto))
-
-    if tem_resumo:
-        comandos.add("consultar_resumo")
-    if tem_saldo:
-        comandos.add("consultar_saldo")
-
-    # "mostrar/ver" pode ser apenas forma de pedir resumo/saldo;
-    # só conta como listar quando não há um desses comandos mais específicos.
-    if _RE_COMANDO_LISTAR.search(texto) and not (tem_resumo or tem_saldo):
-        comandos.add("listar")
-    if _RE_COMANDO_APAGAR.search(texto):
-        comandos.add("apagar")
-    if _RE_COMANDO_EDITAR.search(texto):
-        comandos.add("editar")
-    if _RE_COMANDO_LIMPAR.search(texto):
-        comandos.add("limpar")
-    if _RE_COMANDO_AJUDA.search(texto):
-        comandos.add("ajuda")
-
-    return len(comandos) > 1
+    comandos = [c for t in trechos if e_comando(t, c := detectar_intencao(t))]
+    intencoes = {c["intencao"] for c in comandos}
+    lancamentos_com_valor = [c for c in comandos if c["intencao"] in INTENCOES_REGISTRO and c.get("valor")]
+    return len(intencoes) > 1 or len(lancamentos_com_valor) > 1
 
 
 _TERMOS_DESCRICAO_GENERICOS = {
@@ -199,25 +134,11 @@ def deve_forcar_extracao_ia(mensagem: str, parsed: dict) -> bool:
     texto_lower = texto.lower()
 
     intencao = parsed.get("intencao", "")
-    if intencao in {
-        "consultar_resumo",
-        "consultar_saldo",
-        "consultar_total",
-        "registrar_saldo_inicial",
-        "listar_movimentacoes",
-        "listar_categorias",
-        "consultar_categoria",
-        "apagar_movimentacao",
-        "editar_movimentacao",
-        "limpar_movimentacoes",
-        "quitar_dividas",
-        "pagar_divida",
-        "pedir_dica",
-    }:
+    if intencao not in INTENCOES_REGISTRO and intencao != "conversa_geral":
         return False
 
     tem_valor = bool(parsed.get("valor"))
-    parece_financeiro = bool(_RE_TERMO_FINANCEIRO.search(texto_lower))
+    parece_financeiro = bool(evidencias_de_registro(texto))
     candidato_registro = intencao in INTENCOES_REGISTRO
 
     # Caso clássico ambíguo: o parser não bateu em intenção de registro,
@@ -262,105 +183,78 @@ def rotulo_intencao(intencao: str) -> str:
     return rotulos.get(intencao, intencao.replace("_", " "))
 
 
-def calcular_confianca_intencao(mensagem: str, parsed: dict) -> dict:
-    """Gera top-2 intenções candidatas para reduzir execução errada em ambiguidades."""
-    texto = (mensagem or "").strip().lower()
-    scores: dict[str, float] = {
-        "registrar_entrada": 0.0,
-        "registrar_saida": 0.0,
-        "registrar_divida": 0.0,
-        "registrar_saldo_inicial": 0.0,
-        "consultar_resumo": 0.0,
-        "consultar_saldo": 0.0,
-        "consultar_total": 0.0,
-        "listar_movimentacoes": 0.0,
-        "listar_categorias": 0.0,
-        "consultar_categoria": 0.0,
-        "apagar_movimentacao": 0.0,
-        "editar_movimentacao": 0.0,
-        "limpar_movimentacoes": 0.0,
-        "posso_gastar": 0.0,
-        "pagar_divida": 0.0,
-        "quitar_dividas": 0.0,
-        "desfazer_ultimo": 0.0,
-        "conversa_geral": 0.0,
-    }
-
-    if _RE_ENTRADA_ACAO.search(texto):
-        scores["registrar_entrada"] += 0.5
-    if _RE_SAIDA_ACAO.search(texto):
-        scores["registrar_saida"] += 0.5
-    if _RE_DIVIDA_ACAO.search(texto):
-        scores["registrar_divida"] += 0.55
-
-    if _RE_COMANDO_RESUMO.search(texto):
-        scores["consultar_resumo"] += 0.6
-    if _RE_COMANDO_SALDO.search(texto):
-        scores["consultar_saldo"] += 0.6
-    if "quanto gastei" in texto or "quanto ganhei" in texto:
-        scores["consultar_total"] += 0.6
-    if _RE_COMANDO_LISTAR.search(texto):
-        scores["listar_movimentacoes"] += 0.45
-        scores["listar_categorias"] += 0.25
-    if _RE_COMANDO_APAGAR.search(texto):
-        scores["apagar_movimentacao"] += 0.6
-    if _RE_COMANDO_EDITAR.search(texto):
-        scores["editar_movimentacao"] += 0.6
-    if _RE_COMANDO_LIMPAR.search(texto):
-        scores["limpar_movimentacoes"] += 0.6
-    if "categoria" in texto:
-        scores["consultar_categoria"] += 0.35
-    if "saldo inicial" in texto or "na conta" in texto:
-        scores["registrar_saldo_inicial"] += 0.35
-    if "quitar" in texto:
-        scores["quitar_dividas"] += 0.55
-    if "pagar divida" in texto or "pagar dívida" in texto:
-        scores["pagar_divida"] += 0.55
-    if "desfazer" in texto:
-        scores["desfazer_ultimo"] += 0.55
-
-    if "posso gastar" in texto or "vale a pena" in texto or "da pra gastar" in texto or "dá pra gastar" in texto:
-        scores["posso_gastar"] += 0.6
-
-    if _RE_VALOR_MENSAGEM.search(texto):
-        for k in ("registrar_entrada", "registrar_saida", "registrar_divida", "posso_gastar"):
-            scores[k] += 0.08
-
-    intencao_parser = parsed.get("intencao", "conversa_geral")
-    if intencao_parser in scores:
-        scores[intencao_parser] += 0.42
-    else:
-        scores["conversa_geral"] += 0.35
-
-    ranking = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    top = ranking[0]
-    segundo = ranking[1]
-
-    return {
-        "top_intencao": top[0],
-        "top_score": min(1.0, top[1]),
-        "segunda_intencao": segundo[0],
-        "segunda_score": min(1.0, segundo[1]),
-    }
+_TIPO_DA_INTENCAO = {"registrar_entrada": "entrada", "registrar_saida": "saida", "registrar_divida": "divida"}
+_INTENCAO_DO_TIPO = {tipo: intencao for intencao, tipo in _TIPO_DA_INTENCAO.items()}
 
 
-def deve_confirmar_intencao(parsed: dict, confianca: dict) -> bool:
-    """Confirma com o usuário quando a classificação é ambígua em operações."""
-    intencao = parsed.get("intencao", "")
-    if intencao not in _INTENCOES_MUTAVEIS:
+def intencoes_em_conflito(parsed: dict, mensagem: str) -> tuple[str, str] | None:
+    """Duas leituras igualmente plausíveis para um lançamento (perguntar "1 ou 2").
+
+    Só vale quando o parser decidiu por palavra-chave genérica (regras específicas são a especificação)
+    e a frase tem evidência tão forte quanto (ou mais forte) de outro tipo de lançamento.
+    """
+    intencao = parsed.get("intencao")
+    if intencao not in _TIPO_DA_INTENCAO or parsed.get("_regra") != "palavra_chave":
+        return None
+    evidencias = evidencias_de_registro(mensagem)
+    if not evidencias:
+        return None
+    mais_forte = max(evidencias.values())
+    lideres = [tipo for tipo, forca in evidencias.items() if forca == mais_forte]
+    rivais = [tipo for tipo in lideres if tipo != _TIPO_DA_INTENCAO[intencao]]
+    return (intencao, _INTENCAO_DO_TIPO[rivais[0]]) if rivais else None
+
+
+# Datas e IDs também têm dígitos, mas não são o valor do lançamento.
+_RE_NAO_VALOR = re.compile(r"\d{1,2}/\d{1,2}(?:/\d{2,4})?|\bdia\s+\d{1,2}\b|#\d+|\b20\d{2}\b")
+_RE_NUMERO = re.compile(r"\d+(?:[.,]\d+)*")
+
+
+# Pedidos que nunca são ajuste de um campo da operação pendente ("categoria X" e "editar ..." podem ser).
+_NUNCA_SAO_AJUSTE = frozenset({
+    "consultar_resumo", "consultar_saldo", "consultar_total", "listar_movimentacoes", "listar_categorias",
+    "apagar_movimentacao", "limpar_movimentacoes", "desfazer_ultimo", "quitar_dividas", "pagar_divida", "pedir_dica",
+})
+
+
+def e_comando_independente(mensagem: str) -> bool:
+    """Pedido novo e completo, e não um ajuste da operação pendente como "valor 50" ou "foi ontem"."""
+    if (mensagem or "").strip().lower() in CONFIRM_TOKENS | CANCEL_TOKENS:
+        return False  # resposta à pergunta pendente ("cancelar" também parece "apagar" para o parser)
+    parsed = detectar_intencao(mensagem)
+    intencao = parsed.get("intencao")
+    if intencao in INTENCOES_REGISTRO:
+        return bool(parsed.get("valor")) and not descricao_insuficiente_para_registro(parsed.get("descricao") or "")
+    if intencao in _PEDEM_VALOR:  # saldo inicial, "posso gastar"
+        return bool(parsed.get("valor"))
+    return intencao in _NUNCA_SAO_AJUSTE
+
+
+def registro_inequivoco(parsed: dict, mensagem: str) -> bool:
+    """Registro pode ser feito sem pedir "sim": nada nele dependeu de palpite.
+
+    Exige: interpretação por regras (não pela IA), um único número na frase (valor sem ambiguidade),
+    categoria vinda de regra ou do histórico do usuário e título com confiança alta.
+    """
+    intencao = parsed.get("intencao")
+    if intencao not in INTENCOES_REGISTRO | {"registrar_saldo_inicial"} or parsed.get("_extraido_por_ia"):
         return False
-
-    top_score = float(confianca.get("top_score", 0.0) or 0.0)
-    segunda = confianca.get("segunda_intencao")
-    segunda_score = float(confianca.get("segunda_score", 0.0) or 0.0)
-    margem = top_score - segunda_score
-
-    # Gate configurável via .env para calibrar rigor por ambiente.
-    if top_score < INTENT_CONFIRM_MIN_SCORE:
+    if len(_RE_NUMERO.findall(_RE_NAO_VALOR.sub(" ", mensagem or ""))) != 1:
+        return False
+    if MULTIPLICADOR.search(mensagem or ""):  # "300 mil", "2k": leitura menos literal, confirma
+        return False
+    if intencao == "registrar_saldo_inicial":
         return True
-    if segunda in _INTENCOES_MUTAVEIS and margem < INTENT_CONFIRM_MIN_MARGIN:
+    if intencao == "registrar_divida":
+        return bool(parsed.get("credor_divida"))  # título é sempre "divida <credor>"
+    if parsed.get("_categoria_fonte") not in ("regra", "aprendida"):
+        return False
+    if parsed.get("_titulo_manual"):
         return True
-    return False
+    return (
+        float(parsed.get("_titulo_score") or 0.0) >= TITLE_CONFIRM_MIN_SCORE
+        and float(parsed.get("_titulo_margem") or 0.0) >= TITLE_CONFIRM_MIN_MARGIN
+    )
 
 
 def intencao_e_operacao(intencao: str) -> bool:

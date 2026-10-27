@@ -20,6 +20,12 @@ def nome_mes(ano_mes: str | None) -> str:
     if not ano_mes:
         ano_mes = date.today().strftime("%Y-%m")
 
+    # Referência de um dia (YYYY-MM-DD): "hoje", "ontem" ou "dd/mm"
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(ano_mes)):
+        dias = (date.today() - date.fromisoformat(ano_mes)).days
+        dia_mes = f"{ano_mes[8:]}/{ano_mes[5:7]}"
+        return {0: f"{dia_mes} (hoje)", 1: f"{dia_mes} (ontem)"}.get(dias, dia_mes)
+
     # Referência anual (YYYY)
     if re.fullmatch(r"\d{4}", str(ano_mes)):
         ano = int(str(ano_mes))

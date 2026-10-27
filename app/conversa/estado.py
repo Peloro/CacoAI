@@ -63,36 +63,30 @@ class _EstadoSet(_EstadoMap):
 # Estados pendentes persistidos (sobrevivem reinício e múltiplos workers).
 senha_temporaria = _EstadoMap("senha_temporaria")
 
-
 pendente_desambiguacao = _EstadoMap("pendente_desambiguacao")
 
 
 pendente_desambiguacao_editar = _EstadoMap("pendente_desambiguacao_editar")
-
 
 pendente_confirmacao_apagar = _EstadoMap("pendente_confirmacao_apagar")
 
 
 pendente_confirmacao_limpar = _EstadoMap("pendente_confirmacao_limpar")
 
-
 pendente_confirmacao_quitar = _EstadoMap("pendente_confirmacao_quitar")
 
 
 pendente_confirmacao_intencao = _EstadoMap("pendente_confirmacao_intencao")
-
 
 pendente_confirmacao_operacao = _EstadoMap("pendente_confirmacao_operacao")
 
 
 pendente_registro_guiado = _EstadoMap("pendente_registro_guiado")
 
-
 pendente_pagamento_divida = _EstadoMap("pendente_pagamento_divida")
 
 
 pendente_desambiguacao_categoria = _EstadoMap("pendente_desambiguacao_categoria")
-
 
 aguardando_senha_login = _EstadoSet("aguardando_senha_login")
 
@@ -121,7 +115,6 @@ def _set_pendente(
 
 set_pendente_confirmacao_apagar = partial(_set_pendente, pendente_confirmacao_apagar, tipo_evento="apagar_movimentacao")
 
-
 set_pendente_desambiguacao_apagar = partial(
     _set_pendente, pendente_desambiguacao, tipo_evento="apagar_movimentacao", nome_evento="desambiguacao_acionada"
 )
@@ -133,6 +126,5 @@ set_pendente_desambiguacao_editar = partial(
 
 
 set_pendente_confirmacao_limpar = partial(_set_pendente, pendente_confirmacao_limpar, tipo_evento="limpar_movimentacoes")
-
 
 set_pendente_confirmacao_quitar = partial(_set_pendente, pendente_confirmacao_quitar, tipo_evento="quitar_dividas")

@@ -8,7 +8,7 @@ from uuid import uuid4
 import httpx
 
 from app.config import TELEGRAM_BOT_TOKEN, TG_POLL_TIMEOUT, TG_SEND_TYPING
-from app.conversa import processar_mensagem
+from app.conversa import processar_mensagem_com_opcoes
 from app.dados import init_db
 
 log = logging.getLogger("caco.telegram")
@@ -83,16 +83,67 @@ def _post_with_retry(client: httpx.Client, url: str, payload: dict, retries: int
     return None
 
 
-def _send_message(client: httpx.Client, base_url: str, chat_id: int, text: str) -> None:
-    """Envia mensagem para o chat, lidando com textos longos."""
-    for part in _split_text(text):
+def _teclado(opcoes: list[tuple[str, str]]) -> dict:
+    """Botões de resposta rápida: um por linha (até 2 por linha quando são curtos)."""
+    linhas: list[list[dict]] = []
+    for rotulo, valor in opcoes:
+        botao = {"text": rotulo, "callback_data": valor[:64]}
+        if linhas and len(linhas[-1]) == 1 and len(rotulo) <= 14 and len(linhas[-1][0]["text"]) <= 14:
+            linhas[-1].append(botao)
+        else:
+            linhas.append([botao])
+    return {"inline_keyboard": linhas}
+
+
+def _send_message(
+    client: httpx.Client, base_url: str, chat_id: int, text: str, opcoes: list[tuple[str, str]] | None = None
+) -> None:
+    """Envia mensagem para o chat, lidando com textos longos; os botões vão na última parte."""
+    partes = _split_text(text)
+    for i, part in enumerate(partes):
         payload = {
             "chat_id": chat_id,
             "text": _format_for_telegram(part),
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }
+        if opcoes and i == len(partes) - 1:
+            payload["reply_markup"] = _teclado(opcoes)
         _post_with_retry(client, f"{base_url}/sendMessage", payload)
+
+
+def tratar_update(client: httpx.Client, base_url: str, update: dict) -> None:
+    """Processa uma mensagem de texto ou o toque num botão (callback_query) como se fosse texto digitado."""
+    callback = update.get("callback_query")
+    if callback:
+        mensagem_origem = callback.get("message") or {}
+        chat_id = (mensagem_origem.get("chat") or {}).get("id")
+        text = (callback.get("data") or "").strip()
+        _post_with_retry(client, f"{base_url}/answerCallbackQuery", {"callback_query_id": callback.get("id")})
+        if chat_id and mensagem_origem.get("message_id"):
+            # Remove os botões já usados para evitar toque duplo.
+            _post_with_retry(client, f"{base_url}/editMessageReplyMarkup", {
+                "chat_id": chat_id,
+                "message_id": mensagem_origem["message_id"],
+                "reply_markup": {"inline_keyboard": []},
+            })
+    else:
+        message = update.get("message") or {}
+        text = (message.get("text") or "").strip()
+        chat_id = (message.get("chat") or {}).get("id")
+
+    if not chat_id:
+        return
+    if not text:
+        _send_message(client, base_url, chat_id, "Consigo responder só mensagens de texto por enquanto. 🙂")
+        return
+
+    if TG_SEND_TYPING:
+        _post_with_retry(client, f"{base_url}/sendChatAction", {"chat_id": chat_id, "action": "typing"})
+
+    # processar_mensagem valida tamanho/conteúdo e responde com orientação se inválido.
+    resposta, opcoes = processar_mensagem_com_opcoes(f"telegram:{chat_id}", text, trace_id=uuid4().hex[:12])
+    _send_message(client, base_url, chat_id, resposta, opcoes)
 
 
 def executar() -> None:
@@ -113,7 +164,7 @@ def executar() -> None:
 
         while True:
             try:
-                payload = {"timeout": TG_POLL_TIMEOUT, "allowed_updates": ["message"]}
+                payload = {"timeout": TG_POLL_TIMEOUT, "allowed_updates": ["message", "callback_query"]}
                 if offset is not None:
                     payload["offset"] = offset
 
@@ -126,23 +177,7 @@ def executar() -> None:
                     update_id = update.get("update_id")
                     if isinstance(update_id, int):
                         offset = update_id + 1
-
-                    message = update.get("message") or {}
-                    text = (message.get("text") or "").strip()
-                    chat_id = (message.get("chat") or {}).get("id")
-                    if not chat_id:
-                        continue
-
-                    if not text:
-                        _send_message(client, base_url, chat_id, "Consigo responder só mensagens de texto por enquanto. 🙂")
-                        continue
-
-                    if TG_SEND_TYPING:
-                        _post_with_retry(client, f"{base_url}/sendChatAction", {"chat_id": chat_id, "action": "typing"})
-
-                    # processar_mensagem valida tamanho/conteúdo e responde com orientação se inválido.
-                    resposta = processar_mensagem(f"telegram:{chat_id}", text, trace_id=uuid4().hex[:12])
-                    _send_message(client, base_url, chat_id, resposta)
+                    tratar_update(client, base_url, update)
 
             except KeyboardInterrupt:
                 log.info("Bot do Telegram encerrado.")

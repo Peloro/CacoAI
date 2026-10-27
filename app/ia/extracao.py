@@ -1,4 +1,4 @@
-"""Extração estruturada de movimentação via IA, com complemento heurístico local."""
+"""Extração estruturada de movimentação via IA (schema estrito), completada pela interpretação local."""
 from __future__ import annotations
 
 import logging
@@ -6,268 +6,75 @@ import re
 import unicodedata
 
 from app.config import LLM_MAX_CHARS_MSG_EXTRACAO, LLM_MAX_TOKENS_EXTRACAO
-from app.ia.prompts import CATEGORIAS_PROMPT, SCHEMA_EXTRACAO, TRANSACTION_EXTRACTION_PROMPT
 from app.ia import provedores
+from app.ia.prompts import (
+    CATEGORIAS_PROMPT,
+    CATEGORIAS_VALIDAS,
+    INTENCOES_INTERPRETACAO,
+    INTERPRETATION_PROMPT,
+    SCHEMA_EXTRACAO,
+    TRANSACTION_EXTRACTION_PROMPT,
+)
 from app.ia.texto import compactar_texto, parse_json
-
 
 log = logging.getLogger("caco.llm")
 
-
-_TIPOS_MOV_IA = {"entrada", "saida", "divida", "nao_financeiro", "incerto"}
-
-
-def _mensagem_indica_cenario_hipotetico(mensagem: str) -> bool:
-    msg = (mensagem or "").strip().lower()
-    if "?" not in msg:
-        return False
-    gatilhos = (
-        "se eu ",
-        "vai dar ruim",
-        "vou me enrolar",
-        "vou me enrola",
-        "devo comprar",
-        "vou conseguir pagar",
-        "sera que consigo pagar",
-        "será que consigo pagar",
-        "seria loucura",
-    )
-    return any(g in msg for g in gatilhos)
+_TIPOS = {"entrada", "saida", "divida", "nao_financeiro", "incerto"}
+_TIPO_DA_INTENCAO = {
+    "registrar_entrada": "entrada",
+    "registrar_saldo_inicial": "entrada",
+    "registrar_saida": "saida",
+    "registrar_divida": "divida",
+    "pagar_divida": "divida",
+    "quitar_dividas": "divida",
+    "conversa_geral": "nao_financeiro",
+    "pedir_dica": "nao_financeiro",
+}
 
 
-def _mensagem_indica_divida(mensagem: str) -> bool:
-    msg = (mensagem or "").strip().lower()
-    return any(
-        t in msg
-        for t in (
-            "divida",
-            "dívida",
-            "devendo",
-            "emprestimo",
-            "empréstimo",
-            "parcela",
-            "fatura",
-            "cartao",
-            "cartão",
-            "no negativo",
-            "negativo",
-        )
-    )
+def _interpretacao_local(mensagem: str) -> dict:
+    """Os mesmos campos da IA, pelo parser local (usada sem IA ou para completar campos vazios)."""
+    from app.interpretacao import detectar_intencao
+
+    parsed = detectar_intencao(mensagem)
+    tipo = _TIPO_DA_INTENCAO.get(parsed.get("intencao") or "", "incerto")
+    return {
+        "tipo": tipo,
+        "valor": float(parsed.get("valor") or 0.0) if tipo != "incerto" else 0.0,
+        "descricao": str(parsed.get("descricao") or "").strip(),
+        "categoria": str(parsed.get("categoria_regra") or "").strip().lower(),
+        "meio_pagamento": "",
+        "origem_destino": str(parsed.get("credor_divida") or "").strip().lower() if tipo == "divida" else "",
+        "data_ref": parsed.get("data") or None,
+        "confianca": 0.55 if tipo != "incerto" else 0.0,
+    }
 
 
-def _override_tipo_por_regra(mensagem: str, tipo_sugerido: str) -> str:
-    if _mensagem_indica_cenario_hipotetico(mensagem):
-        return "incerto"
-    if _mensagem_indica_divida(mensagem):
-        return "divida"
-    return tipo_sugerido
-
-
-def _fallback_movimentacao_local(mensagem: str) -> dict:
-    """Extrai estrutura mínima por heurística local quando IA falha."""
-    try:
-        from app.interpretacao import detectar_intencao
-
-        parsed = detectar_intencao(mensagem)
-        intencao = (parsed.get("intencao") or "").strip().lower()
-        tipo = "incerto"
-        if intencao in {"registrar_entrada", "registrar_saldo_inicial"}:
-            tipo = "entrada"
-        elif intencao == "registrar_saida":
-            tipo = "saida"
-        elif intencao in {"registrar_divida", "pagar_divida", "quitar_dividas"}:
-            tipo = "divida"
-        elif intencao in {"conversa_geral", "pedir_dica"}:
-            tipo = "nao_financeiro"
-        tipo = _override_tipo_por_regra(mensagem, tipo)
-
-        valor = float(parsed.get("valor") or 0.0) if tipo != "incerto" else 0.0
-        descricao = str(parsed.get("descricao") or "").strip()
-        credor = str(parsed.get("credor_divida") or "").strip().lower()
-        origem_base = credor if tipo == "divida" else ""
-        origem_destino = _normalizar_origem_destino(origem_base, mensagem, descricao, tipo)
-
-        return {
-            "tipo": tipo,
-            "valor": max(0.0, valor),
-            "descricao": descricao,
-            "categoria": str(parsed.get("categoria_regra") or "").strip().lower(),
-            "meio_pagamento": "",
-            "origem_destino": origem_destino,
-            "data_ref": parsed.get("data") or None,
-            "confianca": 0.55 if tipo != "incerto" else 0.0,
-            "justificativa": "fallback_local",
-        }
-    except Exception:
-        return {
-            "tipo": "incerto",
-            "valor": 0.0,
-            "descricao": "",
-            "categoria": "",
-            "meio_pagamento": "",
-            "origem_destino": "",
-            "data_ref": None,
-            "confianca": 0.0,
-            "justificativa": "fallback_local_erro",
-        }
-
-
-def _slugify_categoria(valor: str) -> str:
-    txt = (valor or "").strip().lower()
-    txt = unicodedata.normalize("NFKD", txt).encode("ascii", "ignore").decode("ascii")
-    txt = re.sub(r"[^a-z0-9]+", "_", txt)
-    return txt.strip("_")
-
-
-def _to_float_seguro(valor) -> float:
-    if isinstance(valor, (int, float)):
-        return float(valor)
-    if isinstance(valor, str):
-        txt = valor.strip().replace("R$", "").replace(" ", "")
-        txt = txt.replace(".", "").replace(",", ".") if "," in txt else txt
-        try:
-            return float(txt)
-        except ValueError:
-            return 0.0
-    return 0.0
-
-
-def _inferir_origem_destino(mensagem: str, descricao: str, tipo: str) -> str:
-    base = f"{mensagem or ''} {descricao or ''}".strip().lower()
-    if not base:
-        return ""
-
-    if tipo == "entrada" and "venda" in base:
-        return "venda"
-    if tipo == "entrada" and "freela" in base:
-        return "freela"
-    if tipo == "saida" and "uber" in base:
-        return "uber"
-    if tipo == "saida" and "internet" in base:
-        return "internet"
-    if tipo == "divida" and "emprestimo" in base:
-        return "emprestimo"
-
-    empresa_match = re.search(r"\bempresa\s+([a-z0-9_à-ÿ]+)", base, flags=re.IGNORECASE)
-    if empresa_match:
-        empresa = (empresa_match.group(1) or "").strip().lower()
-        if empresa and not empresa.isdigit():
-            return empresa
-
-    padroes = [
-        r"\b(?:de|do|da)\s+([a-z0-9_à-ÿ]+)",
-        r"\b(?:com)\s+([a-z0-9_à-ÿ]+)",
-        r"\bpix\s+(?:de|do|da)\s+([a-z0-9_à-ÿ]+)",
-    ]
-    for p in padroes:
-        m = re.search(p, base, flags=re.IGNORECASE)
-        if m:
-            candidato = (m.group(1) or "").strip().lower()
-            if candidato.isdigit():
-                continue
-            if candidato and candidato not in {"um", "uma", "o", "a", "meu", "minha", "festa", "monitor"}:
-                return candidato
-
-    return ""
-
-
-def _normalizar_origem_destino(origem_extraida: str, mensagem: str, descricao: str, tipo: str) -> str:
-    base = f"{mensagem or ''} {descricao or ''}".strip().lower()
-    origem = (origem_extraida or "").strip().lower()
-
-    if tipo == "incerto":
-        return ""
-
-    # Sinais fortes no texto da mensagem devem prevalecer sobre extrações genéricas.
-    prioridades = [
-        "estorno",
-        "cashback",
-        "rendimento",
-        "venda",
-        "freela",
-        "aluguel",
-        "mercado",
-        "uber",
-        "internet",
-        "streaming",
-        "hospital",
-        "caixa",
-        "cartao",
-        "cartão",
-        "emprestimo",
-        "empréstimo",
-        "banco",
-    ]
-    for token in prioridades:
-        if token in base:
-            return "cartao" if token == "cartão" else ("emprestimo" if token == "empréstimo" else token)
-
-    if origem and not origem.isdigit():
-        return origem
-
-    return _inferir_origem_destino(mensagem, descricao, tipo)
-
-
-def _extrair_primeiro_valor_mensagem(mensagem: str) -> float:
-    txt = (mensagem or "").strip()
-    if not txt:
-        return 0.0
-
-    m = re.search(r"(\d{1,3}(?:\.\d{3})+,\d{1,2}|\d+,\d{1,2}|\d+\.\d{1,2}|\d+)", txt)
-    if not m:
-        return 0.0
-
-    bruto = m.group(1)
-    if "," in bruto and "." in bruto:
-        bruto = bruto.replace(".", "").replace(",", ".")
-    elif "," in bruto:
-        bruto = bruto.replace(",", ".")
-
-    try:
-        return float(bruto)
-    except ValueError:
-        return 0.0
+def _categoria_valida(valor: str) -> str:
+    """Aceita a categoria só se for uma das conhecidas ("Alimentação" -> "alimentacao")."""
+    slug = unicodedata.normalize("NFKD", (valor or "").strip().lower()).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9]+", "_", slug).strip("_")
+    return slug if slug in CATEGORIAS_VALIDAS else ""
 
 
 def extrair_movimentacao_estruturada(mensagem: str) -> dict:
     """
-    Extrai campos estruturados de uma mensagem financeira via IA.
+    Extrai tipo (entrada|saida|divida|nao_financeiro|incerto), valor, descrição, categoria,
+    meio de pagamento, origem/destino, data (YYYY-MM-DD ou None) e confiança de uma mensagem.
 
-    Retorna dict com:
-      - tipo: entrada|saida|divida|nao_financeiro|incerto
-      - valor: float
-      - descricao: str
-      - categoria: str
-      - meio_pagamento: str
-      - origem_destino: str
-      - data_ref: str | None
-      - confianca: float
-      - justificativa: str
+    A resposta da IA segue um schema estrito; campos que ela deixar vazios são completados pelo parser local.
     """
-    vazio = {
-        "tipo": "incerto",
-        "valor": 0.0,
-        "descricao": "",
-        "categoria": "",
-        "meio_pagamento": "",
-        "origem_destino": "",
-        "data_ref": None,
-        "confianca": 0.0,
-        "justificativa": "llm_indisponivel",
-    }
+    if not (mensagem or "").strip():
+        return _interpretacao_local("") | {"tipo": "incerto", "confianca": 0.0}
 
-    if not mensagem or not mensagem.strip():
-        vazio["justificativa"] = "mensagem_vazia"
-        return vazio
-
+    local = _interpretacao_local(mensagem)
     if not provedores.disponivel:
-        fallback = _fallback_movimentacao_local(mensagem)
-        fallback["justificativa"] = "llm_indisponivel_fallback_local"
-        return fallback
+        return local
 
-    msg_compacta = compactar_texto(mensagem, LLM_MAX_CHARS_MSG_EXTRACAO)
-    prompt = TRANSACTION_EXTRACTION_PROMPT.format(mensagem=msg_compacta, categorias=CATEGORIAS_PROMPT)
-
+    prompt = TRANSACTION_EXTRACTION_PROMPT.format(
+        mensagem=compactar_texto(mensagem, LLM_MAX_CHARS_MSG_EXTRACAO),
+        categorias=CATEGORIAS_PROMPT,
+    )
     try:
         bruto = provedores.conversar(
             prompt,
@@ -277,84 +84,98 @@ def extrair_movimentacao_estruturada(mensagem: str) -> dict:
             json_mode=True,
             schema=SCHEMA_EXTRACAO,
         )
-
-        data = parse_json(bruto)
-
-        if not isinstance(data, dict):
-            fallback = _fallback_movimentacao_local(mensagem)
-            fallback["justificativa"] = "json_invalido_fallback_local"
-            return fallback
-
-        tipo = str(data.get("tipo", "incerto")).strip().lower()
-        if tipo not in _TIPOS_MOV_IA:
-            tipo = "incerto"
-        tipo = _override_tipo_por_regra(mensagem, tipo)
-
-        valor = max(0.0, _to_float_seguro(data.get("valor", 0.0)))
-        if "+" in mensagem:
-            primeiro_valor = _extrair_primeiro_valor_mensagem(mensagem)
-            if primeiro_valor > 0:
-                valor = primeiro_valor
-        if tipo == "incerto":
-            valor = 0.0
-        descricao = str(data.get("descricao", "") or "").strip()
-        categoria = _slugify_categoria(str(data.get("categoria", "") or ""))
-        meio_pagamento = str(data.get("meio_pagamento", "") or "").strip().lower()
-        origem_destino = str(data.get("origem_destino", "") or "").strip().lower()
-        origem_destino = _normalizar_origem_destino(origem_destino, mensagem, descricao, tipo)
-
-        data_ref_raw = data.get("data_ref")
-        data_ref = None
-        if isinstance(data_ref_raw, str):
-            d = data_ref_raw.strip()
-            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
-                data_ref = d
-
-        try:
-            confianca = float(data.get("confianca", 0.0))
-        except (TypeError, ValueError):
-            confianca = 0.0
-        confianca = max(0.0, min(1.0, confianca))
-
-        justificativa = str(data.get("justificativa", "") or "").strip()
-
-        resultado = {
-            "tipo": tipo,
-            "valor": valor,
-            "descricao": descricao,
-            "categoria": categoria,
-            "meio_pagamento": meio_pagamento,
-            "origem_destino": origem_destino,
-            "data_ref": data_ref,
-            "confianca": confianca,
-            "justificativa": justificativa,
-        }
-
-        # Se a IA vier fraca/incompleta, completa com extração local para evitar perda total.
-        fallback = _fallback_movimentacao_local(mensagem)
-        ia_fraca = (
-            resultado["tipo"] == "incerto"
-            or (resultado["valor"] <= 0 and fallback.get("valor", 0.0) > 0)
-            or (not resultado["origem_destino"] and bool(fallback.get("origem_destino")))
-        )
-        if ia_fraca:
-            if fallback.get("tipo") and fallback.get("tipo") != "incerto":
-                resultado["tipo"] = fallback["tipo"]
-            if resultado["valor"] <= 0 and fallback.get("valor", 0.0) > 0:
-                resultado["valor"] = float(fallback.get("valor", 0.0))
-            if not resultado["descricao"] and fallback.get("descricao"):
-                resultado["descricao"] = str(fallback.get("descricao") or "")
-            if not resultado["categoria"] and fallback.get("categoria"):
-                resultado["categoria"] = str(fallback.get("categoria") or "")
-            if not resultado["origem_destino"] and fallback.get("origem_destino"):
-                resultado["origem_destino"] = str(fallback.get("origem_destino") or "")
-            resultado["confianca"] = max(float(resultado.get("confianca", 0.0) or 0.0), 0.55)
-            resultado["justificativa"] = "ia_fraca_complementada_fallback_local"
-
-        return resultado
-
     except Exception as e:
         log.warning("Erro LLM (%s) em extracao_movimentacao: %s", provedores.ativo, e)
-        fallback = _fallback_movimentacao_local(mensagem)
-        fallback["justificativa"] = "erro_llm_fallback_local"
-        return fallback
+        return local
+
+    data = parse_json(bruto)
+    if not data:
+        return local
+
+    data_ref = str(data.get("data_ref") or "").strip()
+    try:
+        confianca = max(0.0, min(1.0, float(data.get("confianca") or 0.0)))
+        valor = max(0.0, float(data.get("valor") or 0.0))
+    except (TypeError, ValueError):
+        confianca, valor = 0.0, 0.0
+    resultado = {
+        "tipo": data.get("tipo") if data.get("tipo") in _TIPOS else "incerto",
+        "valor": valor,
+        "descricao": str(data.get("descricao") or "").strip(),
+        "categoria": _categoria_valida(str(data.get("categoria") or "")),
+        "meio_pagamento": str(data.get("meio_pagamento") or "").strip().lower(),
+        "origem_destino": str(data.get("origem_destino") or "").strip().lower(),
+        "data_ref": data_ref if re.fullmatch(r"\d{4}-\d{2}-\d{2}", data_ref) else None,
+        "confianca": confianca,
+    }
+
+    # Campos que a IA deixou vazios vêm da interpretação local.
+    if resultado["tipo"] == "incerto" and local["tipo"] != "incerto":
+        resultado["tipo"] = local["tipo"]
+        resultado["confianca"] = max(resultado["confianca"], local["confianca"])
+    for campo in ("valor", "descricao", "categoria", "origem_destino", "data_ref"):
+        if not resultado[campo] and local[campo]:
+            resultado[campo] = local[campo]
+    if resultado["tipo"] in ("incerto", "nao_financeiro"):
+        resultado["valor"] = 0.0
+    return resultado
+
+
+def _numero(valor, minimo: float = 0.0) -> float:
+    try:
+        n = float(valor or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return n if minimo <= n < 1e12 else 0.0  # descarta negativo, NaN e infinito
+
+
+def interpretar_mensagem(mensagem: str) -> list[dict] | None:
+    """
+    Interpreta a mensagem inteira (qualquer intenção) numa chamada de IA com schema estrito.
+
+    Devolve as operações no mesmo formato do parser local (sem data, que fica com as regras),
+    ou None se a IA não estiver disponível ou responder algo inválido.
+    """
+    if not provedores.disponivel or not (mensagem or "").strip():
+        return None
+    prompt = INTERPRETATION_PROMPT.format(
+        mensagem=compactar_texto(mensagem, LLM_MAX_CHARS_MSG_EXTRACAO),
+        categorias=CATEGORIAS_PROMPT,
+    )
+    try:
+        bruto = provedores.conversar(
+            prompt,
+            task="quality",
+            temperature=0.0,
+            max_tokens=LLM_MAX_TOKENS_EXTRACAO * 2,  # cabe mais de uma operação
+            json_mode=True,  # sem schema estrito: ele custa ~350 tokens por chamada (cota de 8K/min)
+        )
+    except Exception as e:
+        log.warning("Erro LLM (%s) em interpretacao: %s", provedores.ativo, e)
+        return None
+
+    operacoes = []
+    for op in (parse_json(bruto) or {}).get("operacoes") or []:
+        # O fallback (OpenRouter) não garante o schema: tudo é validado aqui.
+        if not isinstance(op, dict) or op.get("intencao") not in INTENCOES_INTERPRETACAO:
+            continue
+        tipo = op.get("tipo") if op.get("tipo") in ("entrada", "saida") else None
+        id_mov = op.get("id_movimentacao")
+        operacoes.append({
+            "intencao": op["intencao"],
+            "valor": _numero(op.get("valor")) or None,
+            "descricao": str(op.get("descricao") or "").strip(),
+            "categoria_regra": _categoria_valida(str(op.get("categoria") or "")) or None,
+            "credor_divida": str(op.get("credor_divida") or "").strip().lower(),
+            "id_movimentacao": id_mov if isinstance(id_mov, int) and id_mov > 0 else None,
+            "novo_valor": _numero(op.get("novo_valor")) or None,
+            "periodo_limpar": op.get("periodo_limpar") if op.get("periodo_limpar") in ("mes", "ano", "tudo") else "mes",
+            "tipo_total": tipo or "saida",
+            "tipo_listar": tipo,
+            "tipo_apagar": tipo,
+            "tipo_limpar": tipo,
+            "tipo_categoria": tipo,
+            "tipo_consulta": tipo,
+            "categoria_consulta": _categoria_valida(str(op.get("categoria") or "")) or None,
+        })
+    return operacoes or None

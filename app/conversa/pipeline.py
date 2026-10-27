@@ -6,6 +6,7 @@ import re
 import time
 from datetime import date
 
+from app.config import REGISTRO_DIRETO
 from app.dados import (
     clear_todos_estados_conversa,
     consultar_categoria,
@@ -50,6 +51,7 @@ from app.conversa.contexto import (
     usou_ia_ctx,
 )
 from app.conversa.dividas import (
+    credor_de_divida_mencionado,
     processar_confirmacao_quitar,
     processar_pendente_pagamento_divida,
     tentar_inferir_pagamento_divida_sem_valor,
@@ -85,14 +87,15 @@ from app.conversa.intencoes import (
     CANCEL_TOKENS,
     INTENCOES_COM_CONFIRMACAO,
     INTENCOES_REGISTRO,
-    calcular_confianca_intencao,
     descricao_insuficiente_para_registro,
     detectar_multiplos_comandos,
     detectar_tipo_fluxo_registro_guiado,
-    deve_confirmar_intencao,
     deve_forcar_extracao_ia,
     e_comando_novo,
+    e_comando_independente,
+    intencoes_em_conflito,
     intencao_e_operacao,
+    registro_inequivoco,
 )
 from app.conversa.operacoes import EXECUTORES, Operacao
 from app.conversa.respostas import garantir_hint_ajuda, resposta_chat_com_fallback, resposta_local
@@ -101,7 +104,7 @@ from app.conversa.textos import (
     normalizar_credor_texto,
     normalizar_descricao_registro,
 )
-from app.conversa.uso_ia import aplicar_extracao_ia_financeira, resposta_dica_com_ia
+from app.conversa.uso_ia import aplicar_extracao_ia_financeira, interpretar_com_ia, resposta_dica_com_ia
 
 
 log = logging.getLogger("caco.conversa")
@@ -187,8 +190,10 @@ def processar_mensagem(telefone: str, mensagem: str, trace_id: str | None = None
         emitir_evento("persistencia_erro", operacao="processar_mensagem", erro=erro_msg)
 
     intencao_final = ultima_intencao_ctx.get() or "desconhecida"
-    if aplicar_hint_ajuda:
-        resposta = garantir_hint_ajuda(resposta, intencao=intencao_final)
+    resposta = (resposta or "").strip()
+    # O lembrete de *ajuda* só aparece quando nenhuma regra local entendeu a mensagem.
+    if aplicar_hint_ajuda and fallback_acionado_ctx.get():
+        resposta = garantir_hint_ajuda(resposta)
     registrar_requisicao_teste(telefone=telefone, mensagem=mensagem, resposta=resposta, erro=erro_msg)
     if erro_msg is None:
         inc_counter("messages.success")
@@ -334,7 +339,6 @@ def _fluxo_login(usuario_id: int, mensagem: str) -> str:
 
 _AVISO_REGISTRO_DESCARTADO = "↪️ Deixei de lado o registro que estava em andamento.\n\n"
 
-
 _AVISO_PENDENCIA_DESCARTADA = "↪️ Deixei de lado a confirmação anterior.\n\n"
 
 
@@ -386,6 +390,10 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             mes_ref = parsed.get("mes_referencia")
 
     if tem_confirmacao_operacao_pendente(usuario_id):
+        # Um lançamento novo e completo não é ajuste da operação pendente: ela é deixada de lado.
+        if e_comando_independente(mensagem):
+            pendente_confirmacao_operacao.pop(usuario_id, None)
+            return _AVISO_PENDENCIA_DESCARTADA + _processar_mensagem_interna(usuario_id, mensagem)
         parsed_confirmado, resposta_confirmacao, nao_entendeu = resolver_confirmacao_operacao(usuario_id, mensagem)
         if nao_entendeu and e_comando_novo(mensagem):
             pendente_confirmacao_operacao.pop(usuario_id, None)
@@ -444,20 +452,22 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     if msg_lower in CANCEL_TOKENS:
         return "Beleza, não tem nada pendente pra cancelar. 👍"
 
-    # Evita executar mensagens com múltiplos comandos na mesma frase.
-    if detectar_multiplos_comandos(mensagem):
-        return (
-            "Percebi mais de um comando na mesma mensagem. 👀\n"
-            "Pra evitar erro, manda *um comando por vez*.\n\n"
-            "Exemplos:\n"
-            "• `gastei 16 no almoço`\n"
-            "• `recebi 20 de pix`"
-        )
-
-    # 2. Parser interpreta a mensagem (100% código, sem LLM)
+    # 2. IA interpreta a mensagem, conferida pelo parser local; sem IA, só o parser (100% código).
+    interpretado_por_ia = False
     if parsed is None:
-        parsed = detectar_intencao(mensagem)
-        parsed["_mensagem_original"] = mensagem
+        local = detectar_intencao(mensagem)
+        operacoes = interpretar_com_ia(mensagem, local)
+        multiplos = len(operacoes) > 1 if operacoes else detectar_multiplos_comandos(mensagem)
+        if multiplos:
+            return (
+                "Percebi mais de um comando na mesma mensagem. 👀\n"
+                "Pra evitar erro, manda *um comando por vez*.\n\n"
+                "Exemplos:\n"
+                "• `gastei 16 no almoço`\n"
+                "• `recebi 20 de pix`"
+            )
+        interpretado_por_ia = bool(operacoes)
+        parsed = operacoes[0] if operacoes else local | {"_mensagem_original": mensagem}
         intencao = parsed["intencao"]
         valor = parsed["valor"]
         descricao = parsed["descricao"]
@@ -478,12 +488,21 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
 
     # Mensagens financeiras ambíguas/complexas passam por IA para
     # extrair tipo, valor, descrição, categoria e credor quando aplicável.
-    if (not confirmou_intencao_manual) and (not confirmou_operacao_manual) and deve_forcar_extracao_ia(mensagem, parsed):
+    if not (confirmou_intencao_manual or confirmou_operacao_manual or interpretado_por_ia) and deve_forcar_extracao_ia(mensagem, parsed):
         parsed = aplicar_extracao_ia_financeira(mensagem, parsed)
+        parsed["_extraido_por_ia"] = True
         intencao = parsed["intencao"]
         valor = parsed["valor"]
         descricao = parsed["descricao"]
         data_ref = parsed["data"] or date.today().isoformat()
+
+    # Pagamento que cita o credor de uma dívida em aberto ("paguei a maria") é pagamento dessa dívida.
+    if intencao in ("registrar_saida", "conversa_geral") and not (confirmou_intencao_manual or confirmou_operacao_manual):
+        credor = credor_de_divida_mencionado(usuario_id, mensagem)
+        if credor:
+            intencao = parsed["intencao"] = "pagar_divida"
+            parsed["credor_divida"] = credor
+            parsed["_intencao_por_dados"] = True  # confirmada pelos dados do usuário: não é ambígua
 
     ultima_intencao_ctx.set(intencao)
 
@@ -521,13 +540,11 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         valor = parsed.get("valor")
         descricao = parsed.get("descricao") or descricao
 
-    confianca = calcular_confianca_intencao(mensagem, parsed)
-    if (not confirmou_intencao_manual) and (not confirmou_operacao_manual) and deve_confirmar_intencao(parsed, confianca):
-        op1 = confianca["top_intencao"]
-        op2 = confianca["segunda_intencao"]
-        if op1 != op2:
-            iniciar_confirmacao_intencao(usuario_id, op1=op1, op2=op2, parsed=parsed)
-            return montar_pergunta_confirmacao_intencao(op1, op2)
+    conflito = None if (confirmou_intencao_manual or confirmou_operacao_manual) else intencoes_em_conflito(parsed, mensagem)
+    if conflito:
+        op1, op2 = conflito
+        iniciar_confirmacao_intencao(usuario_id, op1=op1, op2=op2, parsed=parsed)
+        return montar_pergunta_confirmacao_intencao(op1, op2)
 
     # Conversas conhecidas (saudacao/ajuda/agradecimento/despedida)
     # seguem locais com fallback híbrido.
@@ -587,7 +604,7 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
                 valor=float(valor) if valor else None,
                 descricao=descricao,
                 credor_divida=credor_divida,
-                data_ref=data_ref,
+                data_ref=parsed.get("data"),  # só a data dita na frase; sem ela, o fluxo pergunta
             )
 
     if intencao == "posso_gastar" and (not valor or valor <= 0):
@@ -604,14 +621,17 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
 
     # Blocos legados de pendência de descrição foram substituídos pelo fluxo guiado.
 
+    registro_direto = False
     if (not confirmou_operacao_manual) and intencao in INTENCOES_COM_CONFIRMACAO:
         parsed = enriquecer_preview_operacao(usuario_id, parsed)
-        iniciar_confirmacao_operacao(
-            usuario_id,
-            parsed=parsed,
-            veio_desambiguacao=confirmou_intencao_manual,
-        )
-        return montar_pergunta_confirmacao_operacao(parsed, veio_desambiguacao=confirmou_intencao_manual)
+        registro_direto = REGISTRO_DIRETO and not confirmou_intencao_manual and registro_inequivoco(parsed, mensagem)
+        if not registro_direto:
+            iniciar_confirmacao_operacao(
+                usuario_id,
+                parsed=parsed,
+                veio_desambiguacao=confirmou_intencao_manual,
+            )
+            return montar_pergunta_confirmacao_operacao(parsed, veio_desambiguacao=confirmou_intencao_manual)
 
     executor = EXECUTORES.get(intencao)
     roteado = executor(
@@ -631,6 +651,8 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     if roteado is not None:
         if intencao_e_operacao(intencao) and not tem_confirmacao_operacao_pendente(usuario_id):
             emitir_evento("operacao_executada", operacao=intencao, status="handled")
+        if registro_direto:
+            roteado += "\n↩️ Algo errado? Diga *desfazer*."
         return roteado
 
     # 4. Executa ação no banco e monta resposta com dados reais

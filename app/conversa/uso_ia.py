@@ -8,7 +8,7 @@ from app.interpretacao import CATEGORIAS_KEYWORDS
 from app.interpretacao.categorias import categorize_by_rules
 from app.conversa.contexto import usou_ia_ctx
 from app.conversa.estado import observacao_resumo
-from app.conversa.textos import normalizar_credor_texto
+from app.conversa.textos import normalizar_credor_texto, palavras_de_conteudo
 
 
 log = logging.getLogger("caco.conversa")
@@ -34,6 +34,44 @@ def resposta_ia_posso_gastar(
     except Exception as e:
         log.warning("IA indisponível para dúvida complexa de compra: %s", e)
         return None
+
+
+def interpretar_com_ia(mensagem: str, local: dict) -> list[dict] | None:
+    """Operações da mensagem lidas pela IA e conferidas com o parser local; None = seguir só com as regras.
+
+    Datas vêm sempre das regras (cálculo de calendário é código). Quando a IA chega na mesma intenção e
+    valor das regras, vale a leitura local (mantém registro direto e categoria por regra) com o texto da IA.
+    """
+    # shortcut: comandos de 1-2 palavras ("saldo", "ifood 42") ficam com as regras para poupar a cota grátis;
+    # rever se aparecerem erros em mensagens curtas.
+    if len(mensagem.split()) <= 2:
+        return None
+    try:
+        from app.ia import interpretar_mensagem
+
+        usou_ia_ctx.set(True)
+        operacoes = interpretar_mensagem(mensagem)
+    except Exception as e:
+        log.warning("IA indisponível para interpretação: %s", e)
+        return None
+    if not operacoes:
+        return None
+
+    datas = {"data": local.get("data"), "mes_referencia": local.get("mes_referencia")}
+    resultado = []
+    for op in operacoes:
+        concorda = (
+            len(operacoes) == 1
+            and op["intencao"] == local.get("intencao")
+            and float(op["valor"] or 0) == float(local.get("valor") or 0)
+        )
+        if concorda:
+            texto_ia = {k: op[k] for k in ("descricao", "credor_divida") if op[k]}
+            op = {k: v for k, v in local.items() if k != "_regra"} | texto_ia  # sem _regra: a IA já desfez a ambiguidade
+        else:
+            op = op | datas | {"_extraido_por_ia": True}
+        resultado.append(op | {"_mensagem_original": mensagem})
+    return resultado
 
 
 def aplicar_extracao_ia_financeira(mensagem: str, parsed: dict) -> dict:
@@ -102,24 +140,40 @@ def _categorizar_com_fallback(descricao: str) -> str:
 
 def resolver_categoria(categoria_regra: str | None, descricao: str, usuario_id: int | None = None) -> str:
     """Resolve categoria: regra → aprendida do usuário → LLM → 'outros'."""
-    if categoria_regra:
-        return categoria_regra
-    if not descricao:
-        return "outros"
-    if usuario_id is not None:
-        aprendida = buscar_categoria_aprendida(usuario_id, descricao)
+    return resolver_categoria_com_fonte(categoria_regra, descricao, usuario_id)[0]
+
+
+def resolver_categoria_com_fonte(
+    categoria_regra: str | None, descricao: str, usuario_id: int | None = None
+) -> tuple[str, str]:
+    """Como resolver_categoria, informando a origem: "aprendida", "regra", "ia" ou "padrao".
+
+    O que o usuário já escolheu para o mesmo item vem primeiro: correção dele vale mais que a regra geral.
+    """
+    if usuario_id is not None and descricao:
+        aprendida = buscar_categoria_aprendida(usuario_id, _chave_de_categoria(descricao))
         if aprendida:
-            return aprendida
-    return _categorizar_com_fallback(descricao)
+            return aprendida, "aprendida"
+    if categoria_regra:
+        return categoria_regra, "regra"
+    if not descricao:
+        return "outros", "padrao"
+    categoria = _categorizar_com_fallback(descricao)
+    return categoria, "ia" if categoria != "outros" else "padrao"
+
+
+def _chave_de_categoria(descricao: str) -> str:
+    """O item, sem conectivos e números ("carro novo, a vista" -> "carro novo")."""
+    return " ".join(palavras_de_conteudo(descricao)[:2]) or descricao
 
 
 def aprender_categoria(usuario_id: int, descricao: str, categoria: str) -> None:
-    """Memoriza a categoria final (palpite da IA ou correção do usuário) de descrições sem regra."""
+    """Memoriza a categoria final quando a regra não a daria: palpite da IA ou correção do usuário."""
     if not descricao or not categoria or categoria == "outros":
         return
-    if categorize_by_rules(descricao, CATEGORIAS_KEYWORDS)[0]:
-        return
-    registrar_categoria_aprendida(usuario_id, descricao, categoria)
+    if categorize_by_rules(descricao, CATEGORIAS_KEYWORDS)[0] == categoria:
+        return  # a regra já chega nessa categoria; nada a memorizar
+    registrar_categoria_aprendida(usuario_id, _chave_de_categoria(descricao), categoria)
 
 
 def resposta_dica_com_ia(mensagem: str, contexto: dict | None = None) -> str:

@@ -28,7 +28,6 @@ from app.metrics import inc_counter
 
 log = logging.getLogger("caco.llm")
 
-
 _http_client = None
 
 
@@ -75,13 +74,11 @@ def _api_key_groq_valida(api_key: str) -> bool:
 
 _OPENROUTER_API_KEY = _normalizar_api_key_openrouter(OPENROUTER_API_KEY)
 
-
 _GROQ_API_KEY = _normalizar_api_key_openrouter(GROQ_API_KEY)
 
 
 # Inicializa provedor de LLM conforme configuração
 disponivel = False
-
 
 ativo = LLM_PROVIDER
 

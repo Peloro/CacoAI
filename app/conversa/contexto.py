@@ -14,7 +14,6 @@ from app.metrics import inc_counter
 
 log = logging.getLogger("caco.conversa")
 
-
 request_log = logging.getLogger("caco.requests")
 
 

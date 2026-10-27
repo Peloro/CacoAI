@@ -4,6 +4,9 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from app.interpretacao.normalizacao import normalize_intent_text
+from app.interpretacao.referencias import DIAS_DA_SEMANA, MESES
+
 from app.dados import buscar_titulo_aprendido
 
 
@@ -100,97 +103,51 @@ def ascii_lower(texto: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
-def _tokens_titulo_base(texto: str) -> list[str]:
-    tokens = re.findall(r"[\wÀ-ÿ]+", (texto or "").lower())
-    limpos: list[str] = []
-    for tok in tokens:
-        a = ascii_lower(tok)
-        if not a:
+# Palavras que não descrevem o item do lançamento (o resto da frase vira o título).
+_PALAVRAS_DE_NUMERO = {
+    "um", "uma", "dois", "duas", "tres", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez",
+    "vinte", "trinta", "cem", "cento", "mil", "reais", "real", "conto", "contos", "pila", "pilas", "rs",
+}
+_PALAVRAS_DE_TEMPO = {
+    "hoje", "ontem", "anteontem", "amanha", "agora", "semana", "mes", "ano", "dia", "dias", "comeco", "inicio",
+    "fim", "final", "passado", "passada", "retrasado", "proximo", "proxima", "feira", "tarde", "noite", "manha",
+} | {ascii_lower(nome) for nome in (*MESES, *DIAS_DA_SEMANA) if " " not in nome and len(nome) > 3}  # sem "set", "mar", "out"
+_VERBOS = {
+    "recebi", "devo", "devendo", "deve", "caiu", "entrou", "saiu", "sai", "deu", "foi", "custou", "custa", "tenho",
+    "estou", "to", "ta", "vou", "quero", "preciso", "tive", "emprestado", "gasto", "pago", "compra", "comprar",
+    "pagar", "gastar", "receber", "vendi", "perdi", "investi", "transferi", "devolvi", "comi", "bebi",
+}
+_CONECTIVOS = {
+    "a", "o", "as", "os", "de", "da", "do", "das", "dos", "em", "no", "na", "nos", "nas", "num", "numa", "pro", "pra",
+    "pros", "pras", "para", "por", "com", "sem", "ao", "aos", "e", "ou", "que", "me", "mim", "meu", "minha", "meus",
+    "minhas", "seu", "sua", "isso", "esse", "essa", "este", "esta", "ainda", "nao", "ja", "fora", "mais", "so", "la",
+    "ai", "aqui", "uns", "umas", "valor", "total", "favor", "porque", "pois", "quando", "como", "ele", "ela", "eles",
+    "elas", "voce", "tava", "estava", "era", "pelo", "pela", "pelos", "pelas", "ate", "depois", "antes", "sobre",
+    "grana", "dinheiro",
+}
+
+
+def _e_verbo(palavra: str) -> bool:
+    # 1a pessoa do passado ("gastei", "almocei"), 3a do plural ("pagaram") e gerúndio ("voltando").
+    return palavra in _VERBOS or (len(palavra) >= 5 and palavra.endswith("ei")) or (
+        len(palavra) >= 6 and palavra.endswith(("aram", "eram", "iram", "ando", "endo", "indo"))
+    )
+
+
+def palavras_de_conteudo(texto: str) -> list[str]:
+    """Palavras que descrevem o item ("gastei 35 no jantar com amigos ontem" -> ["jantar", "amigos"])."""
+    ignorar = _PALAVRAS_DE_NUMERO | _PALAVRAS_DE_TEMPO | _CONECTIVOS | _TERMOS_TITULO_GENERICO | _VERBOS_PEDIDO_AJUDA
+    conteudo: list[str] = []
+    for palavra in re.findall(r"[a-z0-9]+", ascii_lower(normalize_intent_text(texto))):
+        if len(palavra) < 2 or palavra[0].isdigit() or palavra in ignorar or _e_verbo(palavra) or palavra in conteudo:
             continue
-        if a in _STOPWORDS_TITULO:
-            continue
-        if a in _VERBOS_TITULO_GENERICOS or a in _VERBOS_PEDIDO_AJUDA:
-            continue
-        limpos.append(tok)
-    return limpos
+        conteudo.append(palavra)
+    return conteudo
 
 
-def _finalizar_titulo_canonico(texto: str) -> str:
-    """Aplica formato canônico final para reduzir variação lexical."""
-    base = normalizar_descricao_registro(ascii_lower(texto or ""))
-    if not base:
-        return ""
-
-    token_map = {
-        "busao": "onibus",
-        "ônibus": "onibus",
-    }
-    ruido_contexto = {
-        "esquina", "atacadao", "shopping", "centro", "firma",
-        "fim", "semana", "online", "casa", "indo", "volta", "voltando",
-    }
-
-    tokens_raw = [t for t in re.findall(r"[\wÀ-ÿ]+", base.lower()) if t]
-    tokens = []
-    for t in tokens_raw:
-        a = ascii_lower(t)
-        if not a:
-            continue
-        a = token_map.get(a, a)
-        if a in _VERBOS_TITULO_GENERICOS or a in _VERBOS_PEDIDO_AJUDA:
-            continue
-        tokens.append(a)
-
-    if not tokens:
-        return ""
-
-    if "mercado" in tokens:
-        return "mercado"
-    if "ifood" in tokens:
-        return "ifood"
-    if "reembolso" in tokens:
-        return "reembolso"
-    if "estacionamento" in tokens:
-        return "estacionamento"
-    if "curso" in tokens:
-        return "curso"
-    if "cafe" in tokens:
-        return "cafe"
-    if "delivery" in tokens:
-        return "delivery"
-
-    if "lanche" in tokens and "tarde" in tokens:
-        return "lanche tarde"
-
-    if "presente" in tokens:
-        alvo = next((p for p in ("mae", "pai") if p in tokens), "")
-        return f"presente {alvo}".strip()
-
-    if "freela" in tokens:
-        complemento = next((t for t in tokens if t not in {"freela"} | ruido_contexto), "")
-        return f"freela {complemento}".strip()
-
-    if "uber" in tokens and "trampo" in tokens:
-        return "uber trampo"
-
-    tokens = [t for t in tokens if t not in ruido_contexto]
-    if not tokens:
-        return ""
-
-    return normalizar_descricao_registro(" ".join(tokens))
-
-
-def _extrair_parte_apos_pix(mensagem: str) -> str:
-    msg = ascii_lower(mensagem)
-    m = re.search(r"pix\s+(?:de|do|da|pro|pra|para)\s+([a-z0-9_\s]+)", msg)
-    if not m:
-        return ""
-    nome = " ".join([p for p in m.group(1).split() if p][:2]).strip()
-    return nome
-
-
-def _tem_token_msg(msg_ascii: str, token_ascii: str) -> bool:
-    return bool(re.search(rf"(?<!\w){re.escape(token_ascii)}(?!\w)", msg_ascii))
+def chave_de_aprendizado(mensagem: str) -> str:
+    """Chave para lembrar/achar títulos: o que foi comprado, sem verbos e números ("gastei 50 no almoço" -> "almoco")."""
+    return " ".join(palavras_de_conteudo(mensagem)) or mensagem
 
 
 def _gerar_titulo_regra(
@@ -200,122 +157,12 @@ def _gerar_titulo_regra(
     categoria: str | None,
     credor: str = "",
 ) -> str:
-    """Gera titulo canônico determinístico para reduzir variação da IA."""
-    desc_tokens = _tokens_titulo_base(descricao)
-    msg_low = ascii_lower(mensagem_original)
-    credor_limpo = normalizar_credor_texto(credor or "")
-
+    """Título determinístico: as palavras de conteúdo da frase (dívida: "divida <credor>")."""
+    conteudo = palavras_de_conteudo(mensagem_original)
     if intencao == "registrar_divida":
-        if re.search(r"\bpeguei\s+\d+\s+emprestado\s+com\s+([a-z0-9_\s]+)", msg_low):
-            m = re.search(r"\bpeguei\s+\d+\s+emprestado\s+com\s+([a-z0-9_\s]+)", msg_low)
-            partes = [p for p in (m.group(1) if m else "").split() if p]
-            if partes and partes[0] in {"a", "o", "as", "os", "um", "uma"}:
-                partes = partes[1:]
-            alvo = " ".join(partes[:1]).strip()
-            return _finalizar_titulo_canonico(f"divida {alvo}" if alvo else "divida")
-        if credor_limpo:
-            return _finalizar_titulo_canonico(f"divida {credor_limpo}")
-        if "cartao" in msg_low or "cartao" in ascii_lower(descricao):
-            return "divida cartao"
-        if desc_tokens:
-            return _finalizar_titulo_canonico(f"divida {' '.join(desc_tokens[:2])}")
-        return "divida"
-
-    if intencao == "registrar_entrada":
-        if _tem_token_msg(msg_low, "aluguel") and _tem_token_msg(msg_low, "quarto"):
-            return "aluguel quarto"
-        if _tem_token_msg(msg_low, "cashback"):
-            return "cashback"
-        if "pix" in msg_low:
-            alvo = _extrair_parte_apos_pix(mensagem_original)
-            return _finalizar_titulo_canonico(f"pix {alvo}" if alvo else "pix")
-        if "transferiram" in msg_low and "pix" in msg_low:
-            return "pix"
-        if (categoria or "").lower() == "salario":
-            return "salario"
-        if desc_tokens:
-            return _finalizar_titulo_canonico(" ".join(desc_tokens[:2]))
-        return _titulo_padrao_para_contexto(intencao, categoria)
-
-    # registrar_saida
-    m_sair = re.search(r"\bsai(?:r)?\s+com\s+(?:meu|minha|um|uma|o|a)?\s*amig([oa])", msg_low)
-    if m_sair:
-        sufixo = "amiga" if m_sair.group(1) == "a" else "amigo"
-        return f"sair com {sufixo}"
-    m_saida = re.search(r"\bsaida\b[\w\s]*\bcom\s+(?:meu|minha|um|uma|o|a)?\s*amig([oa])", msg_low)
-    if m_saida:
-        sufixo = "amiga" if m_saida.group(1) == "a" else "amigo"
-        return f"sair com {sufixo}"
-
-    if _tem_token_msg(msg_low, "almoco"):
-        if _tem_token_msg(msg_low, "pessoal") or _tem_token_msg(msg_low, "trabalho"):
-            return "almoco pessoal"
-        return "almoco"
-
-    if _tem_token_msg(msg_low, "jantar"):
-        if _tem_token_msg(msg_low, "familia"):
-            return "jantar familia"
-        if _tem_token_msg(msg_low, "amigos") or _tem_token_msg(msg_low, "amigo"):
-            return "jantar amigos"
-        return "jantar"
-
-    if any(_tem_token_msg(msg_low, k) for k in ("energia", "agua", "internet", "luz", "gas")):
-        if _tem_token_msg(msg_low, "energia"):
-            return "conta energia"
-        if _tem_token_msg(msg_low, "agua"):
-            return "conta agua"
-        if _tem_token_msg(msg_low, "internet"):
-            return "conta internet"
-        if _tem_token_msg(msg_low, "luz"):
-            return "conta luz"
-        if _tem_token_msg(msg_low, "gas"):
-            return "conta gas"
-
-    if _tem_token_msg(msg_low, "mercado"):
-        return "mercado"
-
-    if _tem_token_msg(msg_low, "ifood"):
-        return "ifood"
-
-    if _tem_token_msg(msg_low, "reembolso"):
-        return "reembolso"
-
-    if _tem_token_msg(msg_low, "curso"):
-        return "curso"
-
-    if any(k in msg_low for k in ("comprei", "comprar", "compra")):
-        m_compra = re.search(
-            r"\b(?:comprei|comprar|compra(?:r)?|paguei)\b\s+(?:o|a|os|as|um|uma|uns|umas|meu|minha|meus|minhas|seu|sua|seus|suas|pro|pra|para)?\s*([a-z0-9_à-ÿ]+)",
-            msg_low,
-            flags=re.IGNORECASE,
-        )
-        if m_compra:
-            alvo = ascii_lower(m_compra.group(1) or "")
-            if alvo and alvo not in _STOPWORDS_TITULO and alvo not in _VERBOS_TITULO_GENERICOS:
-                return _finalizar_titulo_canonico(f"compra {alvo}")
-    if any(k in msg_low for k in ("comprei", "comprar", "compra")) and desc_tokens:
-        return _finalizar_titulo_canonico(f"compra {' '.join(desc_tokens[:2])}")
-
-    if _tem_token_msg(msg_low, "uber") and _tem_token_msg(msg_low, "festa"):
-        return "uber festa"
-    if _tem_token_msg(msg_low, "uber") and (_tem_token_msg(msg_low, "trabalho") or _tem_token_msg(msg_low, "trampo")):
-        return "uber trampo"
-    if _tem_token_msg(msg_low, "uber") and (_tem_token_msg(msg_low, "volta") or _tem_token_msg(msg_low, "voltando")):
-        return "uber volta"
-
-    if _tem_token_msg(msg_low, "cinema"):
-        return "cinema"
-    if _tem_token_msg(msg_low, "lanche"):
-        return "lanche"
-
-    if _tem_token_msg(msg_low, "show"):
-        return "show"
-
-    if desc_tokens:
-        return _finalizar_titulo_canonico(" ".join(desc_tokens[:3]))
-
-    return _titulo_padrao_para_contexto(intencao, categoria)
-
+        alvo = palavras_de_conteudo(credor) or [p for p in conteudo if p not in ("divida", "dividas", "emprestimo")]
+        return f"divida {alvo[0]}" if alvo else "divida"
+    return " ".join(conteudo[:2]) or _titulo_padrao_para_contexto(intencao, categoria)
 
 def _score_titulo_local(titulo: str, mensagem: str, categoria: str | None) -> float:
     """Score heuristico de qualidade do titulo gerado localmente."""
@@ -368,7 +215,7 @@ def sugerir_titulo_registro(
         categoria=categoria_ref,
         credor=credor,
     )
-    titulo_local = normalizar_descricao_registro(descricao) or _titulo_padrao_para_contexto(intencao, categoria_ref)
+    titulo_local = " ".join(palavras_de_conteudo(descricao)[:2]) or _titulo_padrao_para_contexto(intencao, categoria_ref)
 
     candidatos: list[dict] = [{
         "titulo": titulo_regra,
@@ -380,7 +227,7 @@ def sugerir_titulo_registro(
         "fonte": "local",
     }]
 
-    aprendido = buscar_titulo_aprendido(usuario_id, mensagem_original, categoria_ref)
+    aprendido = buscar_titulo_aprendido(usuario_id, chave_de_aprendizado(mensagem_original), categoria_ref)
     if aprendido and aprendido.get("titulo"):
         titulo_aprendido = normalizar_descricao_registro(aprendido.get("titulo") or "")
         if titulo_aprendido:

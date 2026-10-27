@@ -4,7 +4,7 @@ import re
 from datetime import date, timedelta
 
 
-_MONTH_NAMES = {
+MESES = {
     "janeiro": 1, "fevereiro": 2, "março": 3, "marco": 3,
     "abril": 4, "maio": 5, "junho": 6,
     "julho": 7, "agosto": 8, "setembro": 9,
@@ -14,7 +14,7 @@ _MONTH_NAMES = {
     "set": 9, "out": 10, "nov": 11, "dez": 12,
 }
 
-_WEEKDAYS = {
+DIAS_DA_SEMANA = {
     "segunda": 0, "segunda-feira": 0, "segunda feira": 0,
     "terça": 1, "terca": 1, "terça-feira": 1, "terca-feira": 1,
     "quarta": 2, "quarta-feira": 2, "quarta feira": 2,
@@ -29,7 +29,7 @@ _WEEKDAY_PATTERNS = [
         re.compile(r"(?:na\s+|n[ao]\s+)?" + re.escape(name) + r"(?:\s+passad[ao])?"),
         target,
     )
-    for name, target in _WEEKDAYS.items()
+    for name, target in DIAS_DA_SEMANA.items()
 ]
 
 _RE_MONTH_START = re.compile(r"(?:come[cç]o|in[ií]cio)\s+do\s+m[eê]s")
@@ -47,7 +47,7 @@ _RE_EXPLICIT_YEAR = re.compile(r"(?<![/\d])(?:ano\s+de\s+|ano\s+|em\s+|de\s+)?(2
 _RE_YEAR_MONTH_NUMERIC = re.compile(r"(?<![\d/])(20\d{2})[-/](0?[1-9]|1[0-2])(?!\d)")
 _RE_MONTH_YEAR_NUMERIC = re.compile(r"(?<![\d/])(0?[1-9]|1[0-2])[-/](20\d{2})(?!\d)")
 _MONTH_NAME_ALTERNATION = "|".join(
-    sorted((re.escape(name) for name in _MONTH_NAMES.keys()), key=len, reverse=True)
+    sorted((re.escape(name) for name in MESES.keys()), key=len, reverse=True)
 )
 _RE_MONTH_WITH_YEAR = re.compile(
     rf"\b(?:(?:em|de|no\s+m[eê]s\s+de|d[eo])\s+)?(?P<month>{_MONTH_NAME_ALTERNATION})\s*(?:de\s+)?(?P<year>20\d{{2}})\b"
@@ -64,7 +64,7 @@ _MONTH_NAME_PATTERNS = [
         ),
         month_num,
     )
-    for name, month_num in _MONTH_NAMES.items()
+    for name, month_num in MESES.items()
 ]
 
 
@@ -84,7 +84,7 @@ def _extract_month_and_year(text_lower: str) -> tuple[int, int] | None:
 
         month_name = (match.group("month") or "").strip().lower()
         year = int(match.group("year"))
-        month_num = _MONTH_NAMES.get(month_name)
+        month_num = MESES.get(month_name)
         if month_num and 2000 <= year <= 2099:
             return year, month_num
 

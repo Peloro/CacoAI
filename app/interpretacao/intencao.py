@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from app.interpretacao.categorias import categorize_by_rules, extract_category_after_token, extract_category_mentioned
 from app.interpretacao.entidades import (
+    expandir_multiplicadores,
     extract_debt_creditor,
     extract_description,
     extract_movement_id,
@@ -30,9 +32,15 @@ _RE_MODAL_PLANEJAMENTO_COMPRA = re.compile(
     r"vale\s+a\s+pena|compensa|faz\s+sentido)\b.*\b(?:gastar|comprar|pegar)\b",
     re.IGNORECASE,
 )
-_RE_ACAO_REGISTRO_ENTRADA = re.compile(r"\b(ganhei|recebi|entrou|caiu\s+na\s+conta|me\s+pagaram|pagaram\s+pra\s+mim|pix\s+recebido|transferiram\s+pra\s+mim|me\s+transferiram|pingou|creditaram|devolveram|me\s+devolveram)\b", re.IGNORECASE)
+_RE_ACAO_REGISTRO_ENTRADA = re.compile(r"\b(ganhei|recebi|entrou|caiu(?:\s+\S+)?\s+na\s+conta|me\s+pagaram|pagaram\s+pra\s+mim|pix\s+recebido|transferiram\s+pra\s+mim|me\s+transferiram|pingou|creditaram|devolveram|me\s+devolveram)\b", re.IGNORECASE)
 _RE_ACAO_REGISTRO_SAIDA = re.compile(r"\b(gastei|paguei|comprei|torrei|debitei|passei\s+no\s+cart[aã]o|mandei\s+pix|fiz\s+pix)\b", re.IGNORECASE)
 _RE_ACAO_REGISTRO_DIVIDA = re.compile(r"\b(devo|devendo|fiquei\s+devendo|me\s+endividei|endividei|peguei\s+emprestado|tenho\s+(?:uma|outra|nova)?\s*d[ií]vida)\b", re.IGNORECASE)
+# Frase que DECLARA o saldo (com valor), em vez de perguntar por ele: "meu saldo é 800", "comecei o mês com 1200".
+_RE_SALDO_DECLARADO = re.compile(
+    r"\bsaldo\s+inicial\b"
+    r"|\bsaldo\b(?:\s+atual)?\s+(?:era|é|e|eh|ficou|fica|está|esta|tá|ta)\b"
+    r"|\b(?:comecei|iniciei)\b.*\bcom\b"
+)
 _RE_SALDO_INICIAL_SETUP = re.compile(r"\b(?:atualmente\s+|hoje\s+|agora\s+)?(?:tenho|to\s+com|tô\s+com|estou\s+com)\b.*\b(?:na\s+conta|em\s+conta|de\s+saldo|de\s+caixa|guardado)\b", re.IGNORECASE)
 _RE_TIPO_LISTAR_DIVIDA = re.compile(r"\b(?:d[ií]vida|d[ií]vidas|divida|dividas|empr[eé]stimo|emprestimo|devo|devendo)\b", re.IGNORECASE)
 _RE_TIPO_LISTAR_ENTRADA = re.compile(r"\b(?:entrada|entradas|ganho|ganhos|receita|receitas|recebi|ganhei)\b", re.IGNORECASE)
@@ -97,6 +105,85 @@ def _extrair_item_compra_planejada(text: str) -> str | None:
     return None
 
 
+# Mensagem que é só o nome de um dado ("gastos", "minhas dívidas", "ver categorias") = pedido para mostrá-lo.
+_CONSULTAS_POR_SUBSTANTIVO = {
+    **dict.fromkeys(("categoria", "categorias"), ("listar_categorias", {"tipo_categoria": None})),
+    **dict.fromkeys(
+        ("gasto", "gastos", "despesa", "despesas", "saida", "saidas"),
+        ("listar_movimentacoes", {"tipo_listar": "saida"}),
+    ),
+    **dict.fromkeys(
+        ("entrada", "entradas", "ganho", "ganhos", "receita", "receitas"),
+        ("listar_movimentacoes", {"tipo_listar": "entrada"}),
+    ),
+    **dict.fromkeys(
+        ("divida", "dividas", "emprestimo", "emprestimos"),
+        ("listar_movimentacoes", {"tipo_listar": "divida"}),
+    ),
+    **dict.fromkeys(
+        ("movimentacao", "movimentacoes", "lancamento", "lancamentos", "registro", "registros", "transacao", "transacoes"),
+        ("listar_movimentacoes", {"tipo_listar": None}),
+    ),
+}
+_RE_CONSULTA_SUBSTANTIVO = re.compile(
+    r"^(?:(?:ver|mostra|mostrar|lista|listar)\s+)?(?:(?:meus|minhas|os|as|todos|todas)\s+)*([a-z]+)\s*\??$"
+)
+
+
+def _consulta_por_substantivo(text_lower: str) -> tuple[str, dict] | None:
+    sem_acento = unicodedata.normalize("NFKD", text_lower).encode("ascii", "ignore").decode("ascii").strip()
+    match = _RE_CONSULTA_SUBSTANTIVO.match(sem_acento)
+    return _CONSULTAS_POR_SUBSTANTIVO.get(match.group(1)) if match else None
+
+
+# Evidências de cada tipo de lançamento: verbo explícito (2) pesa mais que palavra-chave ou categoria (1).
+_RE_ENTRADA_EXPLICITA = re.compile(r"\b(?:vendi|faturei|lucrei|rendeu|reembolsaram)\b")
+_CATEGORIAS_DE_ENTRADA = {"salario", "freelas"}
+_CATEGORIAS_NEUTRAS = {"investimentos", "outros", "dividas"}
+
+
+def evidencias_de_registro(
+    text: str, categorias_keywords: dict[str, list[str]], palavras: dict[str, list[str]]
+) -> dict[str, int]:
+    """Força da evidência de cada tipo de lançamento ("entrada"/"saida"/"divida") no texto, pelo vocabulário do parser."""
+    text_lower = normalize_intent_text(text)
+    explicitos = {
+        "entrada": (_RE_ACAO_REGISTRO_ENTRADA, _RE_PIX_ENTRADA, _RE_ENTRADA_EXPLICITA),
+        "saida": (_RE_ACAO_REGISTRO_SAIDA, _RE_PIX_SAIDA),
+        "divida": (_RE_ACAO_REGISTRO_DIVIDA, _RE_DIVIDA_FORTE, _RE_DIVIDA_PENDENTE),
+    }
+    evidencias: dict[str, int] = {}
+    for tipo, padroes in explicitos.items():
+        if any(p.search(text_lower) for p in padroes):
+            evidencias[tipo] = 2
+        elif text_contains(text_lower, palavras.get(tipo, [])):
+            evidencias[tipo] = 1
+
+    categoria, _ = categorize_by_rules(text_lower, categorias_keywords)
+    if categoria and categoria not in _CATEGORIAS_NEUTRAS:
+        tipo = "entrada" if categoria in _CATEGORIAS_DE_ENTRADA else "saida"
+        evidencias.setdefault(tipo, 1)
+    return evidencias
+
+
+_RE_DIA_CITADO = re.compile(r"\b(?:hoje|ontem|anteontem)\b|\bdia\s+\d{1,2}\b|\b\d{1,2}/\d{1,2}\b")
+_RE_PALAVRA_INTERROGATIVA = re.compile(
+    r"^\s*(?:com\s+)?(?:o\s+que|que|qual|quais|onde|quando|como|em\s+que|no\s+que|pra\s+que|para\s+que|quem)\b"
+)
+
+
+def _tipo_de_pergunta_sobre_lancamentos(text: str, text_lower: str) -> str | None:
+    """Tipo de lançamento perguntado ("com o que gastei hoje?" -> "saida"); None se não for pergunta."""
+    if not (text.strip().endswith("?") or _RE_PALAVRA_INTERROGATIVA.search(text_lower)):
+        return None
+    for tipo, padrao in (
+        ("divida", _RE_ACAO_REGISTRO_DIVIDA), ("entrada", _RE_ACAO_REGISTRO_ENTRADA), ("saida", _RE_ACAO_REGISTRO_SAIDA)
+    ):
+        if padrao.search(text_lower):
+            return tipo
+    return None
+
+
 def _detect_context_type(text_lower: str) -> str | None:
     has_income = bool(_RE_TIPO_ENTRADA_CTX.search(text_lower))
     has_expense = bool(_RE_TIPO_SAIDA_CTX.search(text_lower))
@@ -108,6 +195,7 @@ def _detect_context_type(text_lower: str) -> str | None:
 
 
 def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palavras: dict[str, list[str]]) -> dict:
+    text = expandir_multiplicadores(text)  # "300 mil" -> "300000" para valor e descrição
     text_lower = normalize_intent_text(text)
 
     palavras_entrada = palavras.get("entrada", [])
@@ -147,6 +235,9 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
         category_rule = mentioned_category
     if keyword_found and not description:
         description = keyword_found.capitalize()
+
+    # Período de um dia só quando a frase cita o dia ("semana passada" não vira um dia exato).
+    dia_citado = date_ref if _RE_DIA_CITADO.search(text_lower) else None
 
     if _RE_DESFAZER.search(text_lower):
         return {"intencao": "desfazer_ultimo", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}
@@ -236,11 +327,11 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
             return {"intencao": "limpar_movimentacoes", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": "" if period == "tudo" else month_ref, "periodo_limpar": period, "tipo_limpar": None}
 
     if text_contains(text_lower, palavras_quanto_ganhei) and not mentioned_category:
-        return {"intencao": "consultar_total", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "tipo_total": "entrada"}
+        return {"intencao": "consultar_total", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref or dia_citado, "tipo_total": "entrada"}
     if text_contains(text_lower, palavras_quanto_gastei) and not mentioned_category:
-        return {"intencao": "consultar_total", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "tipo_total": "saida"}
+        return {"intencao": "consultar_total", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref or dia_citado, "tipo_total": "saida"}
     if "total" in text_lower and "gastei" in text_lower and not value:
-        return {"intencao": "consultar_total", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "tipo_total": "saida"}
+        return {"intencao": "consultar_total", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref or dia_citado, "tipo_total": "saida"}
 
     if _RE_QUITAR_DIVIDAS.search(text_lower) and not value:
         return {"intencao": "quitar_dividas", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "credor_divida": debt_creditor}
@@ -285,8 +376,10 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
             description = item_planejado
         return {"intencao": "posso_gastar", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}
 
-    if value and _RE_SALDO_INICIAL_SETUP.search(text_lower):
-        return {"intencao": "registrar_saldo_inicial", "valor": value, "descricao": "Saldo inicial", "data": date_ref, "categoria_regra": "saldo_inicial", "mes_referencia": month_ref}
+    if value and (_RE_SALDO_INICIAL_SETUP.search(text_lower) or _RE_SALDO_DECLARADO.search(text_lower)):
+        # "saldo inicial 2000": o número é o valor, não o ano de referência.
+        month_saldo = None if month_ref == str(int(value)) else month_ref
+        return {"intencao": "registrar_saldo_inicial", "valor": value, "descricao": "Saldo inicial", "data": date_ref, "categoria_regra": "saldo_inicial", "mes_referencia": month_saldo}
 
     edit_cmd = text_contains(text_lower, palavras_editar)
     if not edit_cmd and _RE_COMANDO_EDITAR_VALOR.search(text_lower):
@@ -353,7 +446,7 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
         return {"intencao": "pedir_dica", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}
 
     if text_contains(text_lower, palavras_divida) and value:
-        return {"intencao": "registrar_divida", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "credor_divida": debt_creditor}
+        return {"intencao": "registrar_divida", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "credor_divida": debt_creditor, "_regra": "palavra_chave"}
 
     if (
         "sobro" in text_lower
@@ -367,10 +460,15 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
         return {"intencao": "registrar_entrada", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}
 
     if text_contains(text_lower, palavras_saida) and value:
-        return {"intencao": "registrar_saida", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}
+        return {"intencao": "registrar_saida", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "_regra": "palavra_chave"}
 
     if text_contains(text_lower, palavras_entrada) and value:
-        return {"intencao": "registrar_entrada", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}
+        return {"intencao": "registrar_entrada", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "_regra": "palavra_chave"}
+
+    # Pergunta sem valor sobre lançamentos ("com o que gastei hoje?", "quando recebi?") é consulta, não registro.
+    tipo_pergunta = _tipo_de_pergunta_sobre_lancamentos(text, text_lower)
+    if tipo_pergunta:
+        return {"intencao": "listar_movimentacoes", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref or dia_citado, "tipo_listar": tipo_pergunta}
 
     if _RE_ACAO_REGISTRO_ENTRADA.search(text_lower):
         return {"intencao": "registrar_entrada", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}
@@ -380,6 +478,11 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
         return {"intencao": "registrar_saida", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}
 
     if value and description:
-        return {"intencao": "registrar_saida", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}
+        return {"intencao": "registrar_saida", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "_regra": "palavra_chave"}
+
+    consulta = _consulta_por_substantivo(text_lower)
+    if consulta:
+        intent, extras = consulta
+        return {"intencao": intent, "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, **extras}
 
     return {"intencao": "conversa_geral", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref}

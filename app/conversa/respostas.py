@@ -48,35 +48,11 @@ def resposta_chat_com_fallback(mensagem: str, contexto: dict | None = None) -> s
     return random.choice(RESPOSTAS_NAO_ENTENDI)
 
 
-_RE_HINT_INTERATIVO = re.compile(
-    r"(?:responda|manda)\s+com\s+\*(?:sim|n[aã]o|cancelar|1|2|3)\*"
-    r"|\*sim\*\s+pra\s+confirmar"
-    r"|\*sim\*\s+para\s+confirmar"
-    r"|\*cancelar\*\s+para\s+n[aã]o\s+executar",
-    re.IGNORECASE,
-)
-
-
-def garantir_hint_ajuda(resposta: str, intencao: str | None = None) -> str:
-    """Anexa hint de ajuda apenas em respostas finais (não em prompts de confirmação/seleção)."""
-    texto = (resposta or "").strip()
-    if not texto:
-        texto = "Tudo certo por aqui."
-
-    texto_lower = texto.lower()
-    intencao_lower = (intencao or "").strip().lower()
-
-    if "ajuda" in texto_lower:
+def garantir_hint_ajuda(resposta: str) -> str:
+    """Anexa o lembrete de *ajuda* (usado quando o bot não entendeu o pedido)."""
+    texto = (resposta or "").strip() or "Tudo certo por aqui."
+    if "ajuda" in texto.lower():
         return texto
-
-    if _RE_HINT_INTERATIVO.search(texto):
-        return texto
-
-    if intencao_lower in {"limpar_movimentacoes", "apagar_movimentacao", "quitar_dividas", "desfazer_ultimo"} and (
-        "confirma" in texto_lower or "responda com" in texto_lower
-    ):
-        return texto
-
     return f"{texto}\n\n💡 Se precisar, digite *ajuda*."
 
 

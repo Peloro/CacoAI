@@ -64,6 +64,7 @@ from app.conversa.respostas import (
     gerar_resposta_listar_movimentacoes,
 )
 from app.conversa.textos import (
+    chave_de_aprendizado,
     normalizar_credor_texto,
     normalizar_descricao_registro,
     sugerir_titulo_registro,
@@ -81,26 +82,6 @@ def _executar_registro_por_payload(usuario_id: int, payload: dict) -> str:
     credor = normalizar_credor_texto(payload.get("credor_divida") or "")
     mensagem_original = payload.get("mensagem_original") or descricao
 
-    if intencao == "registrar_entrada":
-        categoria = resolver_categoria(categoria_regra, descricao)
-        mov_id = executar_operacao_mutavel(
-            "registrar_entrada",
-            registrar_movimentacao,
-            usuario_id=usuario_id,
-            tipo="entrada",
-            valor=valor,
-            categoria=categoria,
-            descricao=descricao,
-            data_ref=data_ref,
-        )
-        ultimo_registro[usuario_id] = {
-            "tipo_registro": "movimentacao",
-            "id": int(mov_id),
-            "ts": time.time(),
-        }
-        registrar_titulo_aprendido(usuario_id, mensagem_original, descricao, categoria)
-        return montar_resposta_registro("entrada", valor, descricao, categoria, usuario_id, data_ref=data_ref)
-
     if intencao == "registrar_divida":
         div_id = executar_operacao_mutavel(
             "registrar_divida",
@@ -111,12 +92,8 @@ def _executar_registro_por_payload(usuario_id: int, payload: dict) -> str:
             descricao=descricao or "Divida",
             data_ref=data_ref,
         )
-        ultimo_registro[usuario_id] = {
-            "tipo_registro": "divida",
-            "id": int(div_id),
-            "ts": time.time(),
-        }
-        registrar_titulo_aprendido(usuario_id, mensagem_original, descricao or "divida", "dividas")
+        _lembrar_ultimo_registro(usuario_id, "divida", div_id)
+        registrar_titulo_aprendido(usuario_id, chave_de_aprendizado(mensagem_original), descricao or "divida", "dividas")
         return montar_resposta_registro_divida(
             valor=valor,
             descricao=descricao or "Divida",
@@ -125,25 +102,27 @@ def _executar_registro_por_payload(usuario_id: int, payload: dict) -> str:
             data_ref=data_ref,
         )
 
+    tipo = "entrada" if intencao == "registrar_entrada" else "saida"
     categoria = resolver_categoria(categoria_regra, descricao)
     mov_id = executar_operacao_mutavel(
-        "registrar_saida",
+        intencao,
         registrar_movimentacao,
         usuario_id=usuario_id,
-        tipo="saida",
+        tipo=tipo,
         valor=valor,
         categoria=categoria,
         descricao=descricao,
         data_ref=data_ref,
     )
-    ultimo_registro[usuario_id] = {
-        "tipo_registro": "movimentacao",
-        "id": int(mov_id),
-        "ts": time.time(),
-    }
-    registrar_titulo_aprendido(usuario_id, mensagem_original, descricao, categoria)
-    alerta = detectar_gasto_fora_do_padrao(usuario_id, categoria, valor)
-    return montar_resposta_registro("saida", valor, descricao, categoria, usuario_id, alerta, data_ref=data_ref)
+    _lembrar_ultimo_registro(usuario_id, "movimentacao", mov_id)
+    registrar_titulo_aprendido(usuario_id, chave_de_aprendizado(mensagem_original), descricao, categoria)
+    alerta = detectar_gasto_fora_do_padrao(usuario_id, categoria, valor) if tipo == "saida" else None
+    return montar_resposta_registro(tipo, valor, descricao, categoria, usuario_id, alerta, data_ref=data_ref)
+
+
+def _lembrar_ultimo_registro(usuario_id: int, tipo_registro: str, registro_id: int) -> None:
+    """Guarda o último registro criado para permitir o *desfazer*."""
+    ultimo_registro[usuario_id] = {"tipo_registro": tipo_registro, "id": int(registro_id), "ts": time.time()}
 
 
 def _processar_fluxo_titulo_ou_registro(
@@ -261,7 +240,9 @@ def _op_registrar(op: Operacao) -> str | None:
     p = op.parsed
 
     if op.intencao == "registrar_saldo_inicial":
-        registrar_movimentacao(
+        mov_id = executar_operacao_mutavel(
+            "registrar_saldo_inicial",
+            registrar_movimentacao,
             usuario_id=op.usuario_id,
             tipo="entrada",
             valor=float(op.valor),
@@ -269,6 +250,7 @@ def _op_registrar(op: Operacao) -> str | None:
             descricao="Saldo inicial",
             data_ref=op.data_ref,
         )
+        _lembrar_ultimo_registro(op.usuario_id, "movimentacao", mov_id)
         return montar_resposta_registro(
             "entrada",
             float(op.valor),

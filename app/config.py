@@ -84,10 +84,6 @@ API_TEST_TOKEN = os.getenv("API_TEST_TOKEN", "")
 BOT_REQUEST_LOG_ENABLED = os.getenv("BOT_REQUEST_LOG_ENABLED", "false").lower() == "true"
 BOT_REQUEST_LOG_PATH = os.getenv("BOT_REQUEST_LOG_PATH", "logs/bot_requests.log")
 
-# --- NLU / Confirmacao de intencao ---
-INTENT_CONFIRM_MIN_SCORE = float(os.getenv("INTENT_CONFIRM_MIN_SCORE", "0.52"))
-INTENT_CONFIRM_MIN_MARGIN = float(os.getenv("INTENT_CONFIRM_MIN_MARGIN", "0.07"))
-
 # --- NLU / Confirmacao de titulo ---
 TITLE_CONFIRM_MIN_SCORE = float(os.getenv("TITLE_CONFIRM_MIN_SCORE", "0.73"))
 TITLE_CONFIRM_MIN_MARGIN = float(os.getenv("TITLE_CONFIRM_MIN_MARGIN", "0.10"))
@@ -116,4 +112,7 @@ LLM_DICA_MAX_CHARS = int(os.getenv("LLM_DICA_MAX_CHARS", "420"))
 LLM_OBSERVACAO_MAX_CHARS = int(os.getenv("LLM_OBSERVACAO_MAX_CHARS", "420"))
 
 # --- UX / Undo ---
-UNDO_WINDOW_SECONDS = int(os.getenv("UNDO_WINDOW_SECONDS", "30"))
+UNDO_WINDOW_SECONDS = int(os.getenv("UNDO_WINDOW_SECONDS", "300"))
+# Registra sem pedir "sim" quando a interpretação é inequívoca (valor único, categoria e título confiáveis);
+# a resposta oferece *desfazer*. Casos duvidosos continuam pedindo confirmação.
+REGISTRO_DIRETO = os.getenv("REGISTRO_DIRETO", "true").lower() == "true"
