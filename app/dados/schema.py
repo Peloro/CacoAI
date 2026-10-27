@@ -1,60 +1,11 @@
-"""Schema do banco e API pública de acesso a dados (reexporta os repositórios)."""
+"""Schema do banco SQLite e migrações de colunas/criptografia de dados legados."""
 from __future__ import annotations
 
 import logging
 import sqlite3
 
-from app.infra.db import db_connection as _db
+from app.dados.conexao import db_connection as _db
 from app.security import decrypt_text, encrypt_text, hash_phone, is_encrypted_token
-from app.infra.repositories.divida_repository import (  # noqa: F401 - API pública de acesso a dados
-    apagar_divida_por_id,
-    atualizar_divida_campos,
-    atualizar_valor_divida,
-    buscar_dividas_por_descricao,
-    limpar_dividas,
-    listar_dividas_recentes,
-    obter_divida_por_id,
-    pagar_divida,
-    quitar_dividas,
-    registrar_divida,
-    totais_dividas,
-)
-from app.infra.repositories.movimentacao_repository import (  # noqa: F401 - API pública de acesso a dados
-    apagar_movimentacao_por_id,
-    atualizar_movimentacao_campos,
-    buscar_categoria_aprendida,
-    buscar_movimentacoes_por_descricao,
-    buscar_titulo_aprendido,
-    consultar_categoria,
-    historico_categoria,
-    limpar_movimentacoes,
-    listar_categorias_por_tipo,
-    listar_movimentacoes_recentes,
-    obter_movimentacao_por_id,
-    registrar_categoria_aprendida,
-    registrar_movimentacao,
-    registrar_titulo_aprendido,
-    resumo_mes,
-    totais_mes,
-)
-from app.infra.repositories.session_repository import (  # noqa: F401 - API pública de acesso a dados
-    carregar_estados_conversa,
-    clear_estado_conversa,
-    clear_todos_estados_conversa,
-    criar_sessao,
-    invalidar_sessao,
-    renovar_sessao_se_valida,
-    set_estado_conversa,
-)
-from app.infra.repositories.user_repository import (  # noqa: F401 - API pública de acesso a dados
-    get_etapa_cadastro,
-    get_nome_usuario,
-    get_or_create_user,
-    salvar_nome,
-    salvar_senha,
-    set_etapa_cadastro,
-    verificar_senha,
-)
 
 log = logging.getLogger("caco.db")
 

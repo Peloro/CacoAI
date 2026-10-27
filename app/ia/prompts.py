@@ -1,13 +1,22 @@
-"""
-Prompts do sistema para o LLM.
-Agora o LLM é usado APENAS para:
-  1. Gerar respostas conversacionais amigáveis
-  2. Categorizar transações quando as regras não conseguem
-"""
+"""Prompts enviados à IA e lista de categorias válidas."""
+from __future__ import annotations
 
-# ---------------------------------------------------------------------------
-# Prompt de CHAT — personalidade do assistente
-# ---------------------------------------------------------------------------
+
+
+
+# Categorias válidas (carregadas do JSON para manter consistência)
+try:
+    from app.interpretacao import CATEGORIAS_KEYWORDS
+    CATEGORIAS_VALIDAS = set(CATEGORIAS_KEYWORDS.keys())
+except Exception:
+    CATEGORIAS_VALIDAS = {
+        "moradia", "alimentacao", "transporte", "lazer", "saude",
+        "educacao", "compras", "servicos", "freelas", "salario", "outros",
+    }
+
+
+CATEGORIAS_PROMPT = ", ".join(sorted(CATEGORIAS_VALIDAS))
+
 
 SYSTEM_PROMPT_CHAT = """Você é o Caco, assistente financeiro em pt-BR.
 Responda com clareza, tom amigável e objetividade (1-2 frases).
@@ -16,9 +25,11 @@ Se pedirem valores, orientar para "resumo" ou "saldo".
 Saída: apenas texto, sem JSON/código.
 """
 
+
 CHAT_PROMPT_CONVERSA = """Usuário: "{mensagem}"
 Responda em 1-2 frases curtas, sem valores financeiros.
 """
+
 
 CHAT_PROMPT_DICA = """Usuário: "{mensagem}"
 
@@ -30,6 +41,7 @@ Formato obrigatório: apenas lista em bullets, uma dica por linha, começando co
 Não inclua introdução, saudação, conclusão ou texto fora dos bullets.
 Sem valores numéricos e sem repetir ideias.
 """
+
 
 CHAT_PROMPT_PLANEJAR_COMPRA = """Pedido do usuário: "{mensagem}"
 
@@ -48,6 +60,7 @@ Regras:
 - Tom direto e amigável, sem introdução e sem conclusão
 """
 
+
 CHAT_PROMPT_OBSERVACAO_RESUMO = """Resumo (sem números):
 {contexto}
 
@@ -59,10 +72,6 @@ Sem inventar números e sem frases genéricas como "Parabéns!" isolado.
 """
 
 
-# ---------------------------------------------------------------------------
-# Prompt de CATEGORIZAÇÃO — classifica transações
-# ---------------------------------------------------------------------------
-
 CATEGORIZATION_PROMPT = """Classifique a descrição em uma categoria:
 {categorias}.
 
@@ -71,14 +80,6 @@ Descrição: "{descricao}"
 Responda apenas com o nome da categoria.
 """
 
-
-# ---------------------------------------------------------------------------
-# Prompt de CLASSIFICACAO DE INTENCAO FINANCEIRA
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Prompt de EXTRACAO ESTRUTURADA DE MOVIMENTACAO
-# ---------------------------------------------------------------------------
 
 TRANSACTION_EXTRACTION_PROMPT = """Extraia dados financeiros da mensagem e retorne APENAS JSON valido.
 Mensagem: "{mensagem}"
@@ -96,10 +97,6 @@ Formato:
 Regras: valor float sem moeda; sem valor explicito => 0; em nao_financeiro/incerto use campos vazios; sem inventar dados.
 """
 
-
-# ---------------------------------------------------------------------------
-# Prompt de TITULO CANONICO
-# ---------------------------------------------------------------------------
 
 TITLE_GENERATION_PROMPT = """Gere um titulo curto e objetivo para lancamento financeiro.
 Mensagem: "{mensagem}"

@@ -1,5 +1,5 @@
 """
-Parser de mensagens — extrai intenção, valor, descrição e data
+Interpretação de mensagens — extrai intenção, valor, descrição e data
 usando regras e regex. NÃO depende de LLM.
 
 O LLM só é chamado depois, para categorização e resposta conversacional.
@@ -11,14 +11,14 @@ import logging
 import os
 from typing import Optional
 
-from app.parsing.categories import extract_category_mentioned
-from app.parsing.intention import detect_intention
+from app.interpretacao.categorias import extract_category_mentioned
+from app.interpretacao.intencao import detect_intention
 
-log = logging.getLogger("caco.parser")
+log = logging.getLogger("caco.interpretacao")
 
-_APP_DIR = os.path.dirname(__file__)
-_CATEGORIAS_JSON = os.path.join(_APP_DIR, "categorias.json")
-_PALAVRAS_JSON = os.path.join(_APP_DIR, "palavras_chave.json")
+_DIR = os.path.dirname(__file__)
+_CATEGORIAS_JSON = os.path.join(_DIR, "categorias.json")
+_PALAVRAS_JSON = os.path.join(_DIR, "palavras_chave.json")
 
 
 def _carregar_json(caminho: str, label: str) -> dict[str, list[str]]:

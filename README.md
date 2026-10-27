@@ -24,12 +24,12 @@ Fluxo de alto nivel:
 6. Fallback de IA somente quando necessario.
 
 Componentes centrais:
-- `app/chatbot.py`: orquestracao principal.
-- `app/parser.py`: interpretacao de mensagem.
-- `app/database.py`: acesso a dados, autenticacao e sessao.
-- `app/responder.py`: respostas locais.
-- `run_telegram.py`: execucao standalone para Telegram.
-- `run.py`: execucao da API FastAPI.
+- `app/conversa/`: orquestracao do bot (`pipeline.py` e o ponto de partida de cada mensagem).
+- `app/interpretacao/`: parser local de intencao, valor, descricao e data (+ palavras-chave em JSON).
+- `app/dados/`: schema SQLite e repositorios (usuarios, sessoes, movimentacoes, dividas).
+- `app/ia/`: fallback opcional de IA (Groq/OpenRouter), prompts e pos-processamento.
+- `app/canais/`: Telegram (long polling) e simulador de terminal; a API REST fica em `app/main.py`.
+- `run.py`: ponto de entrada unico (`api`, `telegram` ou `terminal`).
 
 ## Requisitos
 
@@ -64,14 +64,10 @@ cp .env.example .env
 
 ### 4) Rodar
 
-API FastAPI:
 ```bash
-python run.py
-```
-
-Telegram (long polling):
-```bash
-python run_telegram.py
+python run.py             # API FastAPI (padrao)
+python run.py telegram    # bot do Telegram (long polling)
+python run.py terminal    # simulador de conversa no terminal
 ```
 
 ## Canais de Execucao
@@ -85,7 +81,7 @@ Defina no `.env`:
 
 Execute:
 ```bash
-python run_telegram.py
+python run.py telegram
 ```
 
 ### API REST de teste
@@ -93,6 +89,7 @@ python run_telegram.py
 Endpoints:
 - `POST /api/mensagem`
 - `GET /api/resumo/{telefone}`
+- `GET /api/metrics`
 
 Para uso real, mantenha desabilitada por padrao e habilite apenas quando necessario:
 - `API_TEST_ENABLED=false`
@@ -109,7 +106,7 @@ Para uso real, mantenha desabilitada por padrao e habilite apenas quando necessa
 | `TELEGRAM_BOT_TOKEN` | Token do bot Telegram | vazio |
 | `API_TEST_ENABLED` | Habilita API REST de teste | `false` |
 | `API_TEST_TOKEN` | Token para API de teste | vazio |
-| `BOT_REQUEST_LOG_ENABLED` | Log local de requisicoes/respostas | `true` |
+| `BOT_REQUEST_LOG_ENABLED` | Log local de requisicoes/respostas | `false` |
 | `BOT_REQUEST_LOG_PATH` | Caminho do arquivo de log | `logs/bot_requests.log` |
 
 ## Seguranca e Isolamento
@@ -126,36 +123,43 @@ Executar testes automatizados:
 python -m pytest tests -v
 ```
 
-Executar gate de benchmarks (CI/local):
-```bash
-python tools/check_bench_thresholds.py
-```
-
-Gerar snapshot versionado de baseline (JSON + Markdown em docs/baselines):
-```bash
-python tools/generate_benchmark_baseline.py
-```
-
 Simulador local de conversa:
 ```bash
-python simulador_terminal.py
+python run.py terminal
 ```
 
 ## Estrutura do Projeto
 
 ```text
 CacoAI/
+  run.py                    ponto de entrada (api | telegram | terminal)
   app/
-    main.py
-    chatbot.py
-    parser.py
-    responder.py
-    database.py
-    routes.py
-    config.py
-  run.py
-  run_telegram.py
-  simulador_terminal.py
+    main.py                 API FastAPI (saude + rotas REST de teste)
+    config.py               variaveis de ambiente
+    security.py             criptografia, hash de telefone e politica de senha
+    input_guard.py          validacao/sanitizacao de entrada
+    metrics.py              metricas em memoria
+    financeiro.py           regras financeiras (avaliar compra, gasto fora do padrao)
+    canais/
+      telegram.py           long polling do Telegram
+      terminal.py           simulador de conversa
+    conversa/
+      pipeline.py           fluxo de cada mensagem (cadastro, login, pendencias, execucao)
+      operacoes.py          executores por intencao (consultar, registrar, editar...)
+      fluxos.py             respostas a perguntas pendentes e registro guiado
+      confirmacao.py        confirmacao sim/cancelar/editar e desambiguacao 1/2
+      edicao_pendente.py    edicoes em linguagem natural antes de confirmar
+      dividas.py            pagamento e quitacao de dividas
+      intencoes.py          confianca, ambiguidade e vocabulario sim/nao
+      respostas.py          textos de resposta do bot
+      textos.py             titulos canonicos e normalizacao de descricoes
+      formatacao.py         datas, meses e escolha em listas
+      uso_ia.py             onde a conversa recorre a IA (com fallback local)
+      estado.py             estado conversacional persistido por usuario
+      contexto.py           logs, trace/operation id e eventos
+    interpretacao/          parser local (intencao, valores, datas, categorias) + JSONs
+    dados/                  schema SQLite e repositorios por assunto
+    ia/                     provedores (Groq/OpenRouter), prompts, extracao e tarefas
   requirements.txt
   .env.example
 ```

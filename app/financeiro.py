@@ -4,7 +4,7 @@ Mantém a "inteligência burra" (regras simples, previsíveis e confiáveis).
 """
 from datetime import date
 import calendar
-from app.database import resumo_mes, historico_categoria
+from app.dados import resumo_mes, historico_categoria
 
 
 def formatar_real(valor: float) -> str:

@@ -4,7 +4,7 @@ import json
 import secrets
 from datetime import datetime, timedelta
 
-from app.infra.db import ESTADO_CONVERSA_EXPIRACAO_MIN, SESSAO_EXPIRACAO_MIN, db_connection
+from app.dados.conexao import ESTADO_CONVERSA_EXPIRACAO_MIN, SESSAO_EXPIRACAO_MIN, db_connection
 
 
 def criar_sessao(usuario_id: int) -> str:

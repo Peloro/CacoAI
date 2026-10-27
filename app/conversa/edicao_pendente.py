@@ -1,19 +1,38 @@
-"""Serviço para aplicar edições em linguagem natural na operação pendente."""
+"""Aplica edições em linguagem natural (valor, data, categoria, título...) na operação aguardando confirmação."""
 from __future__ import annotations
 
 import re
 from datetime import date
 from typing import Callable
 
+
 DetectIntentFn = Callable[[str], dict]
+
+
 ExtractCategoryFn = Callable[[str], str | None]
+
+
 IsOperationIntentFn = Callable[[str], bool]
+
+
 IntentLabelFn = Callable[[str], str]
+
+
 FormatCurrencyFn = Callable[[float], str]
+
+
 NormalizeCreditorFn = Callable[[str], str]
+
+
 FormatDateFriendlyFn = Callable[[str], str]
+
+
 MonthNameFn = Callable[[str | None], str]
+
+
 IsWeakDescriptionFn = Callable[[str], bool]
+
+
 NormalizeDescriptionFn = Callable[[str], str]
 
 
@@ -22,33 +41,65 @@ _RE_SANITIZE_PREFIX = re.compile(
     r"que\s+seja|que\s+fique|pra\s+ser|para\s+ser|ser|ficar|fique|fica)\s+",
     flags=re.IGNORECASE,
 )
+
+
 _RE_CATEGORY_CMD = re.compile(r"\b(?:categoria|cat)\b", flags=re.IGNORECASE)
+
+
 _RE_DATE_CMD = re.compile(
     r"\b(?:data|hoje|ontem|amanh[ãa]|anteontem|dia\s+\d{1,2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b",
     flags=re.IGNORECASE,
 )
+
+
 _RE_VALUE_CMD = re.compile(r"\b(?:valor|reais?|r\$|rs)\b", flags=re.IGNORECASE)
+
+
 _RE_TYPE_CMD = re.compile(r"\b(?:tipo|entrada|sa[ií]da|gasto|d[ií]vida|divida)\b", flags=re.IGNORECASE)
+
+
 _RE_INSTALLMENT_HINT = re.compile(r"\b(?:parcela(?:s)?|prestac(?:a|ã)o(?:es)?|x\b|vez(?:es)?)\b", flags=re.IGNORECASE)
+
+
 _RE_MONEY_HINT = re.compile(r"\b(?:valor|r\$|reais?|pre[cç]o|custou|custa|deu|foi)\b", flags=re.IGNORECASE)
+
+
 _RE_CREDITOR_CMD = re.compile(
     r"\b(?:credor|para\s+quem|quem\s+eu\s+devo)\b\s*(?:=|:)?\s*(?:para|pra|pro)?\s*(.+)$",
     flags=re.IGNORECASE,
 )
+
+
 _RE_EXPLICIT_OPERATION_CHANGE = re.compile(
     r"\b(?:opera(?:c|ç)[aã]o|intenc[aã]o|tipo|em vez|ao inves|ao invés|na verdade|corrige para|troca para)\b",
     flags=re.IGNORECASE,
 )
+
+
 _RE_MOVE_TYPE = re.compile(r"\btipo\b\s*(?:=|:)?\s*(entrada|saida|sa[ií]da|gasto)\b", flags=re.IGNORECASE)
+
+
 _RE_CLEAR_ALL_SCOPE = re.compile(r"\b(?:tudo|todas|todos)\b", flags=re.IGNORECASE)
+
+
 _RE_CLEAR_ALL_PERIOD = re.compile(
     r"\b(?:todo\s+historico|historico\s+inteiro|conta\s+inteira|todos\s+os\s+tempos|de\s+tudo)\b",
     flags=re.IGNORECASE,
 )
+
+
 _RE_YEAR_ONLY = re.compile(r"\d{4}")
+
+
 _RE_YEAR_MONTH = re.compile(r"\d{4}-\d{2}")
+
+
 _RE_CURRENT_MONTH = re.compile(r"\b(?:este|esse|neste)\s+m[eê]s\b", flags=re.IGNORECASE)
+
+
 _RE_TITLE_CMD = re.compile(r"\b(?:t[ií]tulo|titulo)\b\s*(?:=|:|por|para)?\s*(.+)$", flags=re.IGNORECASE)
+
+
 _RE_DESCRIPTION_CMD = re.compile(
     r"\b(?:descri(?:c|ç)[aã]o|motivo|observa(?:c|ç)[aã]o)\s*(?:=|:)?\s*(.+)$",
     flags=re.IGNORECASE,

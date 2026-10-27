@@ -7,7 +7,7 @@ from typing import Optional
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHash, VerifyMismatchError
 
-from app.infra.db import db_connection
+from app.dados.conexao import db_connection
 from app.security import decrypt_text, encrypt_text, hash_phone, validate_password_policy
 
 log = logging.getLogger("caco.db")

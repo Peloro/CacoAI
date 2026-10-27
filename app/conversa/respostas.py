@@ -1,24 +1,399 @@
-"""
-Gerador de respostas locais em português — sem IA externa.
-Usa templates + dados reais para montar respostas naturais.
+"""Textos de resposta do bot: conversa local, listagens, extrato, registros, resumo e confirmações."""
+from __future__ import annotations
 
-Usado como primeira opção no modo híbrido:
-  - Se a intenção é clara → resposta local (instantânea e grátis)
-    - Se não → fallback para OpenRouter
-
-Observação:
-  - Pedidos de dica financeira são tratados no fluxo de IA (chatbot.py),
-    não por templates fixos locais.
-"""
-import re
+import logging
 import random
-from datetime import datetime
+import re
+from datetime import date
+
+from app.dados import resumo_mes, totais_dividas
 from app.financeiro import formatar_real
+from app.conversa.contexto import fallback_acionado_ctx, usou_ia_ctx
+from app.conversa.formatacao import formatar_data_amigavel, formatar_data_curta_iso, montar_linhas_candidatas
+from app.conversa.uso_ia import gerar_observacao_resumo_ia
 
 
-# ---------------------------------------------------------------------------
-# Templates para conversação (saudação, ajuda)
-# ---------------------------------------------------------------------------
+log = logging.getLogger("caco.conversa")
+
+
+def resposta_chat_com_fallback(mensagem: str, contexto: dict | None = None) -> str:
+    """
+    Modo híbrido para conversa:
+      1. Tenta responder localmente (templates)
+    2. Se não conseguiu → tenta OpenRouter
+    3. Se OpenRouter falhar → resposta genérica local
+    Nunca retorna erro.
+    """
+    # 1. Tenta resposta local
+    resp = resposta_local(mensagem, contexto)
+    if resp:
+        log.debug("Resposta LOCAL")
+        return resp
+
+    fallback_acionado_ctx.set(True)
+
+    # 2. Tenta OpenRouter como fallback
+    try:
+        usou_ia_ctx.set(True)
+        from app.ia import gerar_resposta_chat
+        resp_llm = gerar_resposta_chat(mensagem=mensagem)
+        if resp_llm:
+            log.debug("Resposta via OpenRouter")
+            return resp_llm
+    except Exception as e:
+        log.warning("OpenRouter indisponivel: %s", e)
+
+    # 3. Último recurso: resposta genérica local (nunca erro)
+    log.debug("Resposta genérica (fallback final)")
+    return random.choice(RESPOSTAS_NAO_ENTENDI)
+
+
+_RE_HINT_INTERATIVO = re.compile(
+    r"(?:responda|manda)\s+com\s+\*(?:sim|n[aã]o|cancelar|1|2|3)\*"
+    r"|\*sim\*\s+pra\s+confirmar"
+    r"|\*sim\*\s+para\s+confirmar"
+    r"|\*cancelar\*\s+para\s+n[aã]o\s+executar",
+    re.IGNORECASE,
+)
+
+
+def garantir_hint_ajuda(resposta: str, intencao: str | None = None) -> str:
+    """Anexa hint de ajuda apenas em respostas finais (não em prompts de confirmação/seleção)."""
+    texto = (resposta or "").strip()
+    if not texto:
+        texto = "Tudo certo por aqui."
+
+    texto_lower = texto.lower()
+    intencao_lower = (intencao or "").strip().lower()
+
+    if "ajuda" in texto_lower:
+        return texto
+
+    if _RE_HINT_INTERATIVO.search(texto):
+        return texto
+
+    if intencao_lower in {"limpar_movimentacoes", "apagar_movimentacao", "quitar_dividas", "desfazer_ultimo"} and (
+        "confirma" in texto_lower or "responda com" in texto_lower
+    ):
+        return texto
+
+    return f"{texto}\n\n💡 Se precisar, digite *ajuda*."
+
+
+def montar_resposta_registro(
+    tipo: str,
+    valor: float,
+    descricao: str,
+    categoria: str,
+    usuario_id: int,
+    alerta: dict | None = None,
+    data_ref: str | None = None,
+    rotulo_tipo: str | None = None,
+) -> str:
+    """Monta resposta de confirmação de registro com saldo atualizado do banco."""
+    # Puxa saldo atualizado DIRETO do banco
+    resumo = resumo_mes(usuario_id)
+    saldo = resumo["saldo"]
+
+    if descricao:
+        desc_txt = descricao.capitalize()
+    else:
+        desc_txt = categoria.capitalize()
+
+    emoji_tipo = "💚" if tipo == "entrada" else "💸"
+    label = rotulo_tipo or ("Entrada" if tipo == "entrada" else "Gasto")
+
+    texto = f"✅ {label} registrado! {emoji_tipo}\n"
+    texto += f"📝 {desc_txt} — {formatar_real(valor)} ({categoria})\n"
+
+    # Mostra data se não for hoje
+    if data_ref and data_ref != date.today().isoformat():
+        texto += f"📅 Data: {formatar_data_amigavel(data_ref)}\n"
+
+    # Saldo atualizado do banco
+    if saldo >= 0:
+        texto += f"💰 Saldo do mês: {formatar_real(saldo)}"
+    else:
+        texto += f"🔴 Saldo do mês: {formatar_real(saldo)}"
+
+    # Alerta de gasto fora do padrão
+    if alerta:
+        texto += f"\n⚠️ {alerta['alerta']}"
+
+    return texto
+
+
+def montar_resposta_registro_divida(
+    valor: float,
+    descricao: str,
+    credor: str,
+    usuario_id: int,
+    data_ref: str | None = None,
+) -> str:
+    """Monta resposta de confirmação de registro de dívida em tabela separada."""
+    resumo = resumo_mes(usuario_id)
+    saldo = resumo["saldo"]
+
+    desc = (descricao or "Dívida").capitalize()
+    credor_txt = credor.strip() if credor else "não informado"
+
+    texto = "✅ Dívida registrada! 🧾\n"
+    texto += f"📝 {desc} — {formatar_real(valor)}\n"
+    texto += f"👤 Credor: {credor_txt}\n"
+
+    if data_ref and data_ref != date.today().isoformat():
+        texto += f"📅 Data: {formatar_data_amigavel(data_ref)}\n"
+
+    if saldo >= 0:
+        texto += f"💰 Saldo do mês: {formatar_real(saldo)}"
+    else:
+        texto += f"🔴 Saldo do mês: {formatar_real(saldo)}"
+
+    return texto
+
+
+def montar_resumo(resumo: dict, usuario_id: int, label_mes: str = "este mês") -> str:
+    """Monta texto de resumo do mês com dados reais do banco."""
+    entradas = resumo["entradas"]
+    saidas = resumo["saidas"]
+    saldo = resumo["saldo"]
+    cats_saidas = resumo.get("categorias_saidas", resumo.get("categorias", {}))
+    cats_entradas = resumo.get("categorias_entradas", {})
+
+    titulo_mes = label_mes.capitalize() if label_mes != "este mês" else "do mês"
+    texto = f"📊 *Resumo {titulo_mes}*\n\n"
+    texto += f"💰 Entrou: {formatar_real(entradas)}\n"
+    texto += f"💸 Saiu (sem dívidas): {formatar_real(saidas)}\n"
+
+    if saldo >= 0:
+        texto += f"✅ Sobra: {formatar_real(saldo)}\n"
+    else:
+        texto += f"🔴 Falta: {formatar_real(abs(saldo))}\n"
+
+    # Mostra dívidas em bloco separado e destacado (não mistura com gastos)
+    totais_div = totais_dividas(usuario_id)
+    qtd_dividas = int(totais_div.get("qtd_dividas", 0) or 0)
+    total_dividas = float(totais_div.get("total_dividas", 0.0) or 0.0)
+
+    if qtd_dividas > 0:
+        texto += "\n🟠 *Dívidas em aberto:*\n"
+        texto += f"🧾 Total: {formatar_real(total_dividas)}\n"
+        texto += f"🧮 Registros: {qtd_dividas}\n"
+    else:
+        texto += "\n🟢 *Dívidas em aberto:*\n"
+        texto += "🧾 Total: R$ 0,00\n"
+        texto += "🧮 Registros: 0\n"
+
+    if cats_saidas:
+        texto += "\n💸 *Categorias de saída (pra onde foi o dinheiro):*\n"
+        for cat, val in list(cats_saidas.items())[:5]:
+            texto += f"  • {cat.capitalize()}: {formatar_real(val)}\n"
+
+    if cats_entradas:
+        texto += "\n💚 *Categorias de entrada (de onde veio):*\n"
+        for cat, val in list(cats_entradas.items())[:5]:
+            texto += f"  • {cat.capitalize()}: {formatar_real(val)}\n"
+
+    ultimas = resumo.get("ultimas_movimentacoes", [])
+    if ultimas:
+        texto += "\n🕐 *Últimas movimentações:*\n"
+        for mov in ultimas:
+            emoji = "🟢" if mov["tipo"] == "entrada" else "🔴"
+            data_fmt = formatar_data_amigavel(mov.get("data_ref", ""))
+            desc = mov.get('descricao') or mov.get('categoria', '')
+            texto += f"  {emoji} {formatar_real(mov['valor'])} — {desc}"
+            if data_fmt:
+                texto += f" _({data_fmt})_"
+            texto += "\n"
+
+    observacao_ia = gerar_observacao_resumo_ia(usuario_id, resumo, totais_div, label_mes)
+    if observacao_ia:
+        texto += f"\n💡 {observacao_ia}\n"
+
+    return texto
+
+
+def montar_avaliacao_gasto(
+    avaliacao: dict,
+    descricao: str | None = None,
+    categoria: str | None = None,
+    orientacao_ia: str | None = None,
+) -> str:
+    """Monta resposta sobre planejamento de compra com contexto prático."""
+    valor = avaliacao["valor_pretendido"]
+    saldo_atual = avaliacao["saldo_atual"]
+    sobra = avaliacao["sobra_depois"]
+    dias = avaliacao["dias_restantes"]
+    media = avaliacao["media_diaria_depois"]
+    nivel = avaliacao["nivel"]
+    item = (descricao or "essa compra").strip()
+    categoria_txt = (categoria or "compras").strip().lower()
+    cabecalho = f"📌 Planejamento para *{item}* _(categoria: {categoria_txt})_"
+
+    base = (
+        f"{cabecalho}\n"
+        f"• Saldo atual: {formatar_real(saldo_atual)}\n"
+        f"• Valor da compra: {formatar_real(valor)}\n"
+        f"• Sobra no mês após compra: {formatar_real(sobra)}\n"
+        f"• Média por dia até o fim do mês: {formatar_real(media)} ({dias} dias)"
+    )
+
+    if nivel == "critico":
+        recomendacao = (
+            "\n\n⚠️ Esse gasto te coloca no vermelho. "
+            "Se for adiar, sua margem de segurança melhora bastante."
+        )
+    elif nivel == "apertado":
+        recomendacao = (
+            "\n\n⚠️ Dá para fazer, mas o mês fica apertado. "
+            "Vale reduzir gastos variáveis nos próximos dias para não faltar caixa."
+        )
+    elif nivel == "ok":
+        recomendacao = (
+            "\n\n✅ Compra viável no cenário atual. "
+            "Mantendo o ritmo de gastos, você fecha o mês com folga moderada."
+        )
+    else:
+        recomendacao = (
+            "\n\n✅ Compra confortável para o seu mês. "
+            "Mesmo depois dela, a reserva diária segue em nível saudável."
+        )
+
+    resposta = base + recomendacao
+    if orientacao_ia:
+        resposta += f"\n\n💡 Sugestões personalizadas:\n{orientacao_ia}"
+    return resposta
+
+
+def montar_resposta_apagar(mov: dict | None, tipo_apagar: str | None) -> str:
+    """Monta resposta de confirmação de deleção."""
+    if not mov:
+        if tipo_apagar == "entrada":
+            return "🤷 Não encontrei nenhuma entrada pra apagar."
+        elif tipo_apagar == "saida":
+            return "🤷 Não encontrei nenhum gasto pra apagar."
+        else:
+            return "🤷 Não encontrei nenhuma movimentação pra apagar."
+
+    tipo_txt = "Entrada" if mov["tipo"] == "entrada" else "Gasto"
+    desc = mov.get("descricao") or mov.get("categoria", "")
+    valor = mov["valor"]
+
+    texto = f"🗑️ {tipo_txt} apagado!\n"
+    texto += f"📝 {desc.capitalize()} — {formatar_real(valor)} ({mov['categoria']})\n"
+    texto += "✅ Seu saldo foi atualizado."
+    return texto
+
+
+def montar_resposta_apagar_divida(div: dict) -> str:
+    """Monta resposta de confirmação de deleção de dívida."""
+    desc = (div.get("descricao") or "dívida").capitalize()
+    credor = div.get("credor") or "não informado"
+    return (
+        "🗑️ Dívida apagada!\n"
+        f"🧾 {desc} — {formatar_real(div['valor'])} (credor: {credor})\n"
+        "✅ Lista de dívidas atualizada."
+    )
+
+
+def montar_confirmacao_apagar(mov: dict, tipo_registro: str = "movimentacao") -> str:
+    """Monta mensagem de confirmação antes de apagar um lançamento."""
+    if tipo_registro == "divida":
+        descricao = (mov.get("descricao") or "dívida").capitalize()
+        credor = mov.get("credor") or "não informado"
+        return (
+            "⚠️ Confirma apagar esta dívida?\n"
+            f"• #{mov['id']} {descricao} — {formatar_real(mov['valor'])} (credor: {credor})\n\n"
+            "Manda *sim* pra confirmar ou *não* pra cancelar."
+        )
+
+    tipo_nome = "entrada" if mov.get("tipo") == "entrada" else "gasto"
+    descricao = (mov.get("descricao") or mov.get("categoria") or "movimentação").capitalize()
+    return (
+        f"⚠️ Confirma apagar este {tipo_nome}?\n"
+        f"• #{mov['id']} {descricao} — {formatar_real(mov['valor'])} ({mov.get('categoria', 'sem categoria')})\n\n"
+        "Manda *sim* pra confirmar ou *não* pra cancelar."
+    )
+
+
+def montar_desambiguacao_editar(movimentacoes: list[dict], descricao: str, novo_valor: float) -> str:
+    """Pede escolha quando há múltiplos candidatos para edição."""
+    if novo_valor and novo_valor > 0:
+        resposta = (
+            f"🤔 Encontrei *{len(movimentacoes)}* lançamentos com \"{descricao}\".\n"
+            f"Qual você quer editar para {formatar_real(novo_valor)}?\n\n"
+        )
+    else:
+        resposta = (
+            f"🤔 Encontrei *{len(movimentacoes)}* lançamentos com \"{descricao}\".\n"
+            "Qual você quer editar?\n\n"
+        )
+
+    resposta += montar_linhas_candidatas(movimentacoes)
+    resposta += "\n\nManda o *número*, *#ID*, *data* (24/03) ou *valor* (300), ou *cancelar*."
+    return resposta
+
+
+def montar_resposta_edicao(mov: dict, tipo_registro: str = "movimentacao") -> str:
+    """Confirmação de edição concluída com campos alterados."""
+    antes = mov.get("antes") or {}
+    # Só lista campos cujo valor realmente mudou (o repositório marca todos os enviados).
+    alteracoes = [
+        campo for campo in (mov.get("alteracoes") or [])
+        if antes.get("data_ref" if campo == "data" else campo) != mov.get("data_ref" if campo == "data" else campo)
+    ]
+
+    if tipo_registro == "divida":
+        descricao = (mov.get("descricao") or "dívida").capitalize()
+        credor = mov.get("credor") or "não informado"
+        if not alteracoes:
+            return (
+                "ℹ️ Nenhum campo foi alterado nessa dívida.\n"
+                "Você pode ajustar valor, descrição, credor ou data e confirmar de novo."
+            )
+
+        linhas: list[str] = [
+            "✅ Dívida atualizada com sucesso!",
+            f"• #{mov['id']} {descricao} (credor: {credor})",
+        ]
+        if "valor" in alteracoes:
+            linhas.append(
+                f"• Valor: {formatar_real(float(antes.get('valor', 0.0) or 0.0))} → {formatar_real(float(mov.get('valor', 0.0) or 0.0))}"
+            )
+        if "descricao" in alteracoes:
+            linhas.append(f"• Descrição: {(antes.get('descricao') or 'sem descrição')} → {(mov.get('descricao') or 'sem descrição')}")
+        if "credor" in alteracoes:
+            linhas.append(f"• Credor: {(antes.get('credor') or 'não informado')} → {(mov.get('credor') or 'não informado')}")
+        if "data" in alteracoes:
+            linhas.append(f"• Data: {(antes.get('data_ref') or '-')} → {(mov.get('data_ref') or '-')}")
+        return "\n".join(linhas)
+
+    descricao = (mov.get("descricao") or mov.get("categoria") or "movimentação").capitalize()
+    if not alteracoes:
+        return (
+            "ℹ️ Nenhum campo foi alterado nesse lançamento.\n"
+            "Você pode ajustar valor, descrição, categoria, data ou tipo e confirmar de novo."
+        )
+
+    linhas = [
+        "✅ Lançamento atualizado com sucesso!",
+        f"• #{mov['id']} {descricao} ({mov.get('categoria', 'sem categoria')})",
+    ]
+    if "valor" in alteracoes:
+        linhas.append(
+            f"• Valor: {formatar_real(float(antes.get('valor', 0.0) or 0.0))} → {formatar_real(float(mov.get('valor', 0.0) or 0.0))}"
+        )
+    if "descricao" in alteracoes:
+        linhas.append(f"• Descrição: {(antes.get('descricao') or 'sem descrição')} → {(mov.get('descricao') or 'sem descrição')}")
+    if "categoria" in alteracoes:
+        linhas.append(f"• Categoria: {(antes.get('categoria') or 'sem categoria')} → {(mov.get('categoria') or 'sem categoria')}")
+    if "data" in alteracoes:
+        linhas.append(f"• Data: {(antes.get('data_ref') or '-')} → {(mov.get('data_ref') or '-')}")
+    if "tipo" in alteracoes:
+        linhas.append(f"• Tipo: {(antes.get('tipo') or '-')} → {(mov.get('tipo') or '-')}")
+    linhas.append("🔄 Seu saldo foi recalculado.")
+    return "\n".join(linhas)
+
 
 # Palavras/frases que indicam saudação
 def _compilar_patterns(patterns: list[str]) -> tuple[re.Pattern[str], ...]:
@@ -30,16 +405,19 @@ SAUDACOES_PATTERNS = _compilar_patterns([
     r"^(oi+|ola+|hey+|eai+)\s*[!.?]*$",
 ])
 
+
 # Palavras que indicam pedido de ajuda
 AJUDA_PATTERNS = _compilar_patterns([
     r"\b(ajuda|help|como funciona|o que (você|vc|ce) faz|como us[ao]|comandos)\b",
     r"\b(o que (posso|dá pra|da pra) fazer)\b",
 ])
 
+
 # Palavras que indicam agradecimento
 AGRADECIMENTO_PATTERNS = _compilar_patterns([
     r"\b(obrigad[oa]|valeu|vlw|thanks|brigad|tmj|show|top|massa)\b",
 ])
+
 
 # Palavras que indicam despedida
 DESPEDIDA_PATTERNS = _compilar_patterns([
@@ -53,17 +431,6 @@ def _match_patterns(texto: str, patterns: tuple[re.Pattern[str], ...]) -> bool:
     return any(p.search(texto_lower) for p in patterns)
 
 
-def _formatar_data_curta(data_iso: str) -> str:
-    try:
-        return datetime.strptime(data_iso, "%Y-%m-%d").strftime("%d/%m")
-    except Exception:
-        return data_iso
-
-
-# ---------------------------------------------------------------------------
-# Respostas conversacionais por tipo
-# ---------------------------------------------------------------------------
-
 RESPOSTAS_SAUDACAO = [
     "Fala! 😄 Sou o *Caco*, seu assistente financeiro. Me conta o que rolou — gastou, recebeu, quer ver o resumo?",
     "E aí! 👋 Eu sou o *Caco* e tô aqui pra te ajudar com a grana. Manda o que você precisa!",
@@ -71,6 +438,7 @@ RESPOSTAS_SAUDACAO = [
     "Salve! 💰 Aqui é o *Caco*. Pode mandar: um gasto pra anotar, pedir resumo ou tirar dúvida.",
     "Oi! Sou o *Caco*, seu controle amigo de continhas. 😉 Como posso te ajudar hoje?",
 ]
+
 
 RESPOSTAS_AJUDA = [
     (
@@ -86,6 +454,7 @@ RESPOSTAS_AJUDA = [
     ),
 ]
 
+
 RESPOSTAS_AGRADECIMENTO = [
     "Imagina! Tô aqui pra isso. 😄",
     "Tmj! 💪 Qualquer coisa é só chamar.",
@@ -93,12 +462,14 @@ RESPOSTAS_AGRADECIMENTO = [
     "Valeu você! 🙌 Se precisar, é só mandar mensagem.",
 ]
 
+
 RESPOSTAS_DESPEDIDA = [
     "Falou! 👋 Qualquer gasto novo é só mandar. Até mais!",
     "Até! 😊 Cuida da grana e qualquer coisa me chama.",
     "Tchau! 💰 Lembra de anotar os gastos, hein! 😄",
     "Até mais! Boa sorte com as finanças. 🍀",
 ]
+
 
 RESPOSTAS_NAO_ENTENDI = [
     (
@@ -120,10 +491,6 @@ RESPOSTAS_NAO_ENTENDI = [
     ),
 ]
 
-
-# ---------------------------------------------------------------------------
-# Função principal — tenta gerar resposta local
-# ---------------------------------------------------------------------------
 
 def resposta_local(mensagem: str, contexto: dict | None = None) -> str | None:
     """
@@ -159,10 +526,6 @@ def resposta_local(mensagem: str, contexto: dict | None = None) -> str | None:
     # Não reconheceu — retorna None para o OpenRouter tentar
     return None
 
-
-# ---------------------------------------------------------------------------
-# Respostas para novas funcionalidades
-# ---------------------------------------------------------------------------
 
 def gerar_resposta_listar_movimentacoes(
     movimentacoes: list[dict],
@@ -205,7 +568,7 @@ def gerar_resposta_listar_movimentacoes(
         id_mov = mov["id"]
         
         # Formata data de forma amigável
-        data_fmt = _formatar_data_curta(data)
+        data_fmt = formatar_data_curta_iso(data)
         
         linha = f"{emoji} {descricao} — {valor_fmt} _(#{id_mov} - {data_fmt})_"
         linhas.append(linha)
@@ -281,7 +644,7 @@ def gerar_resposta_consultar_categoria(
             id_mov = mov["id"]
             
             # Formata data
-            data_fmt = _formatar_data_curta(data)
+            data_fmt = formatar_data_curta_iso(data)
             
             resposta += f"• {descricao} — {valor_fmt} _(#{id_mov} - {data_fmt})_\n"
         
@@ -334,7 +697,7 @@ def gerar_resposta_consultar_categoria_ambas(
         for mov in movs_ent[:10]:
             descricao = mov.get("descricao") or categoria
             valor_fmt = formatar_real(mov.get("valor") or 0.0)
-            data_fmt = _formatar_data_curta(mov.get("data_ref"))
+            data_fmt = formatar_data_curta_iso(mov.get("data_ref"))
             resposta += f"• {descricao} — {valor_fmt} _(#{mov.get('id')} - {data_fmt})_\n"
         if len(movs_ent) > 10:
             resposta += f"_...e mais {len(movs_ent) - 10} entradas_\n"
@@ -345,7 +708,7 @@ def gerar_resposta_consultar_categoria_ambas(
         for mov in movs_sai[:10]:
             descricao = mov.get("descricao") or categoria
             valor_fmt = formatar_real(mov.get("valor") or 0.0)
-            data_fmt = _formatar_data_curta(mov.get("data_ref"))
+            data_fmt = formatar_data_curta_iso(mov.get("data_ref"))
             resposta += f"• {descricao} — {valor_fmt} _(#{mov.get('id')} - {data_fmt})_\n"
         if len(movs_sai) > 10:
             resposta += f"_...e mais {len(movs_sai) - 10} gastos_\n"
@@ -420,7 +783,7 @@ def gerar_resposta_extrato_completo(
         descricao = mov.get("descricao") or mov.get("categoria") or "movimentação"
         valor_fmt = formatar_real(mov.get("valor", 0))
         data = mov.get("data_ref", "")
-        data_fmt = _formatar_data_curta(data)
+        data_fmt = formatar_data_curta_iso(data)
         return f"{emoji} {descricao} — {valor_fmt} _(#{mov['id']} - {data_fmt})_"
 
     resposta = f"📋 *Extrato completo{sufixo}:*\n\n"
@@ -440,7 +803,7 @@ def gerar_resposta_extrato_completo(
             credor = d.get("credor") or "não informado"
             valor_fmt = formatar_real(d.get("valor", 0))
             data = d.get("data_ref", "")
-            data_fmt = _formatar_data_curta(data)
+            data_fmt = formatar_data_curta_iso(data)
             resposta += f"🧾 {descricao} — {valor_fmt} _(#{d['id']} - {data_fmt})_ • credor: {credor}\n"
         resposta += "\n"
 
@@ -465,7 +828,7 @@ def gerar_resposta_listar_dividas(dividas: list[dict], label_mes: str = "este m�
         credor = d.get("credor") or "não informado"
         valor_fmt = formatar_real(d.get("valor", 0))
         data = d.get("data_ref", "")
-        data_fmt = _formatar_data_curta(data)
+        data_fmt = formatar_data_curta_iso(data)
         resposta += f"🧾 {descricao} — {valor_fmt} _(#{d['id']} - {data_fmt})_ • credor: {credor}\n"
 
     resposta += "\n💡 _Dica: para editar, use \"editar #ID para NOVO_VALOR\"_"
@@ -517,10 +880,9 @@ def gerar_resposta_desambiguacao_apagar(movimentacoes: list[dict], descricao: st
         valor_fmt = formatar_real(mov["valor"])
 
         # Formata data amigável
-        data_fmt = _formatar_data_curta(mov["data_ref"])
+        data_fmt = formatar_data_curta_iso(mov["data_ref"])
 
         resposta += f"*{i}.* {emoji} {desc} — {valor_fmt}{extra} _(# {mov['id']} - {data_fmt})_\n"
 
     resposta += "\nManda o *número*, *#ID*, *data* (24/03) ou *valor* (300), ou *cancelar*."
     return resposta
-

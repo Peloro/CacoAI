@@ -4,7 +4,7 @@ import re
 from datetime import date
 from typing import Optional
 
-from app.infra.db import db_connection, sem_acento
+from app.dados.conexao import db_connection, sem_acento
 
 
 _RE_YEAR = re.compile(r"\d{4}")

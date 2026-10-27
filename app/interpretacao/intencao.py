@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import re
 
-from app.parsing.categories import categorize_by_rules, extract_category_after_token, extract_category_mentioned
-from app.parsing.entities import (
+from app.interpretacao.categorias import categorize_by_rules, extract_category_after_token, extract_category_mentioned
+from app.interpretacao.entidades import (
     extract_debt_creditor,
     extract_description,
     extract_movement_id,
     extract_new_edit_value,
     extract_value,
 )
-from app.parsing.normalization import normalize_intent_text, text_contains
-from app.parsing.references import extract_date, extract_reference_month
+from app.interpretacao.normalizacao import normalize_intent_text, text_contains
+from app.interpretacao.referencias import extract_date, extract_reference_month
 
 _RE_TODOS_GASTOS = re.compile(r"\btod[oa]s?\b.*?\b(?:gastos?|despesas?|saídas?|saidas?)\b", re.IGNORECASE)
 _RE_TODOS_GANHOS = re.compile(r"\btod[oa]s?\b.*?\b(?:ganhos?|entradas?|receitas?)\b", re.IGNORECASE)
