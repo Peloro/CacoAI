@@ -1,0 +1,122 @@
+[
+ [
+  "gastei 50 no mercado",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 50,00\n• Título: mercado\n• Categoria: alimentacao\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Mercado — R$ 50,00 (alimentacao)\n🔴 Saldo do mês: -R$ 50,00"
+ ],
+ [
+  "gastei 40 no mercado",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 40,00\n• Título: mercado\n• Categoria: alimentacao\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Mercado — R$ 40,00 (alimentacao)\n🔴 Saldo do mês: -R$ 90,00"
+ ],
+ [
+  "apagar mercado",
+  "🤔 Encontrei *2* lançamentos com \"mercado\".\nQual você quer apagar?\n\n*1.* 🔴 mercado — R$ 40,00 _(# 2 - <HOJE_DM>)_\n*2.* 🔴 mercado — R$ 50,00 _(# 1 - <HOJE_DM>)_\n\nManda o *número*, *#ID*, *data* (24/03) ou *valor* (300), ou *cancelar*."
+ ],
+ [
+  "2",
+  "⚠️ Confirma apagar este gasto?\n• #1 Mercado — R$ 50,00 (alimentacao)\n\nManda *sim* pra confirmar ou *não* pra cancelar."
+ ],
+ [
+  "sim",
+  "🗑️ Gasto apagado!\n🔴 Mercado — R$ 50,00 (alimentacao)\n✅ Seu saldo foi atualizado."
+ ],
+ [
+  "gastei 20 no café",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 20,00\n• Título: cafe\n• Categoria: alimentacao\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Cafe — R$ 20,00 (alimentacao)\n🔴 Saldo do mês: -R$ 60,00"
+ ],
+ [
+  "apagar café",
+  "⚠️ Confirma apagar este gasto?\n• #3 Cafe — R$ 20,00 (alimentacao)\n\nManda *sim* pra confirmar ou *não* pra cancelar."
+ ],
+ [
+  "sim",
+  "🗑️ Gasto apagado!\n🔴 Cafe — R$ 20,00 (alimentacao)\n✅ Seu saldo foi atualizado."
+ ],
+ [
+  "editar #1",
+  "🤷 Não encontrei lançamento com o ID #1.\n💡 Rode *listar movimentações* e tente novamente com *editar #ID*."
+ ],
+ [
+  "cancelar",
+  "Beleza, não tem nada pendente pra cancelar. 👍"
+ ],
+ [
+  "editar mercado para 55",
+  "Antes de executar, confirma esta operação:\n\n• Operação: editar lançamento\n• Título: mercado\n• ID alvo: #2\n• Tipo de registro: movimentação\n• Valor atual: R$ 40,00\n• Novo valor: R$ 55,00\n• Categoria: alimentacao\n• Novo tipo: saida\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Lançamento atualizado com sucesso!\n• #2 Mercado (alimentacao)\n• Valor: R$ 40,00 → R$ 55,00\n🔄 Seu saldo foi recalculado."
+ ],
+ [
+  "limpar gastos",
+  "⚠️ *Tem certeza?*\n\nIsso vai apagar *1 gasto* (R$ 55,00) neste mês.\n\nManda *sim* pra confirmar ou *não* pra cancelar."
+ ],
+ [
+  "sim",
+  "🗑️ Pronto! Apaguei *1 gasto* deste mês.\n✅ Seu saldo foi atualizado."
+ ],
+ [
+  "listar gastos",
+  "Você ainda não registrou nenhum gasto. 🤔"
+ ],
+ [
+  "gastei 30 no uber ontem",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 30,00\n• Título: uber\n• Categoria: transporte\n• Referência: <ONTEM>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "o meu saldo inicial era de 1500 reais",
+  "↪️ Deixei de lado a confirmação anterior.\n\nAntes de executar, confirma esta operação:\n\n• Operação: registrar saldo inicial\n• Valor: R$ 1.500,00\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Saldo inicial registrado! 💚\n📝 Saldo inicial — R$ 1.500,00 (saldo_inicial)\n💰 Saldo do mês: R$ 1.500,00"
+ ],
+ [
+  "gastei 50 no almoço",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 50,00\n• Título: almoco\n• Categoria: alimentacao\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "com o que gastei hoje?",
+  "↪️ Deixei de lado a confirmação anterior.\n\nVocê ainda não registrou nenhum gasto em *<HOJE_DM> (hoje)*. 🤔"
+ ],
+ [
+  "quanto gastei hoje?",
+  "Você ainda não registrou nenhum gasto em *<HOJE_DM> (hoje)*. 🤔"
+ ],
+ [
+  "paguei 300 mil num carro novo, a vista",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 300.000,00\n• Título: carro novo\n• Categoria: transporte\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "troca a categoria para compras",
+  "Perfeito, atualizei os detalhes: categoria para compras.\n\nAntes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 300.000,00\n• Título: carro novo\n• Categoria: compras\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "foi ontem",
+  "Perfeito, atualizei os detalhes: data para <ONTEM_DM> (ontem).\n\nAntes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 300.000,00\n• Título: carro novo\n• Categoria: compras\n• Referência: <ONTEM>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Carro novo — R$ 300.000,00 (compras)\n📅 Data: <ONTEM_DM> (ontem)\n🔴 Saldo do mês: -R$ 298.500,00"
+ ],
+ [
+  "gastei 200 no carro novo",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 200,00\n• Título: carro novo\n• Categoria: compras\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ]
+]

@@ -1,0 +1,54 @@
+[
+ [
+  "gastei 30 no cinema",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 30,00\n• Título: cinema\n• Categoria: lazer\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "valor 35",
+  "Perfeito, atualizei os detalhes: valor para R$ 35,00.\n\nAntes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 35,00\n• Título: cinema\n• Categoria: lazer\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "foi ontem",
+  "Perfeito, atualizei os detalhes: data para <ONTEM_DM> (ontem).\n\nAntes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 35,00\n• Título: cinema\n• Categoria: lazer\n• Referência: <ONTEM>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "categoria lazer",
+  "Perfeito, atualizei os detalhes: categoria para lazer.\n\nAntes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 35,00\n• Título: cinema\n• Categoria: lazer\n• Referência: <ONTEM>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "blablabla",
+  "Perfeito, atualizei os detalhes: título para blablabla.\n\nAntes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 35,00\n• Título: blablabla\n• Categoria: lazer\n• Referência: <ONTEM>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Blablabla — R$ 35,00 (lazer)\n📅 Data: <ONTEM_DM> (ontem)\n🔴 Saldo do mês: -R$ 35,00"
+ ],
+ [
+  "gastei 10 no pão",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 10,00\n• Título: pao\n• Categoria: alimentacao\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Pao — R$ 10,00 (alimentacao)\n🔴 Saldo do mês: -R$ 45,00"
+ ],
+ [
+  "desfazer",
+  "↩️ Desfiz o último lançamento.\n🧾 pao — R$ 10,00"
+ ],
+ [
+  "sim",
+  "Hmm, não peguei essa. 😅 Manda de outro jeito?\nEx: \"Paguei 150 de luz\" ou \"Quanto tenho sobrando?\"\n\n💡 Se precisar, digite *ajuda*."
+ ],
+ [
+  "desfazer",
+  "Não encontrei nenhum registro recente para desfazer."
+ ],
+ [
+  "sim",
+  "Hmm, não peguei essa. 😅 Manda de outro jeito?\nEx: \"Paguei 150 de luz\" ou \"Quanto tenho sobrando?\"\n\n💡 Se precisar, digite *ajuda*."
+ ],
+ [
+  "listar gastos",
+  "💸 *Seus últimos 1 gastos:*\n\n🔴 blablabla — R$ 35,00 _(#1 - <ONTEM_DM>)_\n\n💡 _Dica: pra remover algum, manda \"apagar #ID\"_"
+ ]
+]

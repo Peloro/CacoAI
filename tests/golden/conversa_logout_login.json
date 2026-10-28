@@ -1,0 +1,26 @@
+[
+ [
+  "sair",
+  "🔒 Sessão encerrada, *Ana*!\nSeus dados estão protegidos. Até a próxima! 👋"
+ ],
+ [
+  "oi",
+  "Oi, *Ana*! 👋\n\nSua sessão expirou. Por segurança, preciso da sua senha.\n\n🔒 *Digite sua senha:*"
+ ],
+ [
+  "errada",
+  "❌ Senha incorreta. Tenta de novo:\n\n🔒 *Digite sua senha:*"
+ ],
+ [
+  "/start",
+  "Sua sessão expirou. Para continuar, digite sua *senha*. 🔒"
+ ],
+ [
+  "Senha@123",
+  "✅ Bem-vindo de volta, *Ana*! 😊\n\nO que posso fazer por você?"
+ ],
+ [
+  "resumo",
+  "📊 *Resumo do mês*\n\n💰 Entrou: R$ 0,00\n💸 Saiu (sem dívidas): R$ 0,00\n✅ Sobra: R$ 0,00\n\n🟢 *Dívidas em aberto:*\n🧾 Total: R$ 0,00\n🧮 Registros: 0"
+ ]
+]

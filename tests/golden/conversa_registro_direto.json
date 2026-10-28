@@ -1,0 +1,58 @@
+[
+ [
+  "gastei 50 no mercado",
+  "✅ Gasto registrado! 💸\n📝 Mercado — R$ 50,00 (alimentacao)\n🔴 Saldo do mês: -R$ 50,00\n↩️ Algo errado? Diga *desfazer*."
+ ],
+ [
+  "recebi 3000 de salário",
+  "✅ Entrada registrado! 💚\n📝 Salario — R$ 3.000,00 (salario)\n💰 Saldo do mês: R$ 2.950,00\n↩️ Algo errado? Diga *desfazer*."
+ ],
+ [
+  "paguei 120 de luz ontem",
+  "✅ Gasto registrado! 💸\n📝 Luz — R$ 120,00 (moradia)\n📅 Data: <ONTEM_DM> (ontem)\n💰 Saldo do mês: R$ 2.830,00\n↩️ Algo errado? Diga *desfazer*."
+ ],
+ [
+  "tenho 300 na conta",
+  "✅ Saldo inicial registrado! 💚\n📝 Saldo inicial — R$ 300,00 (saldo_inicial)\n💰 Saldo do mês: R$ 3.130,00\n↩️ Algo errado? Diga *desfazer*."
+ ],
+ [
+  "devo 300 pro joão",
+  "✅ Dívida registrada! 🧾\n📝 Divida joao — R$ 300,00\n👤 Credor: joão\n💰 Saldo do mês: R$ 3.130,00\n↩️ Algo errado? Diga *desfazer*."
+ ],
+ [
+  "comprei 2 camisas por 80",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 80,00\n• Título: camisas\n• Categoria: outros\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "gastei 70 no xpto",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 70,00\n• Título: xpto\n• Categoria: outros\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "paguei 30 de lancamento",
+  "Perfeito, já anotei o valor de R$ 30,00.\nAgora me diga a *descricao* da saida (ex.: `almoco`, `salario`, `nubank`)."
+ ],
+ [
+  "cancelar",
+  "Beleza, cancelei esse registro guiado."
+ ],
+ [
+  "gastei 15 no café",
+  "✅ Gasto registrado! 💸\n📝 Cafe — R$ 15,00 (alimentacao)\n💰 Saldo do mês: R$ 3.115,00\n↩️ Algo errado? Diga *desfazer*."
+ ],
+ [
+  "desfazer",
+  "↩️ Desfiz o último lançamento.\n🧾 cafe — R$ 15,00"
+ ],
+ [
+  "listar movimentações",
+  "📋 *Extrato completo deste mês:*\n\n💚 *Entradas (2):*\n💚 Saldo inicial — R$ 300,00 _(#4 - <HOJE_DM>)_\n💚 salario — R$ 3.000,00 _(#2 - <HOJE_DM>)_\n\n💸 *Gastos (2):*\n🔴 mercado — R$ 50,00 _(#1 - <HOJE_DM>)_\n🔴 luz — R$ 120,00 _(#3 - <ONTEM_DM>)_\n\n🧾 *Dívidas (1):*\n🧾 divida joao — R$ 300,00 _(#1 - <HOJE_DM>)_ • credor: joão\n\n💡 *Como usar os IDs:*\n• Editar: \"editar #12 para 45\"\n• Apagar: \"apagar #12\""
+ ]
+]

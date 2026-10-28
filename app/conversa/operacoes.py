@@ -19,6 +19,8 @@ from app.dados import (
     listar_dividas_recentes,
     listar_movimentacoes_recentes,
     obter_divida_por_id,
+    parcelas_pagas,
+    valor_de_parcelas,
     obter_movimentacao_por_id,
     pagar_divida,
     quitar_dividas,
@@ -55,6 +57,7 @@ from app.conversa.respostas import (
     montar_resposta_edicao,
     montar_resposta_registro,
     montar_resposta_registro_divida,
+    montar_resposta_registro_parcelada,
     montar_resumo,
     gerar_resposta_consultar_categoria,
     gerar_resposta_desambiguacao_apagar,
@@ -83,6 +86,7 @@ def _executar_registro_por_payload(usuario_id: int, payload: dict) -> str:
     mensagem_original = payload.get("mensagem_original") or descricao
 
     if intencao == "registrar_divida":
+        parcelamento = payload.get("parcelamento") or {}
         div_id = executar_operacao_mutavel(
             "registrar_divida",
             registrar_divida,
@@ -91,8 +95,16 @@ def _executar_registro_por_payload(usuario_id: int, payload: dict) -> str:
             credor=credor,
             descricao=descricao or "Divida",
             data_ref=data_ref,
+            **parcelamento,
         )
         _lembrar_ultimo_registro(usuario_id, "divida", div_id)
+        if parcelamento:
+            aplicado = 0.0
+            if payload.get("ja_paguei_primeira"):  # como todo pagamento: abate da dívida e vira gasto
+                primeira = valor_de_parcelas(obter_divida_por_id(usuario_id, div_id), 1)  # a 1ª leva os centavos
+                aplicado = pagar_divida_por_id_especifico(usuario_id, div_id, primeira)["valor_aplicado"]
+                registrar_saida_pagamento_divida(usuario_id, aplicado, f"Pagamento de divida ({credor})", data_ref)
+            return montar_resposta_registro_parcelada(obter_divida_por_id(usuario_id, div_id), total=valor, pago=aplicado)
         registrar_titulo_aprendido(usuario_id, chave_de_aprendizado(mensagem_original), descricao or "divida", "dividas")
         return montar_resposta_registro_divida(
             valor=valor,
@@ -137,6 +149,8 @@ def _processar_fluxo_titulo_ou_registro(
     preservar_titulo_usuario: bool = False,
     categoria_preview: str = "",
     descricao_categoria: str = "",
+    parcelamento: dict | None = None,
+    ja_paguei_primeira: bool = False,
 ) -> str:
     """Resolve título sugerido e registra usando o fluxo unificado de confirmação de operação."""
     if intencao in ("registrar_entrada", "registrar_saida"):
@@ -166,6 +180,8 @@ def _processar_fluxo_titulo_ou_registro(
         "data_ref": data_ref,
         "credor_divida": credor_divida,
         "mensagem_original": mensagem_original,
+        "parcelamento": parcelamento,
+        "ja_paguei_primeira": ja_paguei_primeira,
     }
 
     return _executar_registro_por_payload(usuario_id, payload)
@@ -200,7 +216,7 @@ class Operacao:
 
     @property
     def sufixo_dividas(self) -> str:
-        return f" em *{self.label_dividas}*"
+        return f" em *{self.label_mes}*" if self.mes_ref else " em aberto"
 
 
 def preparar_confirmacao_edicao(
@@ -277,6 +293,12 @@ def _op_registrar(op: Operacao) -> str | None:
         preservar_titulo_usuario=bool(p.get("_titulo_manual")) or bool(titulo_preview),
         categoria_preview=p.get("_categoria_preview") or "",
         descricao_categoria=op.descricao,
+        parcelamento={
+            "parcelas": int(p["parcelas"]),
+            "valor_parcela": float(p["valor_parcela"]),
+            "primeiro_vencimento": p.get("primeiro_vencimento") or op.data_ref[:7],
+        } if eh_divida and p.get("parcelas") else None,
+        ja_paguei_primeira=bool(eh_divida and p.get("parcelas") and p.get("_ja_paguei_primeira")),
     )
 
 
@@ -297,13 +319,20 @@ def _op_consultar(op: Operacao) -> str | None:
     if op.intencao == "listar_movimentacoes":
         tipo_listar = p.get("tipo_listar")
         if tipo_listar == "divida":
+            # Mês sem ano em dívidas é o que ainda vem: em outubro, "dezembro" é o deste ano (há parcelas a vencer),
+            # não o do ano passado que o parser supõe para gastos.
+            hoje = date.today()
+            if op.mes_ref and len(op.mes_ref) == 7 and not re.search(r"\b20\d{2}\b|passad", op.mensagem.lower()):
+                ano, mes = int(op.mes_ref[:4]), int(op.mes_ref[5:])
+                if ano == hoje.year - 1 and mes > hoje.month:
+                    op.mes_ref = f"{hoje.year:04d}-{mes:02d}"
             dividas = listar_dividas_recentes(op.usuario_id, 30, op.mes_ref)
-            return gerar_resposta_listar_dividas(dividas, op.label_dividas)
+            return gerar_resposta_listar_dividas(dividas, op.label_dividas, op.mes_ref)
 
         if tipo_listar is None:
             movs = listar_movimentacoes_recentes(op.usuario_id, 60, None, op.mes_ref)
             dividas = listar_dividas_recentes(op.usuario_id, 60, op.mes_ref)
-            return gerar_resposta_extrato_completo(movs, dividas, op.label_mes)
+            return gerar_resposta_extrato_completo(movs, dividas, op.label_mes, op.mes_ref)
 
         movs = listar_movimentacoes_recentes(op.usuario_id, 20, tipo_listar, op.mes_ref)
         return gerar_resposta_listar_movimentacoes(movs, tipo_listar, op.label_mes)
@@ -492,6 +521,22 @@ def _op_editar(op: Operacao) -> str | None:
         new_value = float(base_value)
         parsed_payload["novo_valor"] = new_value
 
+    if p.get("novo_primeiro_vencimento") and not op.confirmou_operacao_manual:
+        # Só dívida parcelada tem 1ª parcela: o alvo sai das dívidas (por #ID ou pelo item/credor).
+        dividas = [obter_divida_por_id(op.usuario_id, target_id)] if target_id else buscar_dividas_por_descricao(op.usuario_id, op.descricao)
+        parceladas = [{**d, "_tipo_registro": "divida"} for d in dividas if d and d.get("parcelas")]
+        if not parceladas:
+            return "🤷 Essa dívida não é parcelada (ou não a encontrei).\n💡 Use *listar dívidas* para ver as parceladas e os IDs."
+        if len(parceladas) > 1:
+            set_pendente_desambiguacao_editar(op.usuario_id, {
+                "movimentacoes": parceladas,
+                "descricao": op.descricao,
+                "parsed_base": parsed_payload,
+                "veio_desambiguacao": op.confirmou_intencao_manual,
+            })
+            return montar_desambiguacao_editar(parceladas, op.descricao, 0.0)
+        return preparar_confirmacao_edicao(op.usuario_id, parsed_payload, parceladas[0], "divida", op.confirmou_intencao_manual)
+
     if not op.confirmou_operacao_manual:
         if target_id:
             mov = obter_movimentacao_por_id(op.usuario_id, target_id)
@@ -596,6 +641,7 @@ def _op_editar(op: Operacao) -> str | None:
             nova_descricao=(parsed_payload.get("descricao") or "").strip() or None,
             novo_credor=normalizar_credor_texto(parsed_payload.get("credor_divida") or "") or None,
             nova_data_ref=(parsed_payload.get("data") or "").strip() or None,
+            novo_primeiro_vencimento=parsed_payload.get("novo_primeiro_vencimento"),
         )
         if not updated:
             return (
@@ -695,6 +741,12 @@ def _op_financeiro(op: Operacao) -> str | None:
             f"🧾 Quitadas: {paid_count} | Atualizadas: {updated_count}\n"
             f"💸 Saída registrada: {formatar_real(applied)}"
         )
+        restante = obter_divida_por_id(op.usuario_id, debt_target_id) if debt_target_id > 0 else None
+        if restante and restante.get("parcelas"):
+            reply += (
+                f"\n📆 {parcelas_pagas(restante)}/{restante['parcelas']} pagas"
+                f" • faltam {formatar_real(float(restante['valor']))}"
+            )
         if left > 0:
             reply += f"\nℹ️ Sobrou {formatar_real(left)} sem dívida correspondente."
         return reply

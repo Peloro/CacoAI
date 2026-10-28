@@ -75,6 +75,16 @@ def salvar_senha(usuario_id: int, senha: str):
         conn.commit()
 
 
+def senha_confere(senha_hash: str, senha: str) -> bool:
+    """Confere a senha com um hash Argon2 (False para hash inválido ou de outro formato)."""
+    try:
+        return bool(_password_hasher.verify(senha_hash, senha))
+    except (VerifyMismatchError, InvalidHash):
+        return False
+    except Exception:
+        return False
+
+
 def verificar_senha(usuario_id: int, senha: str) -> bool:
     with db_connection() as conn:
         cur = conn.cursor()
@@ -85,12 +95,7 @@ def verificar_senha(usuario_id: int, senha: str) -> bool:
 
     stored_hash = row["senha_hash"]
     if isinstance(stored_hash, str) and stored_hash.startswith("$argon2"):
-        try:
-            return bool(_password_hasher.verify(stored_hash, senha))
-        except (VerifyMismatchError, InvalidHash):
-            return False
-        except Exception:
-            return False
+        return senha_confere(stored_hash, senha)
 
     if stored_hash == hash_password_legacy(senha):
         try:

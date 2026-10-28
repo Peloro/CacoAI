@@ -2,6 +2,7 @@
 API FastAPI: saúde do serviço e rotas REST de teste do bot (desabilitadas por padrão).
 """
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
@@ -62,11 +63,14 @@ api_teste = APIRouter(prefix="/api", tags=["API de teste"])
 
 
 def _autorizar_api_teste(request: Request) -> None:
-    """Bloqueia a API de teste quando desabilitada e exige token opcional."""
+    """Bloqueia a API de teste quando desabilitada e sempre exige o token."""
     if not API_TEST_ENABLED:
         raise HTTPException(status_code=403, detail="API de teste desabilitada")
 
-    if API_TEST_TOKEN and request.headers.get("X-API-Test-Token", "") != API_TEST_TOKEN:
+    # Sem token, qualquer um leria o resumo de qualquer conta ("telegram:<chat_id>") sem senha.
+    if not API_TEST_TOKEN:
+        raise HTTPException(status_code=403, detail="Defina API_TEST_TOKEN para usar a API de teste")
+    if not secrets.compare_digest(request.headers.get("X-API-Test-Token", ""), API_TEST_TOKEN):
         raise HTTPException(status_code=401, detail="Token de teste inválido")
 
 

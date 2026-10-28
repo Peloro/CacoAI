@@ -1,0 +1,74 @@
+[
+ [
+  "gastei 40 no uber",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 40,00\n• Título: uber\n• Categoria: transporte\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Uber — R$ 40,00 (transporte)\n🔴 Saldo do mês: -R$ 40,00"
+ ],
+ [
+  "editar uber para 45",
+  "Antes de executar, confirma esta operação:\n\n• Operação: editar lançamento\n• Título: uber\n• ID alvo: #1\n• Tipo de registro: movimentação\n• Valor atual: R$ 40,00\n• Novo valor: R$ 45,00\n• Categoria: transporte\n• Novo tipo: saida\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Lançamento atualizado com sucesso!\n• #1 Uber (transporte)\n• Valor: R$ 40,00 → R$ 45,00\n🔄 Seu saldo foi recalculado."
+ ],
+ [
+  "gastei 30 no cinema",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 30,00\n• Título: cinema\n• Categoria: lazer\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Cinema — R$ 30,00 (lazer)\n🔴 Saldo do mês: -R$ 75,00"
+ ],
+ [
+  "gastei 25 no cinema",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 25,00\n• Título: cinema\n• Categoria: lazer\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Cinema — R$ 25,00 (lazer)\n🔴 Saldo do mês: -R$ 100,00"
+ ],
+ [
+  "editar cinema",
+  "🤔 Encontrei *2* lançamentos com \"cinema\".\nQual você quer editar?\n\n*1.* 🔴 cinema — R$ 25,00 _(#3 - <HOJE_DM>)_\n*2.* 🔴 cinema — R$ 30,00 _(#2 - <HOJE_DM>)_\n\nManda o *número*, *#ID*, *data* (24/03) ou *valor* (300), ou *cancelar*."
+ ],
+ [
+  "2",
+  "Antes de executar, confirma esta operação:\n\n• Operação: editar lançamento\n• Título: cinema\n• ID alvo: #2\n• Tipo de registro: movimentação\n• Valor atual: R$ 30,00\n• Categoria: lazer\n• Novo tipo: saida\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "valor 28",
+  "Perfeito, atualizei os detalhes: novo valor para R$ 28,00.\n\nAntes de executar, confirma esta operação:\n\n• Operação: editar lançamento\n• Título: cinema\n• ID alvo: #2\n• Tipo de registro: movimentação\n• Valor atual: R$ 30,00\n• Novo valor: R$ 28,00\n• Categoria: lazer\n• Novo tipo: saida\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "categoria lazer",
+  "Perfeito, atualizei os detalhes: categoria para lazer.\n\nAntes de executar, confirma esta operação:\n\n• Operação: editar lançamento\n• Título: cinema\n• ID alvo: #2\n• Tipo de registro: movimentação\n• Valor atual: R$ 30,00\n• Novo valor: R$ 28,00\n• Categoria: lazer\n• Novo tipo: saida\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Lançamento atualizado com sucesso!\n• #2 Cinema (lazer)\n• Valor: R$ 30,00 → R$ 28,00\n🔄 Seu saldo foi recalculado."
+ ],
+ [
+  "editar #99",
+  "🤷 Não encontrei lançamento com o ID #99.\n💡 Rode *listar movimentações* e tente novamente com *editar #ID*."
+ ],
+ [
+  "editar #1",
+  "Antes de executar, confirma esta operação:\n\n• Operação: editar lançamento\n• Título: uber\n• ID alvo: #1\n• Tipo de registro: movimentação\n• Valor atual: R$ 45,00\n• Categoria: transporte\n• Novo tipo: saida\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "título corrida aeroporto",
+  "Perfeito, atualizei os detalhes: título para corrida aeroporto.\n\nAntes de executar, confirma esta operação:\n\n• Operação: editar lançamento\n• Título: corrida aeroporto\n• ID alvo: #1\n• Tipo de registro: movimentação\n• Valor atual: R$ 45,00\n• Categoria: transporte\n• Novo tipo: saida\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Lançamento atualizado com sucesso!\n• #1 Corrida aeroporto (transporte)\n• Descrição: uber → corrida aeroporto\n🔄 Seu saldo foi recalculado."
+ ],
+ [
+  "listar gastos",
+  "💸 *Seus últimos 3 gastos:*\n\n🔴 cinema — R$ 25,00 _(#3 - <HOJE_DM>)_\n🔴 cinema — R$ 28,00 _(#2 - <HOJE_DM>)_\n🔴 corrida aeroporto — R$ 45,00 _(#1 - <HOJE_DM>)_\n\n💡 _Dica: pra remover algum, manda \"apagar #ID\"_"
+ ]
+]

@@ -1,0 +1,74 @@
+[
+ [
+  "gastei 50 no mercado",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 50,00\n• Título: mercado\n• Categoria: alimentacao\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Mercado — R$ 50,00 (alimentacao)\n🔴 Saldo do mês: -R$ 50,00"
+ ],
+ [
+  "recebi 3000 de salário",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar entrada\n• Valor: R$ 3.000,00\n• Título: salario\n• Categoria: salario\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Entrada registrado! 💚\n📝 Salario — R$ 3.000,00 (salario)\n💰 Saldo do mês: R$ 2.950,00"
+ ],
+ [
+  "paguei 120 de luz ontem",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 120,00\n• Título: luz\n• Categoria: moradia\n• Referência: <ONTEM>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Luz — R$ 120,00 (moradia)\n📅 Data: <ONTEM_DM> (ontem)\n💰 Saldo do mês: R$ 2.830,00"
+ ],
+ [
+  "uber 23 pro trabalho",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 23,00\n• Título: uber trabalho\n• Categoria: transporte\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Uber trabalho — R$ 23,00 (transporte)\n💰 Saldo do mês: R$ 2.807,00"
+ ],
+ [
+  "resumo",
+  "📊 *Resumo do mês*\n\n💰 Entrou: R$ 3.000,00\n💸 Saiu (sem dívidas): R$ 193,00\n✅ Sobra: R$ 2.807,00\n\n🟢 *Dívidas em aberto:*\n🧾 Total: R$ 0,00\n🧮 Registros: 0\n\n💸 *Categorias de saída (pra onde foi o dinheiro):*\n  • Moradia: R$ 120,00\n  • Alimentacao: R$ 50,00\n  • Transporte: R$ 23,00\n\n💚 *Categorias de entrada (de onde veio):*\n  • Salario: R$ 3.000,00\n\n🕐 *Últimas movimentações:*\n  🔴 R$ 23,00 — uber trabalho _(<HOJE_DM> (hoje))_\n  🟢 R$ 3.000,00 — salario _(<HOJE_DM> (hoje))_\n  🔴 R$ 50,00 — mercado _(<HOJE_DM> (hoje))_\n  🔴 R$ 120,00 — luz _(<ONTEM_DM> (ontem))_"
+ ],
+ [
+  "saldo",
+  "Até agora sobram R$ 2.807,00 no mês. 👍"
+ ],
+ [
+  "quanto gastei esse mês",
+  "💸 *Total de gastos em *este mês*:* R$ 193,00\n📊 3 gastos registrados."
+ ],
+ [
+  "quanto ganhei",
+  "💚 *Total de ganhos no mês:* R$ 3.000,00\n📊 1 entrada registrada."
+ ],
+ [
+  "listar gastos",
+  "💸 *Seus últimos 3 gastos:*\n\n🔴 uber trabalho — R$ 23,00 _(#4 - <HOJE_DM>)_\n🔴 mercado — R$ 50,00 _(#1 - <HOJE_DM>)_\n🔴 luz — R$ 120,00 _(#3 - <ONTEM_DM>)_\n\n💡 _Dica: pra remover algum, manda \"apagar #ID\"_"
+ ],
+ [
+  "listar entradas",
+  "💚 *Suas últimas 1 entradas:*\n\n💚 salario — R$ 3.000,00 _(#2 - <HOJE_DM>)_\n\n💡 _Dica: pra remover algum, manda \"apagar #ID\"_"
+ ],
+ [
+  "listar movimentações",
+  "📋 *Extrato completo deste mês:*\n\n💚 *Entradas (1):*\n💚 salario — R$ 3.000,00 _(#2 - <HOJE_DM>)_\n\n💸 *Gastos (3):*\n🔴 uber trabalho — R$ 23,00 _(#4 - <HOJE_DM>)_\n🔴 mercado — R$ 50,00 _(#1 - <HOJE_DM>)_\n🔴 luz — R$ 120,00 _(#3 - <ONTEM_DM>)_\n\n💡 *Como usar os IDs:*\n• Editar: \"editar #12 para 45\"\n• Apagar: \"apagar #12\""
+ ],
+ [
+  "categorias",
+  "📁 *Categorias por tipo deste mês:*\n💚 Salario: R$ 3.000,00 (1)\n💸 Moradia: R$ 120,00 (1)\n💸 Alimentacao: R$ 50,00 (1)\n💸 Transporte: R$ 23,00 (1)\n\n💡 _Para expandir uma categoria, diga por exemplo:_\n_\"detalhar categoria transporte de saídas\"_ ou _\"mostrar categoria salário de entradas\"_."
+ ],
+ [
+  "quanto gastei em alimentação",
+  "🍽️ *Movimentações em ALIMENTACAO*\n\n💰 *Total:* R$ 50,00\n📊 *Quantidade:* 1 movimentação\n\n*Detalhes:*\n• mercado — R$ 50,00 _(#1 - <HOJE_DM>)_\n\n💡 _Dica: pra ver todas as categorias, manda \"resumo\"_"
+ ],
+ [
+  "extrato",
+  "📊 *Resumo do mês*\n\n💰 Entrou: R$ 3.000,00\n💸 Saiu (sem dívidas): R$ 193,00\n✅ Sobra: R$ 2.807,00\n\n🟢 *Dívidas em aberto:*\n🧾 Total: R$ 0,00\n🧮 Registros: 0\n\n💸 *Categorias de saída (pra onde foi o dinheiro):*\n  • Moradia: R$ 120,00\n  • Alimentacao: R$ 50,00\n  • Transporte: R$ 23,00\n\n💚 *Categorias de entrada (de onde veio):*\n  • Salario: R$ 3.000,00\n\n🕐 *Últimas movimentações:*\n  🔴 R$ 23,00 — uber trabalho _(<HOJE_DM> (hoje))_\n  🟢 R$ 3.000,00 — salario _(<HOJE_DM> (hoje))_\n  🔴 R$ 50,00 — mercado _(<HOJE_DM> (hoje))_\n  🔴 R$ 120,00 — luz _(<ONTEM_DM> (ontem))_"
+ ]
+]

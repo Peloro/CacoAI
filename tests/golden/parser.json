@@ -1,0 +1,1523 @@
+{
+ "comprei um blusão parcelado em 12 vezes de 40 reais": {
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "intencao": "registrar_divida",
+  "valor": 480.0,
+  "descricao": "blusão",
+  "credor_divida": "",
+  "parcelas": 12,
+  "valor_parcela": 40.0,
+  "primeiro_vencimento": null,
+  "_ja_paguei_primeira": false
+ },
+ "comprei uma tv em 10x de 150": {
+  "data": null,
+  "categoria_regra": "compras",
+  "mes_referencia": null,
+  "intencao": "registrar_divida",
+  "valor": 1500.0,
+  "descricao": "tv",
+  "credor_divida": "",
+  "parcelas": 10,
+  "valor_parcela": 150.0,
+  "primeiro_vencimento": null,
+  "_ja_paguei_primeira": false
+ },
+ "comprei 12 parcelas de 40 de um tênis": {
+  "data": null,
+  "categoria_regra": "compras",
+  "mes_referencia": null,
+  "intencao": "registrar_divida",
+  "valor": 480.0,
+  "descricao": "tênis",
+  "credor_divida": "",
+  "parcelas": 12,
+  "valor_parcela": 40.0,
+  "primeiro_vencimento": null,
+  "_ja_paguei_primeira": false
+ },
+ "comprei uma tv de 1500 em 10x": {
+  "data": null,
+  "categoria_regra": "compras",
+  "mes_referencia": null,
+  "intencao": "registrar_divida",
+  "valor": 1500.0,
+  "descricao": "tv",
+  "credor_divida": "",
+  "parcelas": 10,
+  "valor_parcela": 150.0,
+  "primeiro_vencimento": null,
+  "_ja_paguei_primeira": false
+ },
+ "comprei uma geladeira de 1000 em 3x sem juros": {
+  "data": null,
+  "categoria_regra": "compras",
+  "mes_referencia": null,
+  "intencao": "registrar_divida",
+  "valor": 1000.0,
+  "descricao": "geladeira",
+  "credor_divida": "",
+  "parcelas": 3,
+  "valor_parcela": 333.33,
+  "primeiro_vencimento": null,
+  "_ja_paguei_primeira": false
+ },
+ "comprei um tênis em 10x de 50 no nubank": {
+  "data": null,
+  "categoria_regra": "compras",
+  "mes_referencia": null,
+  "intencao": "registrar_divida",
+  "valor": 500.0,
+  "descricao": "tênis",
+  "credor_divida": "nubank",
+  "parcelas": 10,
+  "valor_parcela": 50.0,
+  "primeiro_vencimento": null,
+  "_ja_paguei_primeira": false
+ },
+ "parcelei o celular em 12x de 100 na renner": {
+  "data": null,
+  "categoria_regra": "compras",
+  "mes_referencia": null,
+  "intencao": "registrar_divida",
+  "valor": 1200.0,
+  "descricao": "celular",
+  "credor_divida": "renner",
+  "parcelas": 12,
+  "valor_parcela": 100.0,
+  "primeiro_vencimento": null,
+  "_ja_paguei_primeira": false
+ },
+ "comprei em 10x": {
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "intencao": "registrar_divida",
+  "valor": null,
+  "descricao": "",
+  "credor_divida": "",
+  "parcelas": 10,
+  "valor_parcela": null,
+  "primeiro_vencimento": null,
+  "_ja_paguei_primeira": false
+ },
+ "gastei 50 no mercado": {
+  "intencao": "registrar_saida",
+  "valor": 50.0,
+  "descricao": "mercado",
+  "data": null,
+  "categoria_regra": "alimentacao",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "gastei 25,90 no almoço": {
+  "intencao": "registrar_saida",
+  "valor": 25.9,
+  "descricao": "almoço",
+  "data": null,
+  "categoria_regra": "alimentacao",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "paguei 120 de luz": {
+  "intencao": "registrar_saida",
+  "valor": 120.0,
+  "descricao": "luz",
+  "data": null,
+  "categoria_regra": "moradia",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "comprei um tênis de 300": {
+  "intencao": "registrar_saida",
+  "valor": 300.0,
+  "descricao": "um tênis",
+  "data": null,
+  "categoria_regra": "compras",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "torrei 80 na balada ontem": {
+  "intencao": "registrar_saida",
+  "valor": 80.0,
+  "descricao": "balada",
+  "data": "2026-03-17",
+  "categoria_regra": "lazer",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "uber 23 pro trabalho": {
+  "intencao": "registrar_saida",
+  "valor": 23.0,
+  "descricao": "uber pro trabalho",
+  "data": null,
+  "categoria_regra": "transporte",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "gastei R$ 1.234,56 no aluguel": {
+  "intencao": "registrar_saida",
+  "valor": 1234.56,
+  "descricao": "aluguel",
+  "data": null,
+  "categoria_regra": "moradia",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "gastei 15.50 no café": {
+  "intencao": "registrar_saida",
+  "valor": 15.5,
+  "descricao": "no café",
+  "data": null,
+  "categoria_regra": "alimentacao",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "ifood 42": {
+  "intencao": "registrar_saida",
+  "valor": 42.0,
+  "descricao": "ifood",
+  "data": null,
+  "categoria_regra": "alimentacao",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "mandei pix de 60 pro joão": {
+  "intencao": "registrar_saida",
+  "valor": 60.0,
+  "descricao": "mandei pix de pro joão",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "pix de 30 pro mecanico": {
+  "intencao": "registrar_saida",
+  "valor": 30.0,
+  "descricao": "pix de pro mecanico",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "passei no cartão 200 no shopping": {
+  "intencao": "registrar_saida",
+  "valor": 200.0,
+  "descricao": "passei no cartão no shopping",
+  "data": null,
+  "categoria_regra": "compras",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "gastei 40 no set de pratos": {
+  "intencao": "registrar_saida",
+  "valor": 40.0,
+  "descricao": "set de pratos",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2025-09",
+  "_regra": "palavra_chave"
+ },
+ "paguei dez no café": {
+  "intencao": "registrar_saida",
+  "valor": null,
+  "descricao": "dez no café",
+  "data": null,
+  "categoria_regra": "alimentacao",
+  "mes_referencia": "2025-12"
+ },
+ "gastei 90 na farmácia anteontem": {
+  "intencao": "registrar_saida",
+  "valor": 90.0,
+  "descricao": "farmácia",
+  "data": "2026-03-16",
+  "categoria_regra": "saude",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "gastei 35 no cinema sexta": {
+  "intencao": "registrar_saida",
+  "valor": 35.0,
+  "descricao": "cinema",
+  "data": "2026-03-13",
+  "categoria_regra": "lazer",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "gastei 70 dia 5": {
+  "intencao": "registrar_saida",
+  "valor": 70.0,
+  "descricao": "dia",
+  "data": "2026-03-05",
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "gastei 18 no pão 10/03": {
+  "intencao": "registrar_saida",
+  "valor": 18.0,
+  "descricao": "pão /",
+  "data": "2026-03-10",
+  "categoria_regra": "alimentacao",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "comprei ração 89 pro cachorro": {
+  "intencao": "registrar_saida",
+  "valor": 89.0,
+  "descricao": "ração pro cachorro",
+  "data": null,
+  "categoria_regra": "pets",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "paguei 49,90 netflix": {
+  "intencao": "registrar_saida",
+  "valor": 49.9,
+  "descricao": "netflix",
+  "data": null,
+  "categoria_regra": "lazer",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "gastei 300 de presente pra mãe": {
+  "intencao": "registrar_saida",
+  "valor": 300.0,
+  "descricao": "presente pra mãe",
+  "data": null,
+  "categoria_regra": "compras",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "almoço 32": {
+  "intencao": "registrar_saida",
+  "valor": 32.0,
+  "descricao": "almoço",
+  "data": null,
+  "categoria_regra": "alimentacao",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "gasolina 150": {
+  "intencao": "registrar_saida",
+  "valor": 150.0,
+  "descricao": "gasolina",
+  "data": null,
+  "categoria_regra": "transporte",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "gastei 12 com estacionamento": {
+  "intencao": "registrar_saida",
+  "valor": 12.0,
+  "descricao": "estacionamento",
+  "data": null,
+  "categoria_regra": "transporte",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "paguei o curso de inglês 450": {
+  "intencao": "registrar_saida",
+  "valor": 450.0,
+  "descricao": "curso de inglês",
+  "data": null,
+  "categoria_regra": "educacao",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "recebi 3000 de salário": {
+  "intencao": "registrar_entrada",
+  "valor": 3000.0,
+  "descricao": "salário",
+  "data": null,
+  "categoria_regra": "salario",
+  "mes_referencia": null
+ },
+ "ganhei 200 de freela": {
+  "intencao": "registrar_entrada",
+  "valor": 200.0,
+  "descricao": "freela",
+  "data": null,
+  "categoria_regra": "freelas",
+  "mes_referencia": null
+ },
+ "recebi 50 de pix do pedro": {
+  "intencao": "registrar_entrada",
+  "valor": 50.0,
+  "descricao": "pix do pedro",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "caiu 1500 na conta": {
+  "intencao": "registrar_entrada",
+  "valor": 1500.0,
+  "descricao": "caiu na conta",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "me pagaram 300 do freela de design": {
+  "intencao": "registrar_entrada",
+  "valor": 300.0,
+  "descricao": "me pagaram do freela de design",
+  "data": null,
+  "categoria_regra": "freelas",
+  "mes_referencia": null
+ },
+ "recebi 25 de cashback": {
+  "intencao": "registrar_entrada",
+  "valor": 25.0,
+  "descricao": "cashback",
+  "data": null,
+  "categoria_regra": "salario",
+  "mes_referencia": null
+ },
+ "entrou 800 do aluguel do quarto": {
+  "intencao": "registrar_entrada",
+  "valor": 800.0,
+  "descricao": "aluguel do quarto",
+  "data": null,
+  "categoria_regra": "moradia",
+  "mes_referencia": null
+ },
+ "vendi a bicicleta por 600": {
+  "intencao": "registrar_entrada",
+  "valor": 600.0,
+  "descricao": "bicicleta por",
+  "data": null,
+  "categoria_regra": "transporte",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "me transferiram 100": {
+  "intencao": "registrar_entrada",
+  "valor": 100.0,
+  "descricao": "me transferiram",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "recebi reembolso de 80": {
+  "intencao": "registrar_entrada",
+  "valor": 80.0,
+  "descricao": "reembolso",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "faturei 2000 esse mês": {
+  "intencao": "registrar_entrada",
+  "valor": 2000.0,
+  "descricao": "",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2000",
+  "_regra": "palavra_chave"
+ },
+ "devo 300 pro joão": {
+  "intencao": "registrar_divida",
+  "valor": 300.0,
+  "descricao": "devo pro joão",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "credor_divida": "joão"
+ },
+ "fiquei devendo 150 pra maria": {
+  "intencao": "registrar_divida",
+  "valor": 150.0,
+  "descricao": "fiquei devendo pra maria",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "credor_divida": "maria"
+ },
+ "peguei 500 emprestado com meu irmão": {
+  "intencao": "registrar_divida",
+  "valor": 500.0,
+  "descricao": "peguei emprestado com meu irmão",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "credor_divida": "meu irmão"
+ },
+ "tenho uma dívida de 1200 no nubank": {
+  "intencao": "registrar_divida",
+  "valor": 1200.0,
+  "descricao": "tenho uma dívida de no nubank",
+  "data": null,
+  "categoria_regra": "investimentos",
+  "mes_referencia": null,
+  "credor_divida": "nubank",
+  "_regra": "palavra_chave"
+ },
+ "devo 80 ao marcola": {
+  "intencao": "registrar_divida",
+  "valor": 80.0,
+  "descricao": "devo ao marcola",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "credor_divida": "marcola"
+ },
+ "ainda não paguei os 200 do cartão": {
+  "intencao": "registrar_divida",
+  "valor": 200.0,
+  "descricao": "ainda não paguei os do cartão",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "credor_divida": "cartão"
+ },
+ "estou devendo 90 pra academia": {
+  "intencao": "registrar_divida",
+  "valor": 90.0,
+  "descricao": "estou devendo pra academia",
+  "data": null,
+  "categoria_regra": "saude",
+  "mes_referencia": null,
+  "credor_divida": "academia"
+ },
+ "paguei 100 da dívida do joão": {
+  "intencao": "pagar_divida",
+  "valor": 100.0,
+  "descricao": "dívida do joão",
+  "data": null,
+  "categoria_regra": "dividas",
+  "mes_referencia": null,
+  "credor_divida": "dívida do joão"
+ },
+ "abati 50 da dívida com a maria": {
+  "intencao": "pagar_divida",
+  "valor": 50.0,
+  "descricao": "abati da dívida com a maria",
+  "data": null,
+  "categoria_regra": "dividas",
+  "mes_referencia": null,
+  "credor_divida": "a maria"
+ },
+ "paguei o marcola": {
+  "intencao": "registrar_saida",
+  "valor": null,
+  "descricao": "marcola",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "quitei todas as dívidas": {
+  "intencao": "quitar_dividas",
+  "valor": null,
+  "descricao": "quitei todas as dívidas",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "credor_divida": null
+ },
+ "quitar dívida": {
+  "intencao": "quitar_dividas",
+  "valor": null,
+  "descricao": "quitar dívida",
+  "data": null,
+  "categoria_regra": "dividas",
+  "mes_referencia": null,
+  "credor_divida": null
+ },
+ "paguei 200 do empréstimo": {
+  "intencao": "pagar_divida",
+  "valor": 200.0,
+  "descricao": "empréstimo",
+  "data": null,
+  "categoria_regra": "dividas",
+  "mes_referencia": null,
+  "credor_divida": "empréstimo"
+ },
+ "tenho 300 na conta": {
+  "intencao": "registrar_saldo_inicial",
+  "valor": 300.0,
+  "descricao": "Saldo inicial",
+  "data": null,
+  "categoria_regra": "saldo_inicial",
+  "mes_referencia": null
+ },
+ "o meu saldo inicial era de 1500 reais": {
+  "intencao": "registrar_saldo_inicial",
+  "valor": 1500.0,
+  "descricao": "Saldo inicial",
+  "data": null,
+  "categoria_regra": "saldo_inicial",
+  "mes_referencia": null
+ },
+ "meu saldo é 800": {
+  "intencao": "registrar_saldo_inicial",
+  "valor": 800.0,
+  "descricao": "Saldo inicial",
+  "data": null,
+  "categoria_regra": "saldo_inicial",
+  "mes_referencia": null
+ },
+ "saldo inicial 2000": {
+  "intencao": "registrar_saldo_inicial",
+  "valor": 2000.0,
+  "descricao": "Saldo inicial",
+  "data": null,
+  "categoria_regra": "saldo_inicial",
+  "mes_referencia": null
+ },
+ "comecei o mês com 1200": {
+  "intencao": "registrar_saldo_inicial",
+  "valor": 1200.0,
+  "descricao": "Saldo inicial",
+  "data": null,
+  "categoria_regra": "saldo_inicial",
+  "mes_referencia": null
+ },
+ "qual meu saldo?": {
+  "intencao": "consultar_saldo",
+  "valor": null,
+  "descricao": "qual meu saldo",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "com o que gastei hoje?": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "descricao": "que gastei",
+  "data": "2026-03-18",
+  "categoria_regra": null,
+  "mes_referencia": "2026-03-18",
+  "tipo_listar": "saida"
+ },
+ "o que eu comprei ontem?": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "descricao": "que eu comprei",
+  "data": "2026-03-17",
+  "categoria_regra": null,
+  "mes_referencia": "2026-03-17",
+  "tipo_listar": "saida"
+ },
+ "quando recebi?": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "descricao": "quando recebi",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_listar": "entrada"
+ },
+ "pra quem eu devo?": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "descricao": "quem eu devo",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_listar": "divida"
+ },
+ "gastei?": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "descricao": "gastei",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_listar": "saida"
+ },
+ "quanto gastei hoje?": {
+  "intencao": "consultar_total",
+  "valor": null,
+  "descricao": "quanto gastei",
+  "data": "2026-03-18",
+  "categoria_regra": null,
+  "mes_referencia": "2026-03-18",
+  "tipo_total": "saida"
+ },
+ "quanto gastei semana passada": {
+  "intencao": "consultar_total",
+  "valor": null,
+  "descricao": "quanto gastei",
+  "data": "2026-03-11",
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_total": "saida"
+ },
+ "o que comprei dia 5?": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "descricao": "que comprei dia",
+  "data": "2026-03-05",
+  "categoria_regra": null,
+  "mes_referencia": "2026-03-05",
+  "tipo_listar": "saida"
+ },
+ "quanto gastei 03/10": {
+  "intencao": "consultar_total",
+  "valor": null,
+  "descricao": "quanto gastei /",
+  "data": "2026-10-03",
+  "categoria_regra": null,
+  "mes_referencia": "2026-10-03",
+  "tipo_total": "saida"
+ },
+ "paguei 300 mil num carro novo, a vista": {
+  "intencao": "registrar_saida",
+  "valor": 300000.0,
+  "descricao": "carro novo, a vista",
+  "data": null,
+  "categoria_regra": "transporte",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "recebi 1,5 mil de bônus": {
+  "intencao": "registrar_entrada",
+  "valor": 1500.0,
+  "descricao": "bônus",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "gastei 2k no notebook": {
+  "intencao": "registrar_saida",
+  "valor": 2000.0,
+  "descricao": "notebook",
+  "data": null,
+  "categoria_regra": "compras",
+  "mes_referencia": "2000",
+  "_regra": "palavra_chave"
+ },
+ "comprei um apartamento de 1 milhão": {
+  "intencao": "registrar_saida",
+  "valor": 1000000.0,
+  "descricao": "um apartamento",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "gastei 15 em 3 milhas aéreas": {
+  "intencao": "registrar_saida",
+  "valor": 15.0,
+  "descricao": "milhas aéreas",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "saldo de março": {
+  "intencao": "consultar_saldo",
+  "valor": null,
+  "descricao": "saldo",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2026-03"
+ },
+ "saldo de 2025": {
+  "intencao": "consultar_saldo",
+  "valor": 2025.0,
+  "descricao": "saldo",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2025"
+ },
+ "estou com 1500 de saldo": {
+  "intencao": "registrar_saldo_inicial",
+  "valor": 1500.0,
+  "descricao": "Saldo inicial",
+  "data": null,
+  "categoria_regra": "saldo_inicial",
+  "mes_referencia": null
+ },
+ "resumo": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "descricao": "resumo",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "resumo do mês passado": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "descricao": "resumo",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2026-02"
+ },
+ "resumo de fevereiro": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "descricao": "resumo",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2026-02"
+ },
+ "resumo de janeiro de 2025": {
+  "intencao": "consultar_resumo",
+  "valor": 2025.0,
+  "descricao": "resumo",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2025-01"
+ },
+ "como foi meu ano": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "descricao": "como foi meu ano",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2026"
+ },
+ "extrato": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "descricao": "extrato",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "saldo": {
+  "intencao": "consultar_saldo",
+  "valor": null,
+  "descricao": "saldo",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "quanto sobrou": {
+  "intencao": "consultar_saldo",
+  "valor": null,
+  "descricao": "quanto sobrou",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "quanto tenho disponível": {
+  "intencao": "consultar_saldo",
+  "valor": null,
+  "descricao": "quanto tenho disponível",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "quanto gastei esse mês": {
+  "intencao": "consultar_total",
+  "valor": null,
+  "descricao": "quanto gastei",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2026-03",
+  "tipo_total": "saida"
+ },
+ "quanto ganhei": {
+  "intencao": "consultar_total",
+  "valor": null,
+  "descricao": "quanto ganhei",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_total": "entrada"
+ },
+ "quanto gastei no mês retrasado": {
+  "intencao": "consultar_total",
+  "valor": null,
+  "descricao": "quanto gastei",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2026-01",
+  "tipo_total": "saida"
+ },
+ "total que gastei": {
+  "intencao": "consultar_total",
+  "valor": null,
+  "descricao": "total que gastei",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_total": "saida"
+ },
+ "listar movimentações": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "descricao": "listar movimentações",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_listar": null
+ },
+ "listar gastos": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "descricao": "listar gastos",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_listar": "saida"
+ },
+ "listar entradas": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "descricao": "listar entradas",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_listar": "entrada"
+ },
+ "listar dívidas": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "descricao": "listar dívidas",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_listar": "divida"
+ },
+ "mostra meus gastos de fevereiro": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "descricao": "mostra meus gastos",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2026-02",
+  "tipo_listar": "saida"
+ },
+ "ver extrato": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "descricao": "ver extrato",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "categorias": {
+  "intencao": "listar_categorias",
+  "valor": null,
+  "descricao": "categorias",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_categoria": null
+ },
+ "ver categorias de gastos": {
+  "intencao": "listar_categorias",
+  "valor": null,
+  "descricao": "ver categorias de gastos",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_categoria": "saida"
+ },
+ "quanto gastei em alimentação": {
+  "intencao": "consultar_categoria",
+  "valor": null,
+  "descricao": "quanto gastei em alimentação",
+  "data": null,
+  "categoria_regra": "alimentacao",
+  "mes_referencia": null,
+  "categoria_consulta": "alimentacao",
+  "tipo_consulta": null
+ },
+ "quanto gastei com transporte": {
+  "intencao": "consultar_categoria",
+  "valor": null,
+  "descricao": "quanto gastei com transporte",
+  "data": null,
+  "categoria_regra": "transporte",
+  "mes_referencia": null,
+  "categoria_consulta": "transporte",
+  "tipo_consulta": null
+ },
+ "categoria lazer": {
+  "intencao": "consultar_categoria",
+  "valor": null,
+  "descricao": "categoria lazer",
+  "data": null,
+  "categoria_regra": "lazer",
+  "mes_referencia": null,
+  "categoria_consulta": "lazer",
+  "tipo_consulta": null
+ },
+ "me fala sobre transporte": {
+  "intencao": "consultar_categoria",
+  "valor": null,
+  "descricao": "me fala sobre transporte",
+  "data": null,
+  "categoria_regra": "transporte",
+  "mes_referencia": null,
+  "categoria_consulta": "transporte",
+  "tipo_consulta": null
+ },
+ "quanto gastei em 2025": {
+  "intencao": "consultar_total",
+  "valor": 2025.0,
+  "descricao": "quanto gastei",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2025",
+  "tipo_total": "saida"
+ },
+ "apagar #12": {
+  "intencao": "apagar_movimentacao",
+  "valor": 12.0,
+  "descricao": "#",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_apagar": null,
+  "id_movimentacao": 12
+ },
+ "apagar o último gasto": {
+  "intencao": "apagar_movimentacao",
+  "valor": null,
+  "descricao": "último gasto",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_apagar": "saida",
+  "id_movimentacao": null
+ },
+ "apaga a última entrada": {
+  "intencao": "apagar_movimentacao",
+  "valor": null,
+  "descricao": "última entrada",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_apagar": "entrada",
+  "id_movimentacao": null
+ },
+ "remover o mercado": {
+  "intencao": "apagar_movimentacao",
+  "valor": null,
+  "descricao": "mercado",
+  "data": null,
+  "categoria_regra": "alimentacao",
+  "mes_referencia": null,
+  "tipo_apagar": null,
+  "id_movimentacao": null
+ },
+ "excluir lançamento 7": {
+  "intencao": "apagar_movimentacao",
+  "valor": 7.0,
+  "descricao": "lançamento",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_apagar": null,
+  "id_movimentacao": null
+ },
+ "deletar café": {
+  "intencao": "apagar_movimentacao",
+  "valor": null,
+  "descricao": "café",
+  "data": null,
+  "categoria_regra": "alimentacao",
+  "mes_referencia": null,
+  "tipo_apagar": null,
+  "id_movimentacao": null
+ },
+ "apagar": {
+  "intencao": "apagar_movimentacao",
+  "valor": null,
+  "descricao": "apagar",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_apagar": null,
+  "id_movimentacao": null
+ },
+ "editar #12": {
+  "intencao": "editar_movimentacao",
+  "valor": null,
+  "descricao": "#",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "id_movimentacao": 12,
+  "novo_valor": null
+ },
+ "editar #12 para 45": {
+  "intencao": "editar_movimentacao",
+  "valor": null,
+  "descricao": "# para",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "id_movimentacao": 12,
+  "novo_valor": 45.0
+ },
+ "corrigir o mercado para 60": {
+  "intencao": "editar_movimentacao",
+  "valor": 60.0,
+  "descricao": "mercado para",
+  "data": null,
+  "categoria_regra": "alimentacao",
+  "mes_referencia": null,
+  "id_movimentacao": null,
+  "novo_valor": 60.0
+ },
+ "alterar valor do uber para 30": {
+  "intencao": "editar_movimentacao",
+  "valor": 30.0,
+  "descricao": "valor do uber para",
+  "data": null,
+  "categoria_regra": "transporte",
+  "mes_referencia": null,
+  "id_movimentacao": null,
+  "novo_valor": 30.0
+ },
+ "muda o almoço pra 28": {
+  "intencao": "editar_movimentacao",
+  "valor": 28.0,
+  "descricao": "muda o almoço",
+  "data": null,
+  "categoria_regra": "alimentacao",
+  "mes_referencia": null,
+  "id_movimentacao": null,
+  "novo_valor": 28.0
+ },
+ "trocar #5 por 100": {
+  "intencao": "editar_movimentacao",
+  "valor": 100.0,
+  "descricao": "# por",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "id_movimentacao": 5,
+  "novo_valor": 100.0
+ },
+ "limpar gastos": {
+  "intencao": "limpar_movimentacoes",
+  "valor": null,
+  "descricao": "limpar gastos",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "periodo_limpar": "mes",
+  "tipo_limpar": "saida"
+ },
+ "limpar tudo": {
+  "intencao": "limpar_movimentacoes",
+  "valor": null,
+  "descricao": "limpar tudo",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "",
+  "periodo_limpar": "tudo",
+  "tipo_limpar": null
+ },
+ "limpar todas as movimentações": {
+  "intencao": "limpar_movimentacoes",
+  "valor": null,
+  "descricao": "limpar todas as movimentações",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "periodo_limpar": "mes",
+  "tipo_limpar": null
+ },
+ "zerar entradas": {
+  "intencao": "limpar_movimentacoes",
+  "valor": null,
+  "descricao": "zerar entradas",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "periodo_limpar": "mes",
+  "tipo_limpar": "entrada"
+ },
+ "apagar todos os gastos": {
+  "intencao": "limpar_movimentacoes",
+  "valor": null,
+  "descricao": "todos os gastos",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "periodo_limpar": "mes",
+  "tipo_limpar": "saida"
+ },
+ "limpar gastos de fevereiro": {
+  "intencao": "limpar_movimentacoes",
+  "valor": null,
+  "descricao": "limpar gastos",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2026-02",
+  "periodo_limpar": "mes",
+  "tipo_limpar": "saida"
+ },
+ "limpar tudo de 2025": {
+  "intencao": "limpar_movimentacoes",
+  "valor": 2025.0,
+  "descricao": "limpar tudo",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "",
+  "periodo_limpar": "tudo",
+  "tipo_limpar": null
+ },
+ "apagar todos os gastos do histórico inteiro": {
+  "intencao": "limpar_movimentacoes",
+  "valor": null,
+  "descricao": "todos os gastos do histórico inteiro",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "periodo_limpar": "mes",
+  "tipo_limpar": "saida"
+ },
+ "posso gastar 200 num tênis?": {
+  "intencao": "posso_gastar",
+  "valor": 200.0,
+  "descricao": "tênis",
+  "data": null,
+  "categoria_regra": "compras",
+  "mes_referencia": null
+ },
+ "vou comprar um celular de 2000, vale a pena?": {
+  "intencao": "posso_gastar",
+  "valor": 2000.0,
+  "descricao": "celular",
+  "data": null,
+  "categoria_regra": "compras",
+  "mes_referencia": "2000"
+ },
+ "dá pra gastar 50 hoje?": {
+  "intencao": "posso_gastar",
+  "valor": 50.0,
+  "descricao": "dá pra gastar",
+  "data": "2026-03-18",
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "será que consigo comprar uma tv de 3000 parcelado?": {
+  "intencao": "posso_gastar",
+  "valor": 3000.0,
+  "descricao": "tv",
+  "data": null,
+  "categoria_regra": "compras",
+  "mes_referencia": null
+ },
+ "quero comprar um notebook de 4000 em 10 vezes, fica ruim?": {
+  "intencao": "posso_gastar",
+  "valor": 4000.0,
+  "descricao": "notebook",
+  "data": null,
+  "categoria_regra": "compras",
+  "mes_referencia": null
+ },
+ "posso gastar?": {
+  "intencao": "posso_gastar",
+  "valor": null,
+  "descricao": "posso gastar",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "me dá uma dica": {
+  "intencao": "pedir_dica",
+  "valor": null,
+  "descricao": "me dá uma dica",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "dicas financeiras": {
+  "intencao": "pedir_dica",
+  "valor": null,
+  "descricao": "dicas financeiras",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "como reduzir gastos": {
+  "intencao": "pedir_dica",
+  "valor": null,
+  "descricao": "como reduzir gastos",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "como economizar mais": {
+  "intencao": "pedir_dica",
+  "valor": null,
+  "descricao": "como economizar mais",
+  "data": null,
+  "categoria_regra": "investimentos",
+  "mes_referencia": null
+ },
+ "desfazer": {
+  "intencao": "desfazer_ultimo",
+  "valor": null,
+  "descricao": "desfazer",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "desfaz o último": {
+  "intencao": "desfazer_ultimo",
+  "valor": null,
+  "descricao": "desfaz o último",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "voltar atrás": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "descricao": "voltar atrás",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "quero registrar um gasto": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "descricao": "um gasto",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "registrar entrada": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "descricao": "entrada",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "anotar dívida": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "descricao": "dívida",
+  "data": null,
+  "categoria_regra": "dividas",
+  "mes_referencia": null
+ },
+ "gastei": {
+  "intencao": "registrar_saida",
+  "valor": null,
+  "descricao": "gastei",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "recebi": {
+  "intencao": "registrar_entrada",
+  "valor": null,
+  "descricao": "recebi",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "devo": {
+  "intencao": "registrar_divida",
+  "valor": null,
+  "descricao": "devo",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "credor_divida": null
+ },
+ "oi": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "descricao": "oi",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "bom dia": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "descricao": "bom dia",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "obrigado": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "descricao": "obrigado",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "valeu, tchau": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "descricao": "valeu, tchau",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "ajuda": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "descricao": "ajuda",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "o que você faz?": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "descricao": "que você faz",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "qual a capital da frança": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "descricao": "qual a capital da frança",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "kkkkkk": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "descricao": "kkkkkk",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "gasteiii 20 no lanche hj": {
+  "intencao": "registrar_saida",
+  "valor": 20.0,
+  "descricao": "gasteiii no lanche hj",
+  "data": null,
+  "categoria_regra": "alimentacao",
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "qnt gastei": {
+  "intencao": "consultar_total",
+  "valor": null,
+  "descricao": "qnt gastei",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_total": "saida"
+ },
+ "apagaaa o ultimo": {
+  "intencao": "apagar_movimentacao",
+  "valor": null,
+  "descricao": "apagaaa o ultimo",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "tipo_apagar": null,
+  "id_movimentacao": null
+ },
+ "resumoooo": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "descricao": "resumoooo",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "recebii 100": {
+  "intencao": "registrar_entrada",
+  "valor": 100.0,
+  "descricao": "recebii",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "gastei 16 no almoço e recebi 20 de pix": {
+  "intencao": "registrar_entrada",
+  "valor": 16.0,
+  "descricao": "almoço e recebi de pix",
+  "data": null,
+  "categoria_regra": "alimentacao",
+  "mes_referencia": null
+ },
+ "recebi 100 e gastei 30": {
+  "intencao": "registrar_saida",
+  "valor": 100.0,
+  "descricao": "e gastei",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "paguei 50 e recebi 70 de volta": {
+  "intencao": "registrar_entrada",
+  "valor": 50.0,
+  "descricao": "e recebi de volta",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "gastei 30 semana passada": {
+  "intencao": "posso_gastar",
+  "valor": 30.0,
+  "descricao": "",
+  "data": "2026-03-11",
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "gastei 45 no começo do mês": {
+  "intencao": "registrar_saida",
+  "valor": 45.0,
+  "descricao": "começo do mês",
+  "data": "2026-03-01",
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "gastei 60 em 2026-02": {
+  "intencao": "registrar_saida",
+  "valor": 60.0,
+  "descricao": "",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2026-02",
+  "_regra": "palavra_chave"
+ },
+ "gastei 22 na segunda passada": {
+  "intencao": "posso_gastar",
+  "valor": 22.0,
+  "descricao": "segunda passada",
+  "data": "2026-03-16",
+  "categoria_regra": null,
+  "mes_referencia": null
+ },
+ "gastei 15 amanhã": {
+  "intencao": "registrar_saida",
+  "valor": 15.0,
+  "descricao": "amanhã",
+  "data": "2026-03-19",
+  "categoria_regra": null,
+  "mes_referencia": null,
+  "_regra": "palavra_chave"
+ },
+ "gastei 33 em 03/2026": {
+  "intencao": "registrar_saida",
+  "valor": 33.0,
+  "descricao": "/",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2026-03",
+  "_regra": "palavra_chave"
+ },
+ "resumo de março": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "descricao": "resumo",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2026-03"
+ },
+ "resumo deste mês": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "descricao": "resumo deste mês",
+  "data": null,
+  "categoria_regra": null,
+  "mes_referencia": "2026-03"
+ }
+}

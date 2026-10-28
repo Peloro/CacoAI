@@ -1,0 +1,30 @@
+[
+ [
+  "oi",
+  "Oi! 😊 Sou o *Caco*, seu assistente financeiro.\n\nVamos criar sua conta rapidinho!\n\n📝 *Qual o seu nome?*"
+ ],
+ [
+  "Ana",
+  "Prazer, *Ana*! 👋\n\nAgora vamos proteger sua conta.\n\n🔒 *Escolha uma senha:*\n_(mínimo 8 caracteres, com maiúscula, minúscula, número e símbolo)_"
+ ],
+ [
+  "fraca",
+  "Senha invalida. Senha precisa ter no minimo 8 caracteres. 🔒\nRequisitos: minimo 8 caracteres, com maiuscula, minuscula, numero e simbolo.\nTenta de novo:"
+ ],
+ [
+  "Senha@123",
+  "🔒 *Repita a senha* para confirmar:"
+ ],
+ [
+  "Senha@124",
+  "❌ As senhas não conferem! Tenta digitar a mesma senha:"
+ ],
+ [
+  "Senha@123",
+  "✅ Conta criada com sucesso, *Ana*! 🎉\n\nAgora é só me contar seus gastos e ganhos!\nExemplo: _\"gastei 50 de almoço\"_ ou _\"recebi 3000 de salário\"_\n\nDigite *ajuda* se precisar de uma força. 💪"
+ ],
+ [
+  "resumo",
+  "📊 *Resumo do mês*\n\n💰 Entrou: R$ 0,00\n💸 Saiu (sem dívidas): R$ 0,00\n✅ Sobra: R$ 0,00\n\n🟢 *Dívidas em aberto:*\n🧾 Total: R$ 0,00\n🧮 Registros: 0"
+ ]
+]

@@ -98,6 +98,9 @@ def init_db():
             """
         )
         _migrar_schema(conn)
+        # Estados vencidos só somem quando o próprio usuário volta; os de quem nunca voltou saem aqui.
+        conn.execute("DELETE FROM conversa_estado WHERE expira_em <= datetime('now', 'localtime')")
+        conn.commit()
 
     log.info("Banco de dados inicializado")
 
@@ -115,6 +118,13 @@ def _migrar_schema(conn: sqlite3.Connection):
     if "telefone_hash" not in cols:
         cur.execute("ALTER TABLE usuarios ADD COLUMN telefone_hash TEXT")
         changed = True
+
+    # Dívida parcelada (NULL nas comuns): nº de parcelas, valor de cada uma e mês ("YYYY-MM") da 1ª.
+    cols_dividas = {row[1] for row in cur.execute("PRAGMA table_info(dividas)").fetchall()}
+    for coluna, tipo in (("parcelas", "INTEGER"), ("valor_parcela", "REAL"), ("primeiro_vencimento", "TEXT")):
+        if coluna not in cols_dividas:
+            cur.execute(f"ALTER TABLE dividas ADD COLUMN {coluna} {tipo}")
+            changed = True
 
     cur.execute("SELECT id, telefone, nome, telefone_hash FROM usuarios")
     rows = cur.fetchall()

@@ -222,11 +222,10 @@ def processar_confirmacao_limpar(usuario_id: int, mensagem: str) -> str:
     Aceita 'sim' (ou repetir o comando de limpar) para confirmar ou 'não' para cancelar.
     """
     texto = (mensagem or "").strip().lower()
-    confirma_por_comando = bool(
-        re.search(
-            r'\b(?:limpar|limpa|limpe|apagar|apaga|apague|remover|remove|remova|excluir|exclui|exclua|deletar|deleta|delete|zerar|zera)\b',
-            texto,
-        )
+    # Só o próprio pedido de limpar repetido confirma: "não apaga" ou "apaga só o último" não podem zerar o histórico.
+    confirma_por_comando = (
+        detectar_intencao(texto).get("intencao") == "limpar_movimentacoes"
+        and not re.search(r"\bn(?:ao|ão)\b", texto)
     )
 
     if texto in CONFIRM_TOKENS or confirma_por_comando:
@@ -307,6 +306,8 @@ def _absorver(estado: dict, parsed: dict) -> None:
 
 
 _PERGUNTA_DATA = "Quer registrar em qual data? (ex.: `hoje`, `ontem`, `03/04`) ou `pular` para hoje."
+_PERGUNTA_VALOR_PARCELA = "Qual o *valor de cada parcela*? (ex.: `40` ou `39,90`, ou `cancelar`)."
+_PERGUNTA_CREDOR_PARCELADA = "Agora informe o *credor* (cartão ou loja, ex.: `nubank`) ou `pular`."
 
 
 def _perguntar(usuario_id: int, estado: dict) -> str:
@@ -316,12 +317,13 @@ def _perguntar(usuario_id: int, estado: dict) -> str:
         return _finalizar_fluxo_registro_guiado(usuario_id, estado)
     estado["etapa"] = lacuna
     pendente_registro_guiado[usuario_id] = estado
+    parcelada = bool(estado.get("parcelamento"))
     if lacuna == "valor":
-        return "Ainda faltou o *valor*. Manda algo como `300` ou `300,50` (ou `cancelar`)."
+        return _PERGUNTA_VALOR_PARCELA if parcelada else "Ainda faltou o *valor*. Manda algo como `300` ou `300,50` (ou `cancelar`)."
     if lacuna == "descricao":
         return f"Perfeito. Agora me diga a *descricao* da {_tipo_txt(estado.get('intencao'))} (ex.: `almoco`, `salario`, `nubank`)."
     if lacuna == "credor_divida":
-        return "Agora informe o *credor* da divida (ex.: `nubank`)."
+        return _PERGUNTA_CREDOR_PARCELADA if parcelada else "Agora informe o *credor* da divida (ex.: `nubank`)."
     return _PERGUNTA_DATA
 
 
@@ -334,7 +336,10 @@ def iniciar_fluxo_registro_guiado(
     descricao: str = "",
     credor_divida: str = "",
     data_ref: str | None = None,
+    parcelamento: dict | None = None,
 ) -> str:
+    if parcelamento and not data_ref:
+        data_ref = date.today().isoformat()  # parcelada: a 1ª parcela já tem padrão (mês da compra), não pergunta a data
     estado = {
         "intencao": intencao,
         "mensagem_original": (mensagem_original or "").strip(),
@@ -342,11 +347,16 @@ def iniciar_fluxo_registro_guiado(
         "descricao": normalizar_descricao_registro(descricao or ""),
         "credor_divida": normalizar_credor_texto(credor_divida or ""),
         "data_ref": data_ref,  # só a data dita na frase; sem ela, o fluxo pergunta
+        "parcelamento": parcelamento,
     }
     lacuna = _lacuna(estado)
     estado["etapa"] = lacuna
     pendente_registro_guiado[usuario_id] = estado
 
+    if lacuna == "valor" and parcelamento:
+        return f"Beleza, vamos registrar uma compra em *{parcelamento['parcelas']}x*.\n{_PERGUNTA_VALOR_PARCELA}"
+    if lacuna == "credor_divida" and parcelamento:
+        return f"Perfeito, já anotei: {estado['descricao']}.\n{_PERGUNTA_CREDOR_PARCELADA}"
     if lacuna == "valor":
         return (
             f"Beleza, vamos registrar uma *{_tipo_txt(intencao)}*.\n"
@@ -390,6 +400,7 @@ def _finalizar_fluxo_registro_guiado(usuario_id: int, estado: dict) -> str:
         "credor_divida": credor_divida if intencao == "registrar_divida" else "",
         "_mensagem_original": mensagem_original or descricao,
         "_titulo_manual": True,
+        **(estado.get("parcelamento") or {}),
     }
 
     pendente_registro_guiado.pop(usuario_id, None)
@@ -425,7 +436,12 @@ def processar_fluxo_registro_guiado(usuario_id: int, mensagem: str) -> str | Non
                 pendente_registro_guiado.pop(usuario_id, None)
                 return None
             return "Ainda faltou o *valor*. Manda algo como `300` ou `300,50` (ou `cancelar`)."
-        estado["valor"] = float(valor)
+        parcelamento = estado.get("parcelamento")
+        if parcelamento:  # na parcelada a resposta é o valor da parcela
+            parcelamento["valor_parcela"] = float(valor)
+            estado["valor"] = round(parcelamento["parcelas"] * float(valor), 2)
+        else:
+            estado["valor"] = float(valor)
 
     elif lacuna == "descricao":
         # Quase todo texto é descrição válida; só abandona diante de comando inequívoco
@@ -442,7 +458,9 @@ def processar_fluxo_registro_guiado(usuario_id: int, mensagem: str) -> str | Non
         estado["descricao"] = descricao
 
     elif lacuna == "credor_divida":
-        credor = normalizar_credor_texto(texto)
+        # Parcelada sem credor: "pular" (ou "sim" à pergunta) grava "parcelado".
+        pular = estado.get("parcelamento") and (texto_lower == "pular" or texto_lower in CONFIRM_TOKENS)
+        credor = "parcelado" if pular else normalizar_credor_texto(texto)
         if not credor:
             return "Credor é obrigatorio para registrar divida. Manda algo como `nubank` ou `joao`."
         estado["credor_divida"] = credor

@@ -90,6 +90,9 @@ pendente_desambiguacao_categoria = _EstadoMap("pendente_desambiguacao_categoria"
 
 aguardando_senha_login = _EstadoSet("aguardando_senha_login")
 
+# Senhas erradas seguidas no login; o bloqueio vence 15 min depois da última tentativa.
+tentativas_login = _EstadoMap("tentativas_login", expira_minutos=15)
+
 
 ultimo_registro = _EstadoMap("ultimo_registro")
 

@@ -3,32 +3,13 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from typing import Callable
 
-
-DetectIntentFn = Callable[[str], dict]
-
-ExtractCategoryFn = Callable[[str], str | None]
-
-
-IsOperationIntentFn = Callable[[str], bool]
-
-IntentLabelFn = Callable[[str], str]
-
-
-FormatCurrencyFn = Callable[[float], str]
-
-NormalizeCreditorFn = Callable[[str], str]
-
-
-FormatDateFriendlyFn = Callable[[str], str]
-
-MonthNameFn = Callable[[str | None], str]
-
-
-IsWeakDescriptionFn = Callable[[str], bool]
-
-NormalizeDescriptionFn = Callable[[str], str]
+from app.financeiro import formatar_real
+from app.interpretacao import detectar_intencao, extrair_categoria_mencionada
+from app.interpretacao.entidades import extract_primeiro_vencimento
+from app.conversa.formatacao import formatar_data_amigavel, mes_por_extenso, nome_mes
+from app.conversa.intencoes import descricao_insuficiente_para_registro, intencao_e_operacao, rotulo_intencao
+from app.conversa.textos import normalizar_credor_texto, normalizar_descricao_registro
 
 
 _RE_SANITIZE_PREFIX = re.compile(
@@ -106,20 +87,7 @@ def _sanitize_explicit_field_value(value: str) -> str:
     return txt.strip("\"' ")
 
 
-def apply_pending_operation_edit(
-    parsed_base: dict,
-    message: str,
-    detect_intent_fn: DetectIntentFn,
-    extract_category_fn: ExtractCategoryFn,
-    is_operation_intent_fn: IsOperationIntentFn,
-    intent_label_fn: IntentLabelFn,
-    format_currency_fn: FormatCurrencyFn,
-    normalize_creditor_fn: NormalizeCreditorFn,
-    format_date_friendly_fn: FormatDateFriendlyFn,
-    month_name_fn: MonthNameFn,
-    is_weak_description_fn: IsWeakDescriptionFn,
-    normalize_description_fn: NormalizeDescriptionFn,
-) -> tuple[dict, list[str]]:
+def apply_pending_operation_edit(parsed_base: dict, message: str) -> tuple[dict, list[str]]:
     """Aplica edição textual no payload pendente mantendo compatibilidade retroativa."""
     new_payload = dict(parsed_base or {})
     changes: list[str] = []
@@ -129,7 +97,13 @@ def apply_pending_operation_edit(
     if not text:
         return new_payload, changes
 
-    parsed_msg = detect_intent_fn(text)
+    # "a primeira é mês que vem" numa parcelada só move a 1ª parcela (sem virar título ou data).
+    primeiro_vencimento = extract_primeiro_vencimento(text) if new_payload.get("parcelas") else None
+    if primeiro_vencimento:
+        new_payload["primeiro_vencimento"] = primeiro_vencimento
+        return new_payload, [f"1ª parcela para {mes_por_extenso(primeiro_vencimento)}"]
+
+    parsed_msg = detectar_intencao(text)
     current_intent = (new_payload.get("intencao") or "").strip()
     message_intent = (parsed_msg.get("intencao") or "").strip()
     category_cmd = bool(_RE_CATEGORY_CMD.search(text_lower))
@@ -150,18 +124,18 @@ def apply_pending_operation_edit(
     explicit_creditor = ""
     m_creditor = _RE_CREDITOR_CMD.search(text)
     if m_creditor:
-        explicit_creditor = normalize_creditor_fn(m_creditor.group(1).strip())
+        explicit_creditor = normalizar_credor_texto(m_creditor.group(1).strip())
 
     explicit_operation_change = bool(_RE_EXPLICIT_OPERATION_CHANGE.search(text_lower))
     if (
         message_intent
         and message_intent != "conversa_geral"
         and message_intent != current_intent
-        and is_operation_intent_fn(message_intent)
+        and intencao_e_operacao(message_intent)
         and explicit_operation_change
     ):
         new_payload["intencao"] = message_intent
-        changes.append(f"operação para {intent_label_fn(message_intent)}")
+        changes.append(f"operação para {rotulo_intencao(message_intent)}")
         current_intent = message_intent
 
     if current_intent in {
@@ -176,7 +150,7 @@ def apply_pending_operation_edit(
         if value_msg and float(value_msg) > 0:
             if not (current_intent == "registrar_divida" and installment_only_cmd):
                 new_payload["valor"] = float(value_msg)
-                changes.append(f"valor para {format_currency_fn(float(value_msg))}")
+                changes.append(f"valor para {formatar_real(float(value_msg))}")
 
     if current_intent == "editar_movimentacao":
         if parsed_msg.get("id_movimentacao"):
@@ -189,7 +163,7 @@ def apply_pending_operation_edit(
             new_value = float(parsed_msg.get("valor"))
         if new_value is not None:
             new_payload["novo_valor"] = new_value
-            changes.append(f"novo valor para {format_currency_fn(new_value)}")
+            changes.append(f"novo valor para {formatar_real(new_value)}")
         if category_cmd and parsed_msg.get("categoria_regra"):
             new_payload["categoria_regra"] = parsed_msg.get("categoria_regra")
             changes.append(f"categoria para {parsed_msg.get('categoria_regra')}")
@@ -202,28 +176,28 @@ def apply_pending_operation_edit(
             changes.append(f"tipo para {move_type}")
 
         if new_payload.get("_editar_tipo_registro") == "divida":
-            creditor_edit = explicit_creditor or normalize_creditor_fn(parsed_msg.get("credor_divida") or "")
+            creditor_edit = explicit_creditor or normalizar_credor_texto(parsed_msg.get("credor_divida") or "")
             if creditor_edit:
                 new_payload["credor_divida"] = creditor_edit
                 changes.append(f"credor para {creditor_edit}")
 
     if parsed_msg.get("data"):
         new_payload["data"] = parsed_msg.get("data")
-        changes.append(f"data para {format_date_friendly_fn(parsed_msg.get('data'))}")
+        changes.append(f"data para {formatar_data_amigavel(parsed_msg.get('data'))}")
     if parsed_msg.get("mes_referencia"):
         new_payload["mes_referencia"] = parsed_msg.get("mes_referencia")
-        changes.append(f"referência para {month_name_fn(parsed_msg.get('mes_referencia'))}")
+        changes.append(f"referência para {nome_mes(parsed_msg.get('mes_referencia'))}")
 
     if current_intent in {"registrar_entrada", "registrar_saida"}:
         category_msg = parsed_msg.get("categoria_regra")
         if category_cmd and not category_msg:
-            category_msg = extract_category_fn(text_lower)
+            category_msg = extrair_categoria_mencionada(text_lower)
         if category_cmd and category_msg:
             new_payload["categoria_regra"] = category_msg
             changes.append(f"categoria para {category_msg}")
 
     if current_intent in {"registrar_divida", "pagar_divida", "quitar_dividas"}:
-        creditor_msg = explicit_creditor or normalize_creditor_fn(parsed_msg.get("credor_divida") or "")
+        creditor_msg = explicit_creditor or normalizar_credor_texto(parsed_msg.get("credor_divida") or "")
         if creditor_msg:
             new_payload["credor_divida"] = creditor_msg
             changes.append(f"credor para {creditor_msg}")
@@ -259,7 +233,7 @@ def apply_pending_operation_edit(
             elif isinstance(month_ref_msg, str) and _RE_YEAR_MONTH.fullmatch(month_ref_msg):
                 new_payload["periodo_limpar"] = "mes"
                 new_payload["mes_referencia"] = month_ref_msg
-                changes.append(f"período para {month_name_fn(month_ref_msg)}")
+                changes.append(f"período para {nome_mes(month_ref_msg)}")
             elif _RE_CURRENT_MONTH.search(text_lower):
                 new_payload["periodo_limpar"] = "mes"
                 new_payload["mes_referencia"] = None
@@ -297,7 +271,7 @@ def apply_pending_operation_edit(
             direct_description = _sanitize_explicit_field_value(m_desc.group(1).strip())
         elif (
             parsed_msg.get("descricao")
-            and not is_weak_description_fn(parsed_msg.get("descricao") or "")
+            and not descricao_insuficiente_para_registro(parsed_msg.get("descricao") or "")
             and not date_cmd
             and not value_cmd
             and not type_cmd
@@ -328,7 +302,7 @@ def apply_pending_operation_edit(
     )
 
     if should_apply_direct_description:
-        normalized_description = normalize_description_fn(direct_description)
+        normalized_description = normalizar_descricao_registro(direct_description)
         if normalized_description:
             new_payload["descricao"] = normalized_description
             if current_intent in {"registrar_entrada", "registrar_saida", "registrar_divida", "editar_movimentacao"}:

@@ -4,11 +4,15 @@ Carrega variáveis de ambiente do .env
 """
 import os
 import logging
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(dotenv_path=_PROJECT_ROOT / ".env")
+# Aplica um TZ vindo do .env (date.today() e o 'localtime' do SQLite passam a usá-lo); só existe em Linux/macOS.
+if hasattr(time, "tzset"):
+    time.tzset()
 
 # --- Logging ---
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -45,7 +49,7 @@ GROQ_REASONING_EFFORT = os.getenv("GROQ_REASONING_EFFORT") or "low"
 # OpenRouter
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "minimax/minimax-m2.5:free")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL") or "minimax/minimax-m2.5:free"
 OPENROUTER_SITE_URL = os.getenv("OPENROUTER_SITE_URL", "")
 OPENROUTER_APP_NAME = os.getenv("OPENROUTER_APP_NAME", "CacoAI")
 

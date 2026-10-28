@@ -134,7 +134,7 @@ def deve_forcar_extracao_ia(mensagem: str, parsed: dict) -> bool:
     texto_lower = texto.lower()
 
     intencao = parsed.get("intencao", "")
-    if intencao not in INTENCOES_REGISTRO and intencao != "conversa_geral":
+    if (intencao not in INTENCOES_REGISTRO and intencao != "conversa_geral") or parsed.get("parcelas"):
         return False
 
     tem_valor = bool(parsed.get("valor"))
@@ -230,6 +230,14 @@ def e_comando_independente(mensagem: str) -> bool:
     return intencao in _NUNCA_SAO_AJUSTE
 
 
+_ENCERRAM_ESCOLHA = INTENCOES_REGISTRO | {"registrar_saldo_inicial", "consultar_resumo", "consultar_saldo"}
+
+
+def encerra_escolha_pendente(mensagem: str) -> bool:
+    """Lançamento novo e completo ou pedido de resumo/saldo: não é resposta a uma lista nem a um "tem certeza?"."""
+    return detectar_intencao(mensagem).get("intencao") in _ENCERRAM_ESCOLHA and e_comando_independente(mensagem)
+
+
 def registro_inequivoco(parsed: dict, mensagem: str) -> bool:
     """Registro pode ser feito sem pedir "sim": nada nele dependeu de palpite.
 
@@ -239,6 +247,8 @@ def registro_inequivoco(parsed: dict, mensagem: str) -> bool:
     intencao = parsed.get("intencao")
     if intencao not in INTENCOES_REGISTRO | {"registrar_saldo_inicial"} or parsed.get("_extraido_por_ia"):
         return False
+    if parsed.get("parcelas"):
+        return False  # compromisso de vários meses: sempre confirma
     if len(_RE_NUMERO.findall(_RE_NAO_VALOR.sub(" ", mensagem or ""))) != 1:
         return False
     if MULTIPLICADOR.search(mensagem or ""):  # "300 mil", "2k": leitura menos literal, confirma

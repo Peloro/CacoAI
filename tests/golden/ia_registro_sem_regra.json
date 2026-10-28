@@ -1,0 +1,139 @@
+[
+ {
+  "msg": "paguei 45 no xpto",
+  "ia": [
+   {
+    "tipo": "interpretacao",
+    "task": "quality",
+    "max_tokens": 320,
+    "json": true,
+    "schema": null
+   },
+   {
+    "tipo": "categoria",
+    "task": "fast",
+    "max_tokens": 24,
+    "json": false,
+    "schema": "categoria"
+   }
+  ],
+  "resposta": "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 45,00\n• Título: xpto\n• Categoria: compras\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ },
+ {
+  "msg": "sim",
+  "ia": [],
+  "resposta": "✅ Gasto registrado! 💸\n📝 Xpto — R$ 45,00 (compras)\n🔴 Saldo do mês: -R$ 45,00"
+ },
+ {
+  "msg": "paguei 45 no xpto",
+  "ia": [
+   {
+    "tipo": "interpretacao",
+    "task": "quality",
+    "max_tokens": 320,
+    "json": true,
+    "schema": null
+   }
+  ],
+  "resposta": "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 45,00\n• Título: xpto\n• Categoria: compras\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ },
+ {
+  "msg": "valor 50",
+  "ia": [],
+  "resposta": "Perfeito, atualizei os detalhes: valor para R$ 50,00.\n\nAntes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 50,00\n• Título: xpto\n• Categoria: compras\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ },
+ {
+  "msg": "foi ontem",
+  "ia": [],
+  "resposta": "Perfeito, atualizei os detalhes: data para <ONTEM_DM> (ontem).\n\nAntes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 50,00\n• Título: xpto\n• Categoria: compras\n• Referência: <ONTEM>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ },
+ {
+  "msg": "sim",
+  "ia": [],
+  "resposta": "✅ Gasto registrado! 💸\n📝 Xpto — R$ 50,00 (compras)\n📅 Data: <ONTEM_DM> (ontem)\n🔴 Saldo do mês: -R$ 95,00"
+ },
+ {
+  "msg": "paguei 30 no xpto",
+  "ia": [
+   {
+    "tipo": "interpretacao",
+    "task": "quality",
+    "max_tokens": 320,
+    "json": true,
+    "schema": null
+   }
+  ],
+  "resposta": "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 30,00\n• Título: xpto\n• Categoria: compras\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ },
+ {
+  "msg": "sim",
+  "ia": [],
+  "resposta": "✅ Gasto registrado! 💸\n📝 Xpto — R$ 30,00 (compras)\n🔴 Saldo do mês: -R$ 125,00"
+ },
+ {
+  "msg": "gastei 70 em coisa",
+  "ia": [
+   {
+    "tipo": "interpretacao",
+    "task": "quality",
+    "max_tokens": 320,
+    "json": true,
+    "schema": null
+   }
+  ],
+  "resposta": "Perfeito, já anotei o valor de R$ 70,00.\nAgora me diga a *descricao* da saida (ex.: `almoco`, `salario`, `nubank`)."
+ },
+ {
+  "msg": "sim",
+  "ia": [],
+  "resposta": "Preciso de uma descricao mais clara. Ex.: `almoco`, `mercado`, `salario`, `fatura nubank`."
+ },
+ {
+  "msg": "paguei 30 de lancamento",
+  "ia": [
+   {
+    "tipo": "interpretacao",
+    "task": "quality",
+    "max_tokens": 320,
+    "json": true,
+    "schema": null
+   }
+  ],
+  "resposta": "↪️ Deixei de lado o registro que estava em andamento.\n\nPerfeito, já anotei o valor de R$ 30,00.\nAgora me diga a *descricao* da saida (ex.: `almoco`, `salario`, `nubank`)."
+ },
+ {
+  "msg": "sim",
+  "ia": [],
+  "resposta": "Preciso de uma descricao mais clara. Ex.: `almoco`, `mercado`, `salario`, `fatura nubank`."
+ },
+ {
+  "msg": "paguei 30 de item",
+  "ia": [
+   {
+    "tipo": "interpretacao",
+    "task": "quality",
+    "max_tokens": 320,
+    "json": true,
+    "schema": null
+   },
+   {
+    "tipo": "categoria",
+    "task": "fast",
+    "max_tokens": 24,
+    "json": false,
+    "schema": "categoria"
+   }
+  ],
+  "resposta": "↪️ Deixei de lado o registro que estava em andamento.\n\nAntes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 30,00\n• Título: compra\n• Categoria: compras\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ },
+ {
+  "msg": "valor 35",
+  "ia": [],
+  "resposta": "Perfeito, atualizei os detalhes: valor para R$ 35,00.\n\nAntes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 35,00\n• Título: compra\n• Categoria: compras\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ },
+ {
+  "msg": "sim",
+  "ia": [],
+  "resposta": "✅ Gasto registrado! 💸\n📝 Compra — R$ 35,00 (compras)\n🔴 Saldo do mês: -R$ 160,00"
+ }
+]

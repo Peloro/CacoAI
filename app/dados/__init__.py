@@ -1,6 +1,7 @@
 """Acesso a dados: schema (init_db) e funções dos repositórios por assunto."""
 from app.dados.schema import init_db  # noqa: F401
 from app.dados.dividas import (  # noqa: F401 - API pública de acesso a dados
+    a_pagar_ate,
     apagar_divida_por_id,
     atualizar_divida_campos,
     atualizar_valor_divida,
@@ -9,8 +10,13 @@ from app.dados.dividas import (  # noqa: F401 - API pública de acesso a dados
     listar_dividas_recentes,
     obter_divida_por_id,
     pagar_divida,
+    parcelada_no_periodo,
+    parcelas_pagas,
+    valor_de_parcelas,
     quitar_dividas,
     registrar_divida,
+    resumo_dividas_mes,
+    somar_meses,
     totais_dividas,
 )
 from app.dados.movimentacoes import (  # noqa: F401 - API pública de acesso a dados
@@ -44,8 +50,10 @@ from app.dados.usuarios import (  # noqa: F401 - API pública de acesso a dados
     get_etapa_cadastro,
     get_nome_usuario,
     get_or_create_user,
+    hash_password,
     salvar_nome,
     salvar_senha,
+    senha_confere,
     set_etapa_cadastro,
     verificar_senha,
 )

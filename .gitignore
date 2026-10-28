@@ -18,6 +18,5 @@ Thumbs.db
 tools/
 logs/
 .github/
-docs/
-tests/
 .pytest_cache/
+backups/

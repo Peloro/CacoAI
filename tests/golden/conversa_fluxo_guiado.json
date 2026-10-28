@@ -1,0 +1,86 @@
+[
+ [
+  "quero registrar um gasto",
+  "Beleza, vamos registrar uma *saida*.\nMe passe primeiro o *valor* (ex.: `300` ou `300,50`).\nSe quiser cancelar, digite `cancelar`."
+ ],
+ [
+  "abc",
+  "Ainda faltou o *valor*. Manda algo como `300` ou `300,50` (ou `cancelar`)."
+ ],
+ [
+  "25",
+  "Perfeito. Agora me diga a *descricao* da saida (ex.: `almoco`, `salario`, `nubank`)."
+ ],
+ [
+  "coisa",
+  "Preciso de uma descricao mais clara. Ex.: `almoco`, `mercado`, `salario`, `fatura nubank`."
+ ],
+ [
+  "almoço",
+  "Quer registrar em qual data? (ex.: `hoje`, `ontem`, `03/04`) ou `pular` para hoje."
+ ],
+ [
+  "ontem",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 25,00\n• Título: almoço\n• Categoria: alimentacao\n• Referência: este mês\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Almoço — R$ 25,00 (alimentacao)\n📅 Data: <ONTEM_DM> (ontem)\n🔴 Saldo do mês: -R$ 25,00"
+ ],
+ [
+  "anotar dívida",
+  "Beleza, vamos registrar uma *divida*.\nMe passe primeiro o *valor* (ex.: `300` ou `300,50`).\nSe quiser cancelar, digite `cancelar`."
+ ],
+ [
+  "100",
+  "Perfeito. Agora me diga a *descricao* da divida (ex.: `almoco`, `salario`, `nubank`)."
+ ],
+ [
+  "cartão",
+  "Agora informe o *credor* da divida (ex.: `nubank`)."
+ ],
+ [
+  "nubank",
+  "Quer registrar em qual data? (ex.: `hoje`, `ontem`, `03/04`) ou `pular` para hoje."
+ ],
+ [
+  "pular",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar dívida\n• Valor: R$ 100,00\n• Título: cartão\n• Credor: nubank\n• Referência: este mês\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Dívida registrada! 🧾\n📝 Cartão — R$ 100,00\n👤 Credor: nubank\n🔴 Saldo do mês: -R$ 25,00"
+ ],
+ [
+  "registrar entrada",
+  "Beleza, vamos registrar uma *entrada*.\nMe passe primeiro o *valor* (ex.: `300` ou `300,50`).\nSe quiser cancelar, digite `cancelar`."
+ ],
+ [
+  "cancelar",
+  "Beleza, cancelei esse registro guiado."
+ ],
+ [
+  "gastei",
+  "Beleza, vamos registrar uma *saida*.\nMe passe primeiro o *valor* (ex.: `300` ou `300,50`).\nSe quiser cancelar, digite `cancelar`."
+ ],
+ [
+  "40",
+  "Perfeito. Agora me diga a *descricao* da saida (ex.: `almoco`, `salario`, `nubank`)."
+ ],
+ [
+  "padaria",
+  "Quer registrar em qual data? (ex.: `hoje`, `ontem`, `03/04`) ou `pular` para hoje."
+ ],
+ [
+  "hoje",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 40,00\n• Título: padaria\n• Categoria: alimentacao\n• Referência: este mês\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Padaria — R$ 40,00 (alimentacao)\n🔴 Saldo do mês: -R$ 65,00"
+ ],
+ [
+  "listar movimentações",
+  "📋 *Extrato completo deste mês:*\n\n💸 *Gastos (2):*\n🔴 padaria — R$ 40,00 _(#2 - <HOJE_DM>)_\n🔴 almoço — R$ 25,00 _(#1 - <ONTEM_DM>)_\n\n🧾 *Dívidas (1):*\n🧾 cartão — R$ 100,00 _(#1 - <HOJE_DM>)_ • credor: nubank\n\n💡 *Como usar os IDs:*\n• Editar: \"editar #12 para 45\"\n• Apagar: \"apagar #12\""
+ ]
+]

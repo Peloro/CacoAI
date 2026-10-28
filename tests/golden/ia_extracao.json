@@ -1,0 +1,72 @@
+[
+ {
+  "msg": "o valor do aluguel subiu",
+  "ia": [
+   {
+    "tipo": "interpretacao",
+    "task": "quality",
+    "max_tokens": 320,
+    "json": true,
+    "schema": null
+   },
+   {
+    "tipo": "chat",
+    "task": "fast",
+    "max_tokens": 96,
+    "json": false,
+    "schema": null
+   }
+  ],
+  "resposta": "Resposta curta de conversa.\n\n💡 Se precisar, digite *ajuda*."
+ },
+ {
+  "msg": "uns 80 conto na feirinha",
+  "ia": [
+   {
+    "tipo": "interpretacao",
+    "task": "quality",
+    "max_tokens": 320,
+    "json": true,
+    "schema": null
+   },
+   {
+    "tipo": "categoria",
+    "task": "fast",
+    "max_tokens": 24,
+    "json": false,
+    "schema": "categoria"
+   }
+  ],
+  "resposta": "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 80,00\n• Título: feirinha\n• Categoria: compras\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ },
+ {
+  "msg": "sim",
+  "ia": [],
+  "resposta": "✅ Gasto registrado! 💸\n📝 Feirinha — R$ 80,00 (compras)\n🔴 Saldo do mês: -R$ 80,00"
+ },
+ {
+  "msg": "transferi 150 pra minha irmã porque ela tava precisando de grana",
+  "ia": [
+   {
+    "tipo": "interpretacao",
+    "task": "quality",
+    "max_tokens": 320,
+    "json": true,
+    "schema": null
+   },
+   {
+    "tipo": "categoria",
+    "task": "fast",
+    "max_tokens": 24,
+    "json": false,
+    "schema": "categoria"
+   }
+  ],
+  "resposta": "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 150,00\n• Título: irma\n• Categoria: compras\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ },
+ {
+  "msg": "sim",
+  "ia": [],
+  "resposta": "✅ Gasto registrado! 💸\n📝 Irma — R$ 150,00 (compras)\n🔴 Saldo do mês: -R$ 230,00"
+ }
+]

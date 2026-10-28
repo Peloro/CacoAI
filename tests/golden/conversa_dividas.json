@@ -1,0 +1,66 @@
+[
+ [
+  "devo 300 pro joão",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar dívida\n• Valor: R$ 300,00\n• Título: divida joao\n• Credor: joão\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Dívida registrada! 🧾\n📝 Divida joao — R$ 300,00\n👤 Credor: joão\n💰 Saldo do mês: R$ 0,00"
+ ],
+ [
+  "devo 150 pra maria",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar dívida\n• Valor: R$ 150,00\n• Título: divida maria\n• Credor: maria\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Dívida registrada! 🧾\n📝 Divida maria — R$ 150,00\n👤 Credor: maria\n💰 Saldo do mês: R$ 0,00"
+ ],
+ [
+  "listar dívidas",
+  "🧾 *Suas dívidas em aberto:*\n\n🧾 divida maria — R$ 150,00 _(#2 - <HOJE_DM>)_ • credor: maria\n🧾 divida joao — R$ 300,00 _(#1 - <HOJE_DM>)_ • credor: joão\n\n💡 _Dica: para editar, use \"editar #ID para NOVO_VALOR\"_"
+ ],
+ [
+  "paguei 100 pro joão",
+  "Antes de executar, confirma esta operação:\n\n• Operação: pagar divida\n• Valor: R$ 100,00\n• Credor: joão\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Pagamento de dívida registrado com *joão*!\n💸 Valor aplicado: R$ 100,00\n🧾 Quitadas: 0 | Atualizadas: 1\n💸 Saída registrada: R$ 100,00"
+ ],
+ [
+  "paguei a maria",
+  "Antes de executar, confirma esta operação:\n\n• Operação: pagar divida\n• Valor: R$ 150,00\n• Credor: maria\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Pagamento de dívida registrado com *maria*!\n💸 Valor aplicado: R$ 150,00\n🧾 Quitadas: 1 | Atualizadas: 0\n💸 Saída registrada: R$ 150,00"
+ ],
+ [
+  "listar dívidas",
+  "🧾 *Suas dívidas em aberto:*\n\n🧾 divida joao — R$ 200,00 _(#1 - <HOJE_DM>)_ • credor: joão\n\n💡 _Dica: para editar, use \"editar #ID para NOVO_VALOR\"_"
+ ],
+ [
+  "devo 50 pro joão",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar dívida\n• Valor: R$ 50,00\n• Título: divida joao\n• Credor: joão\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Dívida registrada! 🧾\n📝 Divida joao — R$ 50,00\n👤 Credor: joão\n🔴 Saldo do mês: -R$ 250,00"
+ ],
+ [
+  "quitar dívidas",
+  "⚠️ *Ação de alto risco*\n\nIsso vai quitar *todas* as suas dívidas em aberto:\n• Quantidade: 2\n• Total: R$ 250,00\n\nConfirma? Responda *sim* para continuar ou *não* para cancelar."
+ ],
+ [
+  "sim",
+  "✅ Dívidas quitadas com sucesso!\n🧾 Removidas: 2\n💰 Total quitado: R$ 250,00\n💸 Saída registrada: R$ 250,00"
+ ],
+ [
+  "listar dívidas",
+  "Você não tem dívidas registradas em aberto. ✅"
+ ],
+ [
+  "resumo",
+  "📊 *Resumo do mês*\n\n💰 Entrou: R$ 0,00\n💸 Saiu (sem dívidas): R$ 500,00\n🔴 Falta: R$ 500,00\n\n🟢 *Dívidas em aberto:*\n🧾 Total: R$ 0,00\n🧮 Registros: 0\n\n💸 *Categorias de saída (pra onde foi o dinheiro):*\n  • Dividas: R$ 500,00\n\n🕐 *Últimas movimentações:*\n  🔴 R$ 250,00 — Quitacao de dividas _(<HOJE_DM> (hoje))_\n  🔴 R$ 150,00 — Pagamento de divida (maria) _(<HOJE_DM> (hoje))_\n  🔴 R$ 100,00 — Pagamento de divida (joão) _(<HOJE_DM> (hoje))_"
+ ]
+]

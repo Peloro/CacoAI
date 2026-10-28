@@ -1,0 +1,54 @@
+[
+ [
+  "gastei 20 no café",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 20,00\n• Título: cafe\n• Categoria: alimentacao\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Cafe — R$ 20,00 (alimentacao)\n🔴 Saldo do mês: -R$ 20,00"
+ ],
+ [
+  "recebi 100 de pix",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar entrada\n• Valor: R$ 100,00\n• Título: pix\n• Categoria: outros\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Entrada registrado! 💚\n📝 Pix — R$ 100,00 (outros)\n💰 Saldo do mês: R$ 80,00"
+ ],
+ [
+  "devo 50 pro joão",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar dívida\n• Valor: R$ 50,00\n• Título: divida joao\n• Credor: joão\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Dívida registrada! 🧾\n📝 Divida joao — R$ 50,00\n👤 Credor: joão\n💰 Saldo do mês: R$ 80,00"
+ ],
+ [
+  "limpar gastos",
+  "⚠️ *Tem certeza?*\n\nIsso vai apagar *1 gasto* (R$ 20,00) neste mês.\n\nManda *sim* pra confirmar ou *não* pra cancelar."
+ ],
+ [
+  "não",
+  "Ok, não apaguei nada! 👍"
+ ],
+ [
+  "limpar gastos",
+  "⚠️ *Tem certeza?*\n\nIsso vai apagar *1 gasto* (R$ 20,00) neste mês.\n\nManda *sim* pra confirmar ou *não* pra cancelar."
+ ],
+ [
+  "limpar gastos",
+  "🗑️ Pronto! Apaguei *1 gasto* deste mês.\n✅ Seu saldo foi atualizado."
+ ],
+ [
+  "limpar tudo",
+  "⚠️ *Tem certeza?*\n\nIsso vai apagar *TODAS* as movimentações de *todo o histórico*:\n  💚 1 entrada (R$ 100,00)\n  💸 0 gastos (R$ 0,00)\n  🧾 1 dívida (R$ 50,00)\n\nManda *sim* pra confirmar ou *não* pra cancelar."
+ ],
+ [
+  "sim",
+  "🗑️ Pronto! Apaguei *2 movimentaçãoões* de *todo o histórico*.\n🔄 Tudo zerado. Bora recomeçar!"
+ ],
+ [
+  "resumo",
+  "📊 *Resumo do mês*\n\n💰 Entrou: R$ 0,00\n💸 Saiu (sem dívidas): R$ 0,00\n✅ Sobra: R$ 0,00\n\n🟢 *Dívidas em aberto:*\n🧾 Total: R$ 0,00\n🧮 Registros: 0"
+ ]
+]

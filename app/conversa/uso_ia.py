@@ -46,6 +46,8 @@ def interpretar_com_ia(mensagem: str, local: dict) -> list[dict] | None:
     # rever se aparecerem erros em mensagens curtas.
     if len(mensagem.split()) <= 2:
         return None
+    if local.get("parcelas") or local.get("novo_primeiro_vencimento"):
+        return None  # parcelamento e 1ª parcela são das regras, como as datas
     try:
         from app.ia import interpretar_mensagem
 
@@ -113,9 +115,7 @@ def aplicar_extracao_ia_financeira(mensagem: str, parsed: dict) -> dict:
     if categoria_ia in CATEGORIAS_KEYWORDS:
         parsed["categoria_regra"] = categoria_ia
 
-    data_ref_ia = extraido.get("data_ref")
-    if isinstance(data_ref_ia, str) and data_ref_ia:
-        parsed["data"] = data_ref_ia
+    # A data fica com as regras: a IA não sabe o dia de hoje e chutaria "ontem" ou o ano.
 
     if parsed.get("intencao") == "registrar_divida":
         credor_atual = (parsed.get("credor_divida") or "").strip()

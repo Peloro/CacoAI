@@ -1,6 +1,83 @@
 from __future__ import annotations
 
 import re
+from datetime import date
+
+from app.interpretacao.referencias import MESES
+
+
+# "12x", "12 vezes", "12 parcelas" (+ "de 40" logo depois, quando a frase dá o valor da parcela).
+_RE_PARCELAS = re.compile(r"\b(\d{1,2})\s*(?:x|vezes|parcelas?)\b", re.IGNORECASE)
+# "de 40", "de 39,90", "de 1.200" / "de 1.200,50" (ponto de milhar antes de 3 dígitos).
+_RE_VALOR_DA_PARCELA = re.compile(
+    r"\s*(?:de|por)\s+(?:R\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?![\d.])", re.IGNORECASE
+)
+_RE_MES_QUE_VEM = re.compile(r"\b(?:m[eê]s\s+que\s+vem|pr[oó]ximo\s+m[eê]s|m[eê]s\s+seguinte)\b", re.IGNORECASE)
+_RE_PRIMEIRA_EM_MES = re.compile(
+    r"\bprimeira\b.*?\b(" + "|".join(sorted((m for m in MESES if len(m) > 3), key=len, reverse=True)) + r")\b",
+    re.IGNORECASE,
+)
+# Até 3 palavras ("mercado pago", "casas bahia"), parando em preposição, número, vírgula ou palavra de tempo.
+_FIM_DO_CREDOR = r"(?:em|de|do|da|no|na|e|sem|com|hoje|ontem|j[aá]|pra|para|por|parcelad[oa]s?|mas)\b|\d"
+_RE_CREDOR_PARCELAMENTO = re.compile(
+    r"\b(?:no|na|pelo|pela)\s+(?:cart[aã]o(?:\s+de\s+cr[eé]dito)?\s+(?:d[oa]\s+)?)?"
+    rf"([a-zà-ÿ0-9]+(?:\s+(?!{_FIM_DO_CREDOR})[a-zà-ÿ0-9]+){{0,2}})",
+    re.IGNORECASE,
+)
+# "no cartão de crédito em 10x": o que vem depois do cartão genérico não é credor.
+_NAO_SAO_CREDOR = {
+    "cartao", "cartão", "credito", "crédito", "debito", "débito", "mes", "mês", "valor", "total", "dia",
+    "em", "de", "do", "da", "a", "o", "um", "uma", "x",
+}
+
+
+def extract_parcelamento(text: str) -> dict | None:
+    """{"parcelas", "valor_parcela", "total"} de "12x de 40" (total 480) ou "1500 em 10x" (parcela 150).
+
+    Valores ausentes ficam None ("comprei em 10x"). "1x" não é parcelamento.
+    """
+    m = _RE_PARCELAS.search(text or "")
+    if not m or int(m.group(1)) < 2:
+        return None
+    parcelas = int(m.group(1))
+    da_parcela = _RE_VALOR_DA_PARCELA.match(text, m.end())
+    if da_parcela:
+        numero = da_parcela.group(1)
+        if re.fullmatch(r"\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?", numero):
+            numero = numero.replace(".", "")
+        valor_parcela = float(numero.replace(",", "."))
+        return {"parcelas": parcelas, "valor_parcela": valor_parcela, "total": round(parcelas * valor_parcela, 2)}
+    total = extract_value(text[: m.start()] + " " + text[m.end():])
+    return {"parcelas": parcelas, "valor_parcela": round(total / parcelas, 2) if total else None, "total": total}
+
+
+def extract_primeiro_vencimento(text: str, hoje: date | None = None) -> str | None:
+    """Mês ("YYYY-MM") da 1ª parcela quando a frase o diz: "a primeira é mês que vem", "primeira parcela em março".
+
+    Um mês dito é sempre o próximo a chegar (em outubro, "março" é o do ano que vem).
+    """
+    texto = text or ""
+    if not re.search(r"\bprimeira\b", texto, re.IGNORECASE):
+        return None
+    hoje = hoje or date.today()
+    if _RE_MES_QUE_VEM.search(texto):
+        ano, mes = (hoje.year + 1, 1) if hoje.month == 12 else (hoje.year, hoje.month + 1)
+        return f"{ano:04d}-{mes:02d}"
+    m = _RE_PRIMEIRA_EM_MES.search(texto)
+    if not m:
+        return None
+    mes = MESES[m.group(1).lower()]
+    ano = hoje.year if mes >= hoje.month else hoje.year + 1
+    return f"{ano:04d}-{mes:02d}"
+
+
+def extract_credor_parcelamento(text: str) -> str | None:
+    """Cartão ou loja da compra parcelada: "no nubank", "no cartão do inter", "na renner"."""
+    for m in _RE_CREDOR_PARCELAMENTO.finditer(text or ""):
+        nome = m.group(1).lower()
+        if nome.split()[0] not in _NAO_SAO_CREDOR and not nome.isdigit():
+            return nome
+    return None
 
 
 _INVALID_CREDITOR_TERMS = {

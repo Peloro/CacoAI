@@ -4,28 +4,7 @@ import re
 from datetime import date
 from typing import Optional
 
-from app.dados.conexao import db_connection, sem_acento
-
-
-_RE_YEAR = re.compile(r"\d{4}")
-_RE_YEAR_MONTH = re.compile(r"\d{4}-\d{2}")
-
-
-def _period_bounds(year_month: str) -> tuple[str, str] | None:
-    period = (year_month or "").strip()
-    if _RE_YEAR_MONTH.fullmatch(period):
-        year, month = period.split("-")
-        y = int(year)
-        m = int(month)
-        if m < 1 or m > 12:
-            return None
-        if m == 12:
-            return f"{y:04d}-12-01", f"{y + 1:04d}-01-01"
-        return f"{y:04d}-{m:02d}-01", f"{y:04d}-{m + 1:02d}-01"
-    if _RE_YEAR.fullmatch(period):
-        y = int(period)
-        return f"{y:04d}-01-01", f"{y + 1:04d}-01-01"
-    return None
+from app.dados.conexao import db_connection, limites_do_periodo, sem_acento
 
 
 def registrar_movimentacao(
@@ -58,7 +37,7 @@ def resumo_mes(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
     if ano_mes is None:
         ano_mes = date.today().strftime("%Y-%m")
 
-    bounds = _period_bounds(ano_mes)
+    bounds = limites_do_periodo(ano_mes)
     if bounds:
         period_sql = "data_ref >= ? AND data_ref < ?"
         period_params: tuple[str, ...] = bounds
@@ -152,7 +131,7 @@ def limpar_movimentacoes(usuario_id: int, tipo: Optional[str] = None, ano_mes: O
     if ano_mes is None:
         ano_mes = date.today().strftime("%Y-%m")
 
-    bounds = _period_bounds(ano_mes)
+    bounds = limites_do_periodo(ano_mes)
 
     with db_connection() as conn:
         cur = conn.cursor()
@@ -182,7 +161,7 @@ def totais_mes(usuario_id: int, ano_mes: Optional[str] = None) -> dict:
     if ano_mes is None:
         ano_mes = date.today().strftime("%Y-%m")
 
-    bounds = _period_bounds(ano_mes)
+    bounds = limites_do_periodo(ano_mes)
     if bounds:
         period_sql = "data_ref >= ? AND data_ref < ?"
         period_params: tuple[str, ...] = bounds
@@ -224,7 +203,7 @@ def listar_movimentacoes_recentes(usuario_id: int, limite: int = 10, tipo: Optio
             params.append(tipo)
 
         if ano_mes:
-            bounds = _period_bounds(ano_mes)
+            bounds = limites_do_periodo(ano_mes)
             if bounds:
                 filters.append("data_ref >= ?")
                 filters.append("data_ref < ?")
@@ -263,7 +242,7 @@ def buscar_movimentacoes_por_descricao(usuario_id: int, descricao: str, tipo: Op
             filters.append("tipo = ?")
             params.append(tipo)
 
-        bounds = _period_bounds(ano_mes)
+        bounds = limites_do_periodo(ano_mes)
         if bounds:
             filters.append("data_ref >= ?")
             filters.append("data_ref < ?")
@@ -411,7 +390,7 @@ def consultar_categoria(usuario_id: int, categoria: str, ano_mes: Optional[str] 
         filters = ["usuario_id = ?", "categoria = ?"]
         params: list = [usuario_id, categoria.lower()]
 
-        bounds = _period_bounds(ano_mes)
+        bounds = limites_do_periodo(ano_mes)
         if bounds:
             filters.append("data_ref >= ?")
             filters.append("data_ref < ?")
@@ -455,7 +434,7 @@ def listar_categorias_por_tipo(usuario_id: int, tipo: Optional[str] = None, ano_
     if ano_mes is None:
         ano_mes = date.today().strftime("%Y-%m")
 
-    bounds = _period_bounds(ano_mes)
+    bounds = limites_do_periodo(ano_mes)
     if bounds:
         period_sql = "data_ref >= ? AND data_ref < ?"
         period_params: tuple[str, ...] = bounds

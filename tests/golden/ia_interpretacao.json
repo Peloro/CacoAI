@@ -1,0 +1,38 @@
+[
+ {
+  "msg": "comprei um sedan novinho em parcelas de 12 vezes sem juros, custando 20 mil",
+  "ia": [],
+  "resposta": "Perfeito, já anotei: sedan novinho.\nAgora informe o *credor* (cartão ou loja, ex.: `nubank`) ou `pular`."
+ },
+ {
+  "msg": "sim",
+  "ia": [],
+  "resposta": "Antes de executar, confirma esta operação:\n\n• Operação: registrar dívida parcelada\n• Item: sedan novinho\n• Parcelas: 12x de R$ 1.666,67 (total R$ 20.000,00)\n• 1ª parcela: <MES>\n• Credor: parcelado\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ },
+ {
+  "msg": "gastei 16 no almoço e recebi 20 de pix",
+  "ia": [
+   {
+    "tipo": "interpretacao",
+    "task": "quality",
+    "max_tokens": 320,
+    "json": true,
+    "schema": null
+   }
+  ],
+  "resposta": "↪️ Deixei de lado a confirmação anterior.\n\nPercebi mais de um comando na mesma mensagem. 👀\nPra evitar erro, manda *um comando por vez*.\n\nExemplos:\n• `gastei 16 no almoço`\n• `recebi 20 de pix`"
+ },
+ {
+  "msg": "gastei 50 no mercado hoje",
+  "ia": [
+   {
+    "tipo": "interpretacao",
+    "task": "quality",
+    "max_tokens": 320,
+    "json": true,
+    "schema": null
+   }
+  ],
+  "resposta": "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 50,00\n• Título: mercado\n• Categoria: alimentacao\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ }
+]

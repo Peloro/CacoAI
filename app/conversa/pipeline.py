@@ -14,11 +14,13 @@ from app.dados import (
     get_etapa_cadastro,
     get_nome_usuario,
     get_or_create_user,
+    hash_password,
     invalidar_sessao,
     renovar_sessao_se_valida,
     resumo_mes,
     salvar_nome,
     salvar_senha,
+    senha_confere,
     set_etapa_cadastro,
     verificar_senha,
 )
@@ -51,7 +53,7 @@ from app.conversa.contexto import (
     usou_ia_ctx,
 )
 from app.conversa.dividas import (
-    credor_de_divida_mencionado,
+    divida_mencionada,
     processar_confirmacao_quitar,
     processar_pendente_pagamento_divida,
     tentar_inferir_pagamento_divida_sem_valor,
@@ -72,6 +74,7 @@ from app.conversa.estado import (
     pendente_pagamento_divida,
     pendente_registro_guiado,
     senha_temporaria,
+    tentativas_login,
 )
 from app.conversa.fluxos import (
     iniciar_fluxo_registro_guiado,
@@ -93,6 +96,7 @@ from app.conversa.intencoes import (
     deve_forcar_extracao_ia,
     e_comando_novo,
     e_comando_independente,
+    encerra_escolha_pendente,
     intencoes_em_conflito,
     intencao_e_operacao,
     registro_inequivoco,
@@ -150,6 +154,7 @@ def processar_mensagem(telefone: str, mensagem: str, trace_id: str | None = None
     inicio = time.perf_counter()
     inc_counter("messages.total")
     aplicar_hint_ajuda = False
+    mensagem_log = mensagem
     emitir_evento(
         "mensagem_recebida",
         telefone_final=(telefone or "")[-4:] if telefone else "",
@@ -165,11 +170,14 @@ def processar_mensagem(telefone: str, mensagem: str, trace_id: str | None = None
         usuario_id = usuario["id"]
 
         # 1. Fluxo de cadastro (primeiro acesso)
+        # Cadastro e login recebem senhas: o log de requisições não guarda o que foi digitado neles.
         if not (usuario.get("nome") and usuario.get("senha_hash")):
+            mensagem_log = "***"
             resposta = _fluxo_cadastro(usuario_id, mensagem)
 
         # 2. Sessão expirada (1h) → pede senha; válida → renova e processa normalmente
         elif not renovar_sessao_se_valida(usuario_id):
+            mensagem_log = "***"
             resposta = _fluxo_login(usuario_id, mensagem)
 
         else:
@@ -194,7 +202,7 @@ def processar_mensagem(telefone: str, mensagem: str, trace_id: str | None = None
     # O lembrete de *ajuda* só aparece quando nenhuma regra local entendeu a mensagem.
     if aplicar_hint_ajuda and fallback_acionado_ctx.get():
         resposta = garantir_hint_ajuda(resposta)
-    registrar_requisicao_teste(telefone=telefone, mensagem=mensagem, resposta=resposta, erro=erro_msg)
+    registrar_requisicao_teste(telefone=telefone, mensagem=mensagem_log, resposta=resposta, erro=erro_msg)
     if erro_msg is None:
         inc_counter("messages.success")
     if usou_ia_ctx.get():
@@ -227,12 +235,6 @@ def _fluxo_cadastro(usuario_id: int, mensagem: str) -> str:
     # Primeiro contato: ainda não começou o cadastro
     if etapa is None:
         set_etapa_cadastro(usuario_id, "aguardando_nome")
-        if cmd_msg:
-            return (
-                "Oi! 😊 Sou o *Caco*, seu assistente financeiro.\n\n"
-                "Vamos criar sua conta rapidinho!\n\n"
-                "📝 *Qual o seu nome?*"
-            )
         return (
             "Oi! 😊 Sou o *Caco*, seu assistente financeiro.\n\n"
             "Vamos criar sua conta rapidinho!\n\n"
@@ -273,7 +275,7 @@ def _fluxo_cadastro(usuario_id: int, mensagem: str) -> str:
                 "Requisitos: minimo 8 caracteres, com maiuscula, minuscula, numero e simbolo.\n"
                 "Tenta de novo:"
             )
-        senha_temporaria[usuario_id] = texto
+        senha_temporaria[usuario_id] = hash_password(texto)  # só o hash: o estado fica gravado no banco
         set_etapa_cadastro(usuario_id, "aguardando_confirmacao")
         return "🔒 *Repita a senha* para confirmar:"
 
@@ -281,12 +283,12 @@ def _fluxo_cadastro(usuario_id: int, mensagem: str) -> str:
     if etapa == "aguardando_confirmacao":
         if cmd_msg:
             return "Só falta confirmar sua senha. 🔒\nRepita a senha para continuar."
-        senha_original = senha_temporaria.get(usuario_id)
-        if not senha_original:
+        hash_original = senha_temporaria.get(usuario_id)
+        if not hash_original:
             # Perdeu a senha temporária (reinicia)
             set_etapa_cadastro(usuario_id, "aguardando_senha")
             return "Ops, algo deu errado. 😅\n\n🔒 *Escolha uma senha novamente:*"
-        if texto != senha_original:
+        if not senha_confere(hash_original, texto):
             return "❌ As senhas não conferem! Tenta digitar a mesma senha:"
         # Senhas conferem → salva e cria sessão
         salvar_senha(usuario_id, texto)
@@ -304,6 +306,9 @@ def _fluxo_cadastro(usuario_id: int, mensagem: str) -> str:
     # Etapa desconhecida → reinicia
     set_etapa_cadastro(usuario_id, None)
     return "Algo deu errado no cadastro. 😅 Me manda um oi pra recomeçar!"
+
+
+_MAX_TENTATIVAS_LOGIN = 5
 
 
 def _fluxo_login(usuario_id: int, mensagem: str) -> str:
@@ -325,16 +330,21 @@ def _fluxo_login(usuario_id: int, mensagem: str) -> str:
     if cmd_msg:
         return "Sua sessão expirou. Para continuar, digite sua *senha*. 🔒"
 
+    erros = int(tentativas_login.get(usuario_id) or 0)
+    if erros >= _MAX_TENTATIVAS_LOGIN:
+        return "🔒 Muitas tentativas de senha. Por segurança, espere 15 minutos e tente de novo."
+
     if verificar_senha(usuario_id, texto):
         aguardando_senha_login.discard(usuario_id)
+        tentativas_login.pop(usuario_id)
         criar_sessao(usuario_id)
         nome = get_nome_usuario(usuario_id) or "amigo"
         return (
             f"✅ Bem-vindo de volta, *{nome}*! 😊\n\n"
             "O que posso fazer por você?"
         )
-    else:
-        return "❌ Senha incorreta. Tenta de novo:\n\n🔒 *Digite sua senha:*"
+    tentativas_login[usuario_id] = erros + 1
+    return "❌ Senha incorreta. Tenta de novo:\n\n🔒 *Digite sua senha:*"
 
 
 _AVISO_REGISTRO_DESCARTADO = "↪️ Deixei de lado o registro que estava em andamento.\n\n"
@@ -409,6 +419,17 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
             data_ref = parsed.get("data") or date.today().isoformat()
             mes_ref = parsed.get("mes_referencia")
 
+    # As escolhas e confirmações abaixo só entendem a própria resposta: um lançamento novo ("gastei 30 no uber")
+    # seria respondido com a mesma pergunta e se perderia. Ele deixa a pendência de lado, como na confirmação acima.
+    escolhas = (
+        pendente_desambiguacao, pendente_desambiguacao_editar, pendente_desambiguacao_categoria,
+        pendente_confirmacao_apagar, pendente_confirmacao_limpar, pendente_confirmacao_quitar, pendente_pagamento_divida,
+    )
+    if parsed is None and any(usuario_id in e for e in escolhas) and encerra_escolha_pendente(mensagem):
+        for escolha in escolhas:
+            escolha.pop(usuario_id, None)
+        return _AVISO_PENDENCIA_DESCARTADA + _processar_mensagem_interna(usuario_id, mensagem)
+
     # --- Verifica se há desambiguação pendente (escolha de qual movimentação apagar) ---
     if usuario_id in pendente_desambiguacao:
         return processar_desambiguacao(usuario_id, mensagem)
@@ -457,7 +478,9 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
     if parsed is None:
         local = detectar_intencao(mensagem)
         operacoes = interpretar_com_ia(mensagem, local)
-        multiplos = len(operacoes) > 1 if operacoes else detectar_multiplos_comandos(mensagem)
+        # Compra parcelada é um comando só: "…em 12 vezes, custando 20 mil, no itau" são complementos dela.
+        # shortcut: "comprei X em 12x de 40 e gastei 30 no uber" registra só a parcelada; separar se aparecer.
+        multiplos = len(operacoes) > 1 if operacoes else (not local.get("parcelas") and detectar_multiplos_comandos(mensagem))
         if multiplos:
             return (
                 "Percebi mais de um comando na mesma mensagem. 👀\n"
@@ -496,12 +519,16 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
         descricao = parsed["descricao"]
         data_ref = parsed["data"] or date.today().isoformat()
 
-    # Pagamento que cita o credor de uma dívida em aberto ("paguei a maria") é pagamento dessa dívida.
+    # Pagamento que cita uma dívida em aberto ("paguei a maria", "quitei o blusão") é pagamento dessa dívida.
     if intencao in ("registrar_saida", "conversa_geral") and not (confirmou_intencao_manual or confirmou_operacao_manual):
-        credor = credor_de_divida_mencionado(usuario_id, mensagem)
-        if credor:
+        divida = divida_mencionada(usuario_id, mensagem)
+        if divida:
             intencao = parsed["intencao"] = "pagar_divida"
-            parsed["credor_divida"] = credor
+            if divida.get("parcelas"):
+                # Achada pelo item: outra parcelada igual ainda entra na escolha (por isso não fixa o credor).
+                descricao = parsed["descricao"] = divida.get("descricao") or ""
+            else:
+                parsed["credor_divida"] = normalizar_credor_texto(divida.get("credor") or "")
             parsed["_intencao_por_dados"] = True  # confirmada pelos dados do usuário: não é ambígua
 
     ultima_intencao_ctx.set(intencao)
@@ -605,6 +632,9 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
                 descricao=descricao,
                 credor_divida=credor_divida,
                 data_ref=parsed.get("data"),  # só a data dita na frase; sem ela, o fluxo pergunta
+                parcelamento={
+                    k: parsed.get(k) for k in ("parcelas", "valor_parcela", "primeiro_vencimento", "_ja_paguei_primeira")
+                } if parsed.get("parcelas") else None,
             )
 
     if intencao == "posso_gastar" and (not valor or valor <= 0):

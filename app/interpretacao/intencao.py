@@ -6,14 +6,89 @@ import unicodedata
 from app.interpretacao.categorias import categorize_by_rules, extract_category_after_token, extract_category_mentioned
 from app.interpretacao.entidades import (
     expandir_multiplicadores,
+    extract_credor_parcelamento,
     extract_debt_creditor,
     extract_description,
     extract_movement_id,
     extract_new_edit_value,
+    extract_parcelamento,
+    extract_primeiro_vencimento,
     extract_value,
 )
 from app.interpretacao.normalizacao import normalize_intent_text, text_contains
 from app.interpretacao.referencias import extract_date, extract_reference_month
+
+# Compra parcelada já feita ("comprei/parcelei …", "paguei em 12x"); "paguei 3 parcelas do X" é pagamento, não compra.
+# "paguei o blusão em 12x" também é compra parcelada (o "em Nx" não precisa vir logo depois do verbo).
+_RE_COMPRA_FEITA = re.compile(r"\b(?:comprei|parcelei|passei|fiz|peguei)\b|\bpaguei\b.*\bem\s+\d{1,2}\s*(?:x|vezes)\b", re.IGNORECASE)
+# "passei 2x no mercado" não é parcelamento: exige "parcel…", "em Nx/N vezes", "Nx/N vezes de <valor>" ou "N parcelas".
+_RE_SINAL_PARCELAMENTO = re.compile(
+    r"\bparcel|\bem\s+\d{1,2}\s*(?:x|vezes)\b|\b\d{1,2}\s*(?:x|vezes)\s+de\s+(?:R\$\s*)?\d|\b\d{1,2}\s+parcelas?\b",
+    re.IGNORECASE,
+)
+_RE_VERBO_LANCAMENTO = re.compile(
+    r"\b(?:comprei|parcelei|passei|fiz|peguei|paguei|gastei|recebi|ganhei|custou|devo|torrei)\b", re.IGNORECASE
+)
+_RE_COMPRA_FUTURA = re.compile(r"\?|\b(?:vou|quero|pretendo|posso|vale\s+a\s+pena|devo\s+comprar)\b", re.IGNORECASE)
+# "a primeira (parcela) do blusão vence em dezembro" -> item "blusão".
+_RE_ITEM_DA_PRIMEIRA = re.compile(r"\bprimeira(?:\s+parcela)?\s+d[oa]s?\s+(.+?)\s+(?:vence|[eé]|fica|vai|em|para|pra)\b", re.IGNORECASE)
+_NUMEROS_POR_EXTENSO = {"uma": 1, "duas": 2, "tres": 3, "três": 3, "quatro": 4, "cinco": 5, "seis": 6}
+_RE_PAGAR_PARCELAS = re.compile(
+    r"\bpaguei\s+(?:(a\s+primeira|a|as|\d{1,2}|" + "|".join(_NUMEROS_POR_EXTENSO) + r")\s+)?parcelas?\b(?:\s+d[oa]s?\b)?",
+    re.IGNORECASE,
+)
+
+
+def _parcelas_do_pagamento(quantidade: str | None) -> int:
+    """"a"/"a primeira"/"uma" -> 1; "3"/"três" -> 3; "as" (as do mês) -> 0."""
+    q = (quantidade or "a").lower()
+    if q == "as":
+        return 0
+    return int(q) if q.isdigit() else _NUMEROS_POR_EXTENSO.get(q, 1)
+_RE_JA_PAGUEI_PRIMEIRA = re.compile(r"\bj[aá]\s+paguei\s+(?:a\s+)?(?:primeira|1[ªa]?)\b", re.IGNORECASE)
+# O que não é o item na frase da compra parcelada: o parcelamento, juros, o credor e a menção à 1ª parcela.
+_RE_RESTO_DO_PARCELAMENTO = re.compile(
+    r"\bparcelad[oa]s?\b|\b(?:em\s+)?parcelas?\s+de\b|\b(?:custando|custou|que\s+custou)\b"
+    r"|\b(?:no|na|pelo|pela)\s+cart[aã]o(?:\s+de\s+cr[eé]dito)?\b"
+    r"|\b(?:em\s+)?\d{1,2}\s*(?:x|vezes|parcelas?)\b(?:\s*(?:de|por)\s+(?:R\$\s*)?\d+(?:[.,]\d{1,2})?(?:\s*reais)?)?"
+    r"|\b(?:sem|com)\s+juros\b|,?\s*(?:j[aá]\s+paguei\s+)?(?:a\s+)?primeira\b.*$",
+    re.IGNORECASE,
+)
+
+
+def _item_da_compra_parcelada(text: str, credor: str | None) -> str:
+    """"comprei um blusão parcelado em 12 vezes de 40 reais no nubank" -> "blusão"."""
+    resto = text
+    if credor:  # antes do resto: "no cartão do nubank" sai inteiro
+        resto = re.sub(
+            rf"\b(?:no|na|pelo|pela)\s+(?:cart[aã]o(?:\s+de\s+cr[eé]dito)?\s+(?:d[oa]\s+)?)?{re.escape(credor)}\b",
+            " ", resto, flags=re.IGNORECASE,
+        )
+    resto = _RE_RESTO_DO_PARCELAMENTO.sub(" ", resto)
+    # O verbo sai antes: extract_description só o tira quando vem seguido de outra palavra ("comprei em 10x").
+    item = extract_description(re.sub(r"^\s*(?:comprei|parcelei|passei|fiz|peguei|paguei)\b", "", resto, flags=re.IGNORECASE))
+    item = re.sub(r"^(?:(?:um|uma|uns|umas|o|a|os|as|de|do|da)\s+)+", "", item, flags=re.IGNORECASE)
+    return item.strip(" ,.;")
+
+
+def _compra_parcelada(text: str, base: dict) -> dict | None:
+    """Leitura de uma compra parcelada já feita como dívida; None se a frase não for uma."""
+    if not _RE_COMPRA_FEITA.search(text) or _RE_COMPRA_FUTURA.search(text) or not _RE_SINAL_PARCELAMENTO.search(text):
+        return None
+    parcelamento = extract_parcelamento(text)
+    if not parcelamento:
+        return None
+    credor = extract_credor_parcelamento(text)
+    return base | {
+        "intencao": "registrar_divida",
+        "valor": parcelamento["total"],
+        "descricao": _item_da_compra_parcelada(text, credor),
+        "credor_divida": credor or "",
+        "parcelas": parcelamento["parcelas"],
+        "valor_parcela": parcelamento["valor_parcela"],
+        "primeiro_vencimento": extract_primeiro_vencimento(text),
+        "_ja_paguei_primeira": bool(_RE_JA_PAGUEI_PRIMEIRA.search(text)),
+    }
 
 _RE_TODOS_GASTOS = re.compile(r"\btod[oa]s?\b.*?\b(?:gastos?|despesas?|saídas?|saidas?)\b", re.IGNORECASE)
 _RE_TODOS_GANHOS = re.compile(r"\btod[oa]s?\b.*?\b(?:ganhos?|entradas?|receitas?)\b", re.IGNORECASE)
@@ -75,10 +150,11 @@ def _extrair_item_compra_planejada(text: str) -> str | None:
     if not texto:
         return None
 
+    # O item começa com letra: "em 10 vezes" é parcelamento, não o que vai ser comprado.
     padroes = [
-        r"\b(?:num|numa|no|na|em)\s+([\wÀ-ÿ][\wÀ-ÿ\s\-]{1,50})",
-        r"\b(?:comprar|pegar)\s+(?:um|uma|uns|umas|o|a)?\s*([\wÀ-ÿ][\wÀ-ÿ\s\-]{1,50})",
-        r"\bgastar\s+(?:R\$\s*)?\d+(?:[.,]\d{1,2})?\s+(?:num|numa|no|na|em)\s+([\wÀ-ÿ][\wÀ-ÿ\s\-]{1,50})",
+        r"\b(?:num|numa|no|na|em)\s+([^\W\d_][\wÀ-ÿ\s\-]{1,50})",
+        r"\b(?:comprar|pegar)\s+(?:(?:umas|uma|uns|um|o|a)\s+)?([^\W\d_][\wÀ-ÿ\s\-]{1,50})",
+        r"\bgastar\s+(?:R\$\s*)?\d+(?:[.,]\d{1,2})?\s+(?:num|numa|no|na|em)\s+([^\W\d_][\wÀ-ÿ\s\-]{1,50})",
     ]
 
     for pattern in padroes:
@@ -90,7 +166,7 @@ def _extrair_item_compra_planejada(text: str) -> str | None:
         item = re.split(r"[,.!?]", item, maxsplit=1)[0].strip()
         item = re.sub(
             r"\b(?:hoje|ontem|amanh[aã]|esse\s+m[eê]s|este\s+m[eê]s|m[eê]s\s+que\s+vem|"
-            r"parcelado|parcelar|parcela|com\s+juros|sem\s+juros)\b.*$",
+            r"parcelado|parcelar|parcela|com\s+juros|sem\s+juros|(?:de|por|em)\s+(?:R\$\s*)?\d+\w*)\b.*$",
             "",
             item,
             flags=re.IGNORECASE,
@@ -332,6 +408,31 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
         return {"intencao": "consultar_total", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref or dia_citado, "tipo_total": "saida"}
     if "total" in text_lower and "gastei" in text_lower and not value:
         return {"intencao": "consultar_total", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref or dia_citado, "tipo_total": "saida"}
+
+    # Mudar a 1ª parcela de uma dívida parcelada já registrada (a compra nova com "a primeira é…" cai mais abaixo).
+    # Só sem valor e sem verbo de lançamento: "gastei 40 na primeira semana de março" segue sendo gasto.
+    valor_dito = value if not (movement_id and value == movement_id) else None
+    novo_primeiro_vencimento = extract_primeiro_vencimento(text)
+    if novo_primeiro_vencimento and not valor_dito and not _RE_VERBO_LANCAMENTO.search(text):
+        item = _RE_ITEM_DA_PRIMEIRA.search(text)
+        return {"intencao": "editar_movimentacao", "valor": None, "descricao": item.group(1).strip() if item else "",
+                "data": None, "categoria_regra": None, "mes_referencia": None,
+                "id_movimentacao": movement_id, "novo_primeiro_vencimento": novo_primeiro_vencimento}
+
+    # "paguei a parcela do blusão" / "paguei 3 parcelas do blusão": o 3 é quantidade de parcelas, não valor.
+    pagar_parcelas = _RE_PAGAR_PARCELAS.search(text) if not _RE_JA_PAGUEI_PRIMEIRA.search(text) else None
+    if pagar_parcelas:
+        resto = text[pagar_parcelas.end():]
+        pagamento = {"intencao": "pagar_divida", "valor": None, "descricao": extract_description(resto),
+                     "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "credor_divida": debt_creditor}
+        valor_da_parcela = extract_value(resto)
+        if valor_da_parcela:  # "paguei a parcela do carro de 800": vale o valor dito
+            return pagamento | {"valor": valor_da_parcela}
+        return pagamento | {"parcelas_pagamento": _parcelas_do_pagamento(pagar_parcelas.group(1))}
+
+    parcelada = _compra_parcelada(text, {"data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref})
+    if parcelada:
+        return parcelada
 
     if _RE_QUITAR_DIVIDAS.search(text_lower) and not value:
         return {"intencao": "quitar_dividas", "valor": value, "descricao": description, "data": date_ref, "categoria_regra": category_rule, "mes_referencia": month_ref, "credor_divida": debt_creditor}

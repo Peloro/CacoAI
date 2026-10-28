@@ -108,11 +108,12 @@ Para uso real, mantenha desabilitada por padrao e habilite apenas quando necessa
 | `DEBUG` | Modo debug | `false` |
 | `TELEGRAM_BOT_TOKEN` | Token do bot Telegram | vazio |
 | `API_TEST_ENABLED` | Habilita API REST de teste | `false` |
-| `API_TEST_TOKEN` | Token para API de teste | vazio |
+| `API_TEST_TOKEN` | Token da API de teste (obrigatorio quando habilitada) | vazio |
 | `BOT_REQUEST_LOG_ENABLED` | Log local de requisicoes/respostas | `false` |
 | `BOT_REQUEST_LOG_PATH` | Caminho do arquivo de log | `logs/bot_requests.log` |
 | `REGISTRO_DIRETO` | Registra lancamentos inequivocos sem pedir confirmacao | `true` |
 | `UNDO_WINDOW_SECONDS` | Janela para *desfazer* o ultimo registro | `300` |
+| `TZ` | Fuso das datas; obrigatorio em servidor UTC (ex.: Render): `America/Sao_Paulo` | fuso do sistema |
 
 ## Seguranca e Isolamento
 

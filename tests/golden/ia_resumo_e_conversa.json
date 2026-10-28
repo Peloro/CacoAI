@@ -1,0 +1,98 @@
+[
+ {
+  "msg": "gastei 50 no mercado",
+  "ia": [
+   {
+    "tipo": "interpretacao",
+    "task": "quality",
+    "max_tokens": 320,
+    "json": true,
+    "schema": null
+   }
+  ],
+  "resposta": "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 50,00\n• Título: mercado\n• Categoria: alimentacao\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ },
+ {
+  "msg": "sim",
+  "ia": [],
+  "resposta": "✅ Gasto registrado! 💸\n📝 Mercado — R$ 50,00 (alimentacao)\n🔴 Saldo do mês: -R$ 50,00"
+ },
+ {
+  "msg": "resumo",
+  "ia": [
+   {
+    "tipo": "observacao",
+    "task": "quality",
+    "max_tokens": 128,
+    "json": false,
+    "schema": null
+   }
+  ],
+  "resposta": "📊 *Resumo do mês*\n\n💰 Entrou: R$ 0,00\n💸 Saiu (sem dívidas): R$ 50,00\n🔴 Falta: R$ 50,00\n\n🟢 *Dívidas em aberto:*\n🧾 Total: R$ 0,00\n🧮 Registros: 0\n\n💸 *Categorias de saída (pra onde foi o dinheiro):*\n  • Alimentacao: R$ 50,00\n\n🕐 *Últimas movimentações:*\n  🔴 R$ 50,00 — mercado _(<HOJE_DM> (hoje))_\n\n💡 Mês sob controle. Continue registrando tudo."
+ },
+ {
+  "msg": "resumo",
+  "ia": [],
+  "resposta": "📊 *Resumo do mês*\n\n💰 Entrou: R$ 0,00\n💸 Saiu (sem dívidas): R$ 50,00\n🔴 Falta: R$ 50,00\n\n🟢 *Dívidas em aberto:*\n🧾 Total: R$ 0,00\n🧮 Registros: 0\n\n💸 *Categorias de saída (pra onde foi o dinheiro):*\n  • Alimentacao: R$ 50,00\n\n🕐 *Últimas movimentações:*\n  🔴 R$ 50,00 — mercado _(<HOJE_DM> (hoje))_\n\n💡 Mês sob controle. Continue registrando tudo."
+ },
+ {
+  "msg": "me dá uma dica",
+  "ia": [
+   {
+    "tipo": "interpretacao",
+    "task": "quality",
+    "max_tokens": 320,
+    "json": true,
+    "schema": null
+   },
+   {
+    "tipo": "dica",
+    "task": "quality",
+    "max_tokens": 220,
+    "json": false,
+    "schema": null
+   }
+  ],
+  "resposta": "- Primeira dica útil aqui\n- Segunda dica útil aqui\n- Terceira dica útil aqui"
+ },
+ {
+  "msg": "vou comprar um notebook de 4000 em 10 vezes, fica ruim?",
+  "ia": [
+   {
+    "tipo": "interpretacao",
+    "task": "quality",
+    "max_tokens": 320,
+    "json": true,
+    "schema": null
+   },
+   {
+    "tipo": "planejamento",
+    "task": "quality",
+    "max_tokens": 220,
+    "json": false,
+    "schema": null
+   }
+  ],
+  "resposta": "📌 Planejamento para *notebook* _(categoria: compras)_\n• Saldo atual: -R$ 50,00\n• Valor da compra: R$ 4.000,00\n• Sobra no mês após compra: -R$ 4.050,00\n• Média por dia até o fim do mês: -R$ 1.012,50 (4 dias)\n\n⚠️ Esse gasto te coloca no vermelho. Se for adiar, sua margem de segurança melhora bastante.\n\n💡 Sugestões personalizadas:\n- Primeira dica útil aqui\n- Segunda dica útil aqui\n- Terceira dica útil aqui"
+ },
+ {
+  "msg": "qual a capital da frança",
+  "ia": [
+   {
+    "tipo": "interpretacao",
+    "task": "quality",
+    "max_tokens": 320,
+    "json": true,
+    "schema": null
+   },
+   {
+    "tipo": "chat",
+    "task": "fast",
+    "max_tokens": 96,
+    "json": false,
+    "schema": null
+   }
+  ],
+  "resposta": "Resposta curta de conversa.\n\n💡 Se precisar, digite *ajuda*."
+ }
+]

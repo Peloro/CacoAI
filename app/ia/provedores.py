@@ -5,9 +5,7 @@ import httpx
 import logging
 import re
 import time
-from json import JSONDecodeError
 from typing import Optional
-from urllib.parse import urlparse
 
 from app.config import (
     GROQ_API_KEY,
@@ -35,7 +33,8 @@ def _cliente_http() -> "httpx.Client":
     """Cliente HTTP reaproveitado entre chamadas (mantém conexão/TLS abertos)."""
     global _http_client
     if _http_client is None:
-        _http_client = httpx.Client(timeout=30.0)
+        # O bot atende uma mensagem por vez: uma chamada presa trava todos os usuários, então espera pouco.
+        _http_client = httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0))
     return _http_client
 
 
@@ -243,66 +242,6 @@ def _headers_openrouter() -> dict:
     return headers
 
 
-def _normalizar_modelo_openrouter(modelo: str) -> str:
-    """
-    Aceita tanto ID do modelo (ex: minimax/minimax-m2.5:free)
-    quanto URL da página do modelo (ex: https://openrouter.ai/minimax/minimax-m2.5:free/api).
-    """
-    valor = (modelo or "").strip()
-    if not valor:
-        return "minimax/minimax-m2.5:free"
-
-    if valor.startswith("http://") or valor.startswith("https://"):
-        path = urlparse(valor).path.strip("/")
-        partes = [p for p in path.split("/") if p]
-        if len(partes) >= 3 and partes[-1].lower() == "api":
-            # /provider/model/api
-            return f"{partes[-3]}/{partes[-2]}"
-        if len(partes) >= 2:
-            # /provider/model
-            return f"{partes[-2]}/{partes[-1]}"
-
-    return valor
-
-
-def _endpoints_openrouter() -> list[str]:
-    base = OPENROUTER_BASE_URL.rstrip("/")
-    if base.endswith("/chat/completions"):
-        return [base]
-    if base.endswith("/completions"):
-        return [base]
-    return [
-        f"{base}/chat/completions",
-        f"{base}/completions",
-    ]
-
-
-def _montar_payload_por_endpoint(
-    endpoint: str,
-    *,
-    model: str,
-    messages: list[dict],
-    user_prompt: str,
-    temperature: float,
-    max_tokens: int,
-) -> dict:
-    if endpoint.endswith("/completions") and not endpoint.endswith("/chat/completions"):
-        # Endpoint de completions classico usa prompt simples, nao messages.
-        return {
-            "model": model,
-            "prompt": user_prompt,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-
-    return {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
-
-
 def _chat_openrouter(
     user_prompt: str,
     *,
@@ -315,87 +254,26 @@ def _chat_openrouter(
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": user_prompt})
 
-    model = _normalizar_modelo_openrouter(OPENROUTER_MODEL)
+    base = OPENROUTER_BASE_URL.rstrip("/")
+    endpoint = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
+    response = _cliente_http().post(
+        endpoint,
+        headers=_headers_openrouter(),
+        json={"model": OPENROUTER_MODEL, "messages": messages, "temperature": temperature, "max_tokens": max_tokens},
+    )
+    if response.status_code == 404 and "guardrail restrictions" in response.text:
+        raise RuntimeError(
+            "OpenRouter bloqueou a requisicao por guardrails/politica de dados da conta. "
+            "Ajuste em https://openrouter.ai/settings/privacy"
+        )
+    if response.status_code >= 400:
+        preview = response.text[:300].replace("\n", " ").strip()
+        raise RuntimeError(f"OpenRouter retornou HTTP {response.status_code}: {preview!r}")
+    data = response.json()
 
-    endpoints = _endpoints_openrouter()
-
-    ultimo_erro = None
-    data = None
-    client = _cliente_http()
-    for endpoint in endpoints:
-        try:
-            payload = _montar_payload_por_endpoint(
-                endpoint,
-                model=model,
-                messages=messages,
-                user_prompt=user_prompt,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            response = client.post(
-                endpoint,
-                headers=_headers_openrouter(),
-                json=payload,
-            )
-            response.raise_for_status()
-            try:
-                data = response.json()
-            except JSONDecodeError as e:
-                content_type = response.headers.get("content-type", "")
-                preview = response.text[:300].replace("\n", " ").strip()
-                raise RuntimeError(
-                    "OpenRouter retornou resposta nao-JSON "
-                    f"(status={response.status_code}, content-type={content_type}, body={preview!r})"
-                ) from e
-            break
-        except httpx.HTTPStatusError as e:
-            ultimo_erro = e
-            preview = e.response.text[:300].replace("\n", " ").strip()
-            resposta_json = {}
-            try:
-                resposta_json = e.response.json()
-            except Exception:
-                resposta_json = {}
-
-            mensagem_erro = ""
-            if isinstance(resposta_json, dict):
-                erro = resposta_json.get("error", {})
-                if isinstance(erro, dict):
-                    mensagem_erro = str(erro.get("message", ""))
-
-            if (
-                e.response.status_code == 404
-                and "No endpoints available matching your guardrail restrictions" in mensagem_erro
-            ):
-                raise RuntimeError(
-                    "OpenRouter bloqueou a requisicao por guardrails/politica de dados da conta. "
-                    "Ajuste em https://openrouter.ai/settings/privacy"
-                ) from e
-
-            # Se nao for 404, nao adianta testar rota alternativa.
-            if e.response.status_code != 404:
-                raise RuntimeError(
-                    f"OpenRouter retornou HTTP {e.response.status_code} em {endpoint}: {preview!r}"
-                ) from e
-            log.warning("Endpoint OpenRouter nao encontrado (%s): %s", e.response.status_code, endpoint)
-        except Exception as e:
-            ultimo_erro = e
-            raise
-
-    if data is None:
-        raise RuntimeError(f"Falha ao chamar OpenRouter nos endpoints {endpoints}: {ultimo_erro}")
-
-    conteudo = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    if not conteudo:
-        conteudo = data.get("choices", [{}])[0].get("text", "")
+    conteudo = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
     if isinstance(conteudo, list):
-        partes = [
-            item.get("text", "")
-            for item in conteudo
-            if isinstance(item, dict)
-        ]
-        conteudo = "".join(partes)
-
+        conteudo = "".join(item.get("text", "") for item in conteudo if isinstance(item, dict))
     return str(conteudo).strip()
 
 
@@ -424,6 +302,7 @@ def conversar(
         raise RuntimeError("cota gratuita da IA esgotada no momento; usando respostas locais")
 
     kwargs = {"system_prompt": system_prompt, "temperature": temperature, "json_mode": json_mode, "schema": schema}
+    ultimo_erro = None
     for model in modelos:
         try:
             try:
@@ -434,4 +313,11 @@ def conversar(
                 return _chat_groq(user_prompt, model=model, max_tokens=max_tokens * 2 + LLM_RESERVA_RACIOCINIO, **kwargs)
         except _CotaEsgotada:
             continue
+        except httpx.HTTPError as e:
+            # Falha de rede ou 5xx de um modelo: o outro modelo pode estar respondendo.
+            log.warning("Falha ao chamar %s (%s); tentando o próximo modelo.", model, e)
+            ultimo_erro = e
+            continue
+    if ultimo_erro:
+        raise RuntimeError(f"IA indisponível no momento: {ultimo_erro}")
     raise RuntimeError("cota gratuita da IA esgotada no momento; usando respostas locais")

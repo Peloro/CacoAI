@@ -1,0 +1,62 @@
+[
+ [
+  "gastei 20 no café",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 20,00\n• Título: cafe\n• Categoria: alimentacao\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Cafe — R$ 20,00 (alimentacao)\n🔴 Saldo do mês: -R$ 20,00"
+ ],
+ [
+  "gastei 18 no café",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 18,00\n• Título: cafe\n• Categoria: alimentacao\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Cafe — R$ 18,00 (alimentacao)\n🔴 Saldo do mês: -R$ 38,00"
+ ],
+ [
+  "gastei 60 no mercado",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 60,00\n• Título: mercado\n• Categoria: alimentacao\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Gasto registrado! 💸\n📝 Mercado — R$ 60,00 (alimentacao)\n🔴 Saldo do mês: -R$ 98,00"
+ ],
+ [
+  "apagar café",
+  "🤔 Encontrei *2* lançamentos com \"café\".\nQual você quer apagar?\n\n*1.* 🔴 cafe — R$ 18,00 _(# 2 - <HOJE_DM>)_\n*2.* 🔴 cafe — R$ 20,00 _(# 1 - <HOJE_DM>)_\n\nManda o *número*, *#ID*, *data* (24/03) ou *valor* (300), ou *cancelar*."
+ ],
+ [
+  "18",
+  "⚠️ Confirma apagar este gasto?\n• #2 Cafe — R$ 18,00 (alimentacao)\n\nManda *sim* pra confirmar ou *não* pra cancelar."
+ ],
+ [
+  "sim",
+  "🗑️ Gasto apagado!\n🔴 Cafe — R$ 18,00 (alimentacao)\n✅ Seu saldo foi atualizado."
+ ],
+ [
+  "apagar #99",
+  "🤷 Não encontrei lançamento com o ID #99.\n💡 Use *listar movimentações* para ver os IDs válidos e tente: *apagar #ID*."
+ ],
+ [
+  "apagar #3",
+  "⚠️ Confirma apagar este gasto?\n• #3 Mercado — R$ 60,00 (alimentacao)\n\nManda *sim* pra confirmar ou *não* pra cancelar."
+ ],
+ [
+  "não",
+  "Ok, não apaguei nada! 👍"
+ ],
+ [
+  "apagar o último gasto",
+  "⚠️ Confirma apagar este gasto?\n• #3 Mercado — R$ 60,00 (alimentacao)\n\nManda *sim* pra confirmar ou *não* pra cancelar."
+ ],
+ [
+  "sim",
+  "🗑️ Gasto apagado!\n🔴 Mercado — R$ 60,00 (alimentacao)\n✅ Seu saldo foi atualizado."
+ ],
+ [
+  "listar gastos",
+  "💸 *Seus últimos 1 gastos:*\n\n🔴 cafe — R$ 20,00 _(#1 - <HOJE_DM>)_\n\n💡 _Dica: pra remover algum, manda \"apagar #ID\"_"
+ ]
+]

@@ -6,10 +6,16 @@ import random
 import re
 from datetime import date
 
-from app.dados import resumo_mes, totais_dividas
+from app.dados import a_pagar_ate, parcelas_pagas, resumo_dividas_mes, resumo_mes, totais_dividas
 from app.financeiro import formatar_real
 from app.conversa.contexto import fallback_acionado_ctx, usou_ia_ctx
-from app.conversa.formatacao import formatar_data_amigavel, formatar_data_curta_iso, montar_linhas_candidatas
+from app.conversa.formatacao import (
+    formatar_data_amigavel,
+    formatar_data_curta_iso,
+    mes_por_extenso,
+    montar_linhas_candidatas,
+    nome_mes,
+)
 from app.conversa.uso_ia import gerar_observacao_resumo_ia
 
 
@@ -128,6 +134,21 @@ def montar_resposta_registro_divida(
     return texto
 
 
+def montar_resposta_registro_parcelada(divida: dict, total: float, pago: float = 0.0) -> str:
+    """Resposta do registro de uma dívida parcelada (lida do banco depois de gravar e, se houve, do pagamento da 1ª)."""
+    parcelas, valor_parcela = int(divida["parcelas"]), float(divida["valor_parcela"])
+    texto = (
+        "✅ Dívida parcelada registrada! 🧾\n"
+        f"📝 {(divida.get('descricao') or 'Dívida').capitalize()} — {parcelas}x de {formatar_real(valor_parcela)}"
+        f" (total {formatar_real(total)})\n"
+        f"👤 Credor: {divida.get('credor') or 'não informado'}\n"
+        f"📅 1ª parcela: {mes_por_extenso(divida['primeiro_vencimento'])}\n"
+    )
+    if pago:
+        texto += f"✅ 1ª parcela paga: {formatar_real(pago)} • faltam {formatar_real(float(divida['valor']))}\n"
+    return texto + f"💳 A pagar este mês: {formatar_real(a_pagar_ate(divida, date.today().strftime('%Y-%m')))}"
+
+
 def montar_resumo(resumo: dict, usuario_id: int, label_mes: str = "este mês") -> str:
     """Monta texto de resumo do mês com dados reais do banco."""
     entradas = resumo["entradas"]
@@ -146,15 +167,19 @@ def montar_resumo(resumo: dict, usuario_id: int, label_mes: str = "este mês") -
     else:
         texto += f"🔴 Falta: {formatar_real(abs(saldo))}\n"
 
-    # Mostra dívidas em bloco separado e destacado (não mistura com gastos)
+    # Mostra dívidas em bloco separado e destacado (não mistura com gastos).
+    # Parcelada entra só com o que vence até o mês; as comuns, pelo total em aberto.
     totais_div = totais_dividas(usuario_id)
-    qtd_dividas = int(totais_div.get("qtd_dividas", 0) or 0)
-    total_dividas = float(totais_div.get("total_dividas", 0.0) or 0.0)
+    ano_mes = resumo.get("ano_mes") or ""
+    dividas_mes = resumo_dividas_mes(usuario_id, ano_mes if len(ano_mes) == 7 else date.today().strftime("%Y-%m"))
 
-    if qtd_dividas > 0:
-        texto += "\n🟠 *Dívidas em aberto:*\n"
-        texto += f"🧾 Total: {formatar_real(total_dividas)}\n"
-        texto += f"🧮 Registros: {qtd_dividas}\n"
+    if dividas_mes["qtd_parceladas"] or dividas_mes["qtd_outras"]:
+        texto += "\n🟠 *Dívidas:*\n"
+        if dividas_mes["qtd_parceladas"]:
+            atraso = f" (inclui {formatar_real(dividas_mes['atrasado'])} atrasados)" if dividas_mes["atrasado"] > 0 else ""
+            texto += f"🧾 Parcelas do mês: {formatar_real(dividas_mes['parcelas_mes'])}{atraso}\n"
+        if dividas_mes["qtd_outras"]:
+            texto += f"🧾 Outras dívidas em aberto: {formatar_real(dividas_mes['outras_total'])} ({dividas_mes['qtd_outras']})\n"
     else:
         texto += "\n🟢 *Dívidas em aberto:*\n"
         texto += "🧾 Total: R$ 0,00\n"
@@ -342,6 +367,10 @@ def montar_resposta_edicao(mov: dict, tipo_registro: str = "movimentacao") -> st
             linhas.append(f"• Credor: {(antes.get('credor') or 'não informado')} → {(mov.get('credor') or 'não informado')}")
         if "data" in alteracoes:
             linhas.append(f"• Data: {(antes.get('data_ref') or '-')} → {(mov.get('data_ref') or '-')}")
+        if "primeiro_vencimento" in alteracoes:
+            linhas.append(
+                f"• 1ª parcela: {mes_por_extenso(antes['primeiro_vencimento'])} → {mes_por_extenso(mov['primeiro_vencimento'])}"
+            )
         return "\n".join(linhas)
 
     descricao = (mov.get("descricao") or mov.get("categoria") or "movimentação").capitalize()
@@ -740,6 +769,7 @@ def gerar_resposta_extrato_completo(
     movimentacoes: list[dict],
     dividas: list[dict] | None = None,
     label_mes: str = "este mês",
+    ano_mes: str | None = None,
 ) -> str:
     """
     Gera extrato completo com seções separadas por tipo, sempre mostrando IDs.
@@ -775,12 +805,7 @@ def gerar_resposta_extrato_completo(
     if dividas_lista:
         resposta += f"🧾 *Dívidas ({len(dividas_lista)}):*\n"
         for d in dividas_lista[:20]:
-            descricao = d.get("descricao") or "dívida"
-            credor = d.get("credor") or "não informado"
-            valor_fmt = formatar_real(d.get("valor", 0))
-            data = d.get("data_ref", "")
-            data_fmt = formatar_data_curta_iso(data)
-            resposta += f"🧾 {descricao} — {valor_fmt} _(#{d['id']} - {data_fmt})_ • credor: {credor}\n"
+            resposta += linha_divida(d, ano_mes) + "\n"
         resposta += "\n"
 
     resposta += (
@@ -792,20 +817,38 @@ def gerar_resposta_extrato_completo(
     return resposta
 
 
-def gerar_resposta_listar_dividas(dividas: list[dict], label_mes: str = "este mês") -> str:
+def linha_divida(d: dict, ano_mes: str | None = None) -> str:
+    """Uma dívida na listagem; a parcelada mostra o que vence no mês, o progresso e quanto falta."""
+    descricao = d.get("descricao") or "dívida"
+    credor = d.get("credor") or "não informado"
+    rodape = f"_(#{d['id']} - {formatar_data_curta_iso(d.get('data_ref', ''))})_ • credor: {credor}"
+    if not d.get("parcelas"):
+        return f"🧾 {descricao} — {formatar_real(d.get('valor', 0))} {rodape}"
+
+    mes = ano_mes if ano_mes and len(ano_mes) == 7 else date.today().strftime("%Y-%m")
+    rotulo = nome_mes(mes)
+    a_pagar = a_pagar_ate(d, mes)
+    no_mes = f"{formatar_real(a_pagar)} {'este mês' if rotulo == 'este mês' else 'em ' + rotulo}"
+    if a_pagar == 0 and mes >= d["primeiro_vencimento"]:
+        no_mes += " (adiantada)"
+    return (
+        f"🧾 {descricao} — {no_mes} • {parcelas_pagas(d)}/{d['parcelas']} pagas"
+        f" • faltam {formatar_real(float(d['valor']))} {rodape}"
+    )
+
+
+def gerar_resposta_listar_dividas(dividas: list[dict], label_mes: str = "este mês", ano_mes: str | None = None) -> str:
     """Gera resposta amigável listando dívidas com credor e ID."""
-    sufixo = f" em *{label_mes}*" if label_mes != "este mês" else ""
+    if label_mes == "em aberto":  # sem mês: todas as abertas ("Suas dívidas em aberto", não "em *em aberto*")
+        sufixo = " em aberto"
+    else:
+        sufixo = f" em *{label_mes}*" if label_mes != "este mês" else ""
     if not dividas:
         return f"Você não tem dívidas registradas{sufixo}. ✅"
 
     resposta = f"🧾 *Suas dívidas{sufixo}:*\n\n"
     for d in dividas:
-        descricao = d.get("descricao") or "dívida"
-        credor = d.get("credor") or "não informado"
-        valor_fmt = formatar_real(d.get("valor", 0))
-        data = d.get("data_ref", "")
-        data_fmt = formatar_data_curta_iso(data)
-        resposta += f"🧾 {descricao} — {valor_fmt} _(#{d['id']} - {data_fmt})_ • credor: {credor}\n"
+        resposta += linha_divida(d, ano_mes) + "\n"
 
     resposta += "\n💡 _Dica: para editar, use \"editar #ID para NOVO_VALOR\"_"
     return resposta

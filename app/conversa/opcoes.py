@@ -60,7 +60,11 @@ def opcoes_de_resposta(usuario_id: int, desde: float) -> list[Opcao]:
 
     guiado = pendente_registro_guiado.get(usuario_id)
     if guiado:
-        return ([("Hoje", "hoje"), ("Ontem", "ontem")] if guiado.get("etapa") == "data" else []) + [_CANCELAR]
+        if guiado.get("etapa") == "data":
+            return [("Hoje", "hoje"), ("Ontem", "ontem"), _CANCELAR]
+        if guiado.get("etapa") == "credor_divida" and guiado.get("parcelamento"):
+            return [("⏭️ Pular", "pular"), _CANCELAR]
+        return [_CANCELAR]
 
     registro = ultimo_registro.get(usuario_id)
     if registro and float(registro.get("ts") or 0) >= desde:

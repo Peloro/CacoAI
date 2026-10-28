@@ -1,0 +1,1498 @@
+{
+ "comprei um blusão parcelado em 12 vezes de 40 reais": {
+  "intencao": "registrar_divida",
+  "valor": 480.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "dividas",
+  "fonte_categoria": "regra",
+  "titulo": "divida blusao",
+  "fonte_titulo": "regra"
+ },
+ "comprei uma tv em 10x de 150": {
+  "intencao": "registrar_divida",
+  "valor": 1500.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "dividas",
+  "fonte_categoria": "regra",
+  "titulo": "divida tv",
+  "fonte_titulo": "regra"
+ },
+ "comprei 12 parcelas de 40 de um tênis": {
+  "intencao": "registrar_divida",
+  "valor": 480.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "dividas",
+  "fonte_categoria": "regra",
+  "titulo": "divida parcelas",
+  "fonte_titulo": "regra"
+ },
+ "comprei uma tv de 1500 em 10x": {
+  "intencao": "registrar_divida",
+  "valor": 1500.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "dividas",
+  "fonte_categoria": "regra",
+  "titulo": "divida tv",
+  "fonte_titulo": "regra"
+ },
+ "comprei uma geladeira de 1000 em 3x sem juros": {
+  "intencao": "registrar_divida",
+  "valor": 1000.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "dividas",
+  "fonte_categoria": "regra",
+  "titulo": "divida geladeira",
+  "fonte_titulo": "regra"
+ },
+ "comprei um tênis em 10x de 50 no nubank": {
+  "intencao": "registrar_divida",
+  "valor": 500.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "dividas",
+  "fonte_categoria": "regra",
+  "titulo": "divida nubank",
+  "fonte_titulo": "regra"
+ },
+ "parcelei o celular em 12x de 100 na renner": {
+  "intencao": "registrar_divida",
+  "valor": 1200.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "dividas",
+  "fonte_categoria": "regra",
+  "titulo": "divida renner",
+  "fonte_titulo": "regra"
+ },
+ "comprei em 10x": {
+  "intencao": "registrar_divida",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "dividas",
+  "fonte_categoria": "regra",
+  "titulo": "divida",
+  "fonte_titulo": "regra"
+ },
+ "gastei 50 no mercado": {
+  "intencao": "registrar_saida",
+  "valor": 50.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "alimentacao",
+  "fonte_categoria": "regra",
+  "titulo": "mercado",
+  "fonte_titulo": "regra"
+ },
+ "gastei 25,90 no almoço": {
+  "intencao": "registrar_saida",
+  "valor": 25.9,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "alimentacao",
+  "fonte_categoria": "regra",
+  "titulo": "almoco",
+  "fonte_titulo": "regra"
+ },
+ "paguei 120 de luz": {
+  "intencao": "registrar_saida",
+  "valor": 120.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "moradia",
+  "fonte_categoria": "regra",
+  "titulo": "luz",
+  "fonte_titulo": "regra"
+ },
+ "comprei um tênis de 300": {
+  "intencao": "registrar_saida",
+  "valor": 300.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "compras",
+  "fonte_categoria": "regra",
+  "titulo": "tenis",
+  "fonte_titulo": "regra"
+ },
+ "torrei 80 na balada ontem": {
+  "intencao": "registrar_saida",
+  "valor": 80.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "lazer",
+  "fonte_categoria": "regra",
+  "titulo": "balada",
+  "fonte_titulo": "regra"
+ },
+ "uber 23 pro trabalho": {
+  "intencao": "registrar_saida",
+  "valor": 23.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "transporte",
+  "fonte_categoria": "regra",
+  "titulo": "uber trabalho",
+  "fonte_titulo": "regra"
+ },
+ "gastei R$ 1.234,56 no aluguel": {
+  "intencao": "registrar_saida",
+  "valor": 1234.56,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "moradia",
+  "fonte_categoria": "regra",
+  "titulo": "aluguel",
+  "fonte_titulo": "regra"
+ },
+ "gastei 15.50 no café": {
+  "intencao": "registrar_saida",
+  "valor": 15.5,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "alimentacao",
+  "fonte_categoria": "regra",
+  "titulo": "cafe",
+  "fonte_titulo": "regra"
+ },
+ "ifood 42": {
+  "intencao": "registrar_saida",
+  "valor": 42.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "alimentacao",
+  "fonte_categoria": "regra",
+  "titulo": "ifood",
+  "fonte_titulo": "regra"
+ },
+ "mandei pix de 60 pro joão": {
+  "intencao": "registrar_saida",
+  "valor": 60.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "pix joao",
+  "fonte_titulo": "regra"
+ },
+ "pix de 30 pro mecanico": {
+  "intencao": "registrar_saida",
+  "valor": 30.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "pix mecanico",
+  "fonte_titulo": "regra"
+ },
+ "passei no cartão 200 no shopping": {
+  "intencao": "registrar_saida",
+  "valor": 200.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "compras",
+  "fonte_categoria": "regra",
+  "titulo": "cartao shopping",
+  "fonte_titulo": "regra"
+ },
+ "gastei 40 no set de pratos": {
+  "intencao": "registrar_saida",
+  "valor": 40.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "set pratos",
+  "fonte_titulo": "regra"
+ },
+ "paguei dez no café": {
+  "intencao": "registrar_saida",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "alimentacao",
+  "fonte_categoria": "regra",
+  "titulo": "cafe",
+  "fonte_titulo": "regra"
+ },
+ "gastei 90 na farmácia anteontem": {
+  "intencao": "registrar_saida",
+  "valor": 90.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "saude",
+  "fonte_categoria": "regra",
+  "titulo": "farmacia",
+  "fonte_titulo": "regra"
+ },
+ "gastei 35 no cinema sexta": {
+  "intencao": "registrar_saida",
+  "valor": 35.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "lazer",
+  "fonte_categoria": "regra",
+  "titulo": "cinema",
+  "fonte_titulo": "regra"
+ },
+ "gastei 70 dia 5": {
+  "intencao": "registrar_saida",
+  "valor": 70.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "lancamento",
+  "fonte_titulo": "regra"
+ },
+ "gastei 18 no pão 10/03": {
+  "intencao": "registrar_saida",
+  "valor": 18.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "alimentacao",
+  "fonte_categoria": "regra",
+  "titulo": "pao",
+  "fonte_titulo": "regra"
+ },
+ "comprei ração 89 pro cachorro": {
+  "intencao": "registrar_saida",
+  "valor": 89.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "pets",
+  "fonte_categoria": "regra",
+  "titulo": "racao cachorro",
+  "fonte_titulo": "regra"
+ },
+ "paguei 49,90 netflix": {
+  "intencao": "registrar_saida",
+  "valor": 49.9,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "lazer",
+  "fonte_categoria": "regra",
+  "titulo": "netflix",
+  "fonte_titulo": "regra"
+ },
+ "gastei 300 de presente pra mãe": {
+  "intencao": "registrar_saida",
+  "valor": 300.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "compras",
+  "fonte_categoria": "regra",
+  "titulo": "presente mae",
+  "fonte_titulo": "regra"
+ },
+ "almoço 32": {
+  "intencao": "registrar_saida",
+  "valor": 32.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "alimentacao",
+  "fonte_categoria": "regra",
+  "titulo": "almoco",
+  "fonte_titulo": "regra"
+ },
+ "gasolina 150": {
+  "intencao": "registrar_saida",
+  "valor": 150.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "transporte",
+  "fonte_categoria": "regra",
+  "titulo": "gasolina",
+  "fonte_titulo": "regra"
+ },
+ "gastei 12 com estacionamento": {
+  "intencao": "registrar_saida",
+  "valor": 12.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "transporte",
+  "fonte_categoria": "regra",
+  "titulo": "estacionamento",
+  "fonte_titulo": "regra"
+ },
+ "paguei o curso de inglês 450": {
+  "intencao": "registrar_saida",
+  "valor": 450.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "educacao",
+  "fonte_categoria": "regra",
+  "titulo": "curso ingles",
+  "fonte_titulo": "regra"
+ },
+ "recebi 3000 de salário": {
+  "intencao": "registrar_entrada",
+  "valor": 3000.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "salario",
+  "fonte_categoria": "regra",
+  "titulo": "salario",
+  "fonte_titulo": "regra"
+ },
+ "ganhei 200 de freela": {
+  "intencao": "registrar_entrada",
+  "valor": 200.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "freelas",
+  "fonte_categoria": "regra",
+  "titulo": "freela",
+  "fonte_titulo": "regra"
+ },
+ "recebi 50 de pix do pedro": {
+  "intencao": "registrar_entrada",
+  "valor": 50.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "pix pedro",
+  "fonte_titulo": "regra"
+ },
+ "caiu 1500 na conta": {
+  "intencao": "registrar_entrada",
+  "valor": 1500.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "conta",
+  "fonte_titulo": "regra"
+ },
+ "me pagaram 300 do freela de design": {
+  "intencao": "registrar_entrada",
+  "valor": 300.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "freelas",
+  "fonte_categoria": "regra",
+  "titulo": "freela design",
+  "fonte_titulo": "regra"
+ },
+ "recebi 25 de cashback": {
+  "intencao": "registrar_entrada",
+  "valor": 25.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "salario",
+  "fonte_categoria": "regra",
+  "titulo": "cashback",
+  "fonte_titulo": "regra"
+ },
+ "entrou 800 do aluguel do quarto": {
+  "intencao": "registrar_entrada",
+  "valor": 800.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "moradia",
+  "fonte_categoria": "regra",
+  "titulo": "aluguel quarto",
+  "fonte_titulo": "regra"
+ },
+ "vendi a bicicleta por 600": {
+  "intencao": "registrar_entrada",
+  "valor": 600.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "transporte",
+  "fonte_categoria": "regra",
+  "titulo": "bicicleta",
+  "fonte_titulo": "regra"
+ },
+ "me transferiram 100": {
+  "intencao": "registrar_entrada",
+  "valor": 100.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "lancamento",
+  "fonte_titulo": "regra"
+ },
+ "recebi reembolso de 80": {
+  "intencao": "registrar_entrada",
+  "valor": 80.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "reembolso",
+  "fonte_titulo": "regra"
+ },
+ "faturei 2000 esse mês": {
+  "intencao": "registrar_entrada",
+  "valor": 2000.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "lancamento",
+  "fonte_titulo": "regra"
+ },
+ "devo 300 pro joão": {
+  "intencao": "registrar_divida",
+  "valor": 300.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "dividas",
+  "fonte_categoria": "regra",
+  "titulo": "divida joao",
+  "fonte_titulo": "regra"
+ },
+ "fiquei devendo 150 pra maria": {
+  "intencao": "registrar_divida",
+  "valor": 150.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "dividas",
+  "fonte_categoria": "regra",
+  "titulo": "divida maria",
+  "fonte_titulo": "regra"
+ },
+ "peguei 500 emprestado com meu irmão": {
+  "intencao": "registrar_divida",
+  "valor": 500.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "dividas",
+  "fonte_categoria": "regra",
+  "titulo": "divida irmao",
+  "fonte_titulo": "regra"
+ },
+ "tenho uma dívida de 1200 no nubank": {
+  "intencao": "registrar_divida",
+  "valor": 1200.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "dividas",
+  "fonte_categoria": "regra",
+  "titulo": "divida nubank",
+  "fonte_titulo": "regra"
+ },
+ "devo 80 ao marcola": {
+  "intencao": "registrar_divida",
+  "valor": 80.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "dividas",
+  "fonte_categoria": "regra",
+  "titulo": "divida marcola",
+  "fonte_titulo": "regra"
+ },
+ "ainda não paguei os 200 do cartão": {
+  "intencao": "registrar_divida",
+  "valor": 200.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "dividas",
+  "fonte_categoria": "regra",
+  "titulo": "divida cartao",
+  "fonte_titulo": "regra"
+ },
+ "estou devendo 90 pra academia": {
+  "intencao": "registrar_divida",
+  "valor": 90.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "dividas",
+  "fonte_categoria": "regra",
+  "titulo": "divida academia",
+  "fonte_titulo": "regra"
+ },
+ "paguei 100 da dívida do joão": {
+  "intencao": "pagar_divida",
+  "valor": 100.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "abati 50 da dívida com a maria": {
+  "intencao": "pagar_divida",
+  "valor": 50.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "paguei o marcola": {
+  "intencao": "registrar_saida",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "marcola",
+  "fonte_titulo": "regra"
+ },
+ "quitei todas as dívidas": {
+  "intencao": "quitar_dividas",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "quitar dívida": {
+  "intencao": "quitar_dividas",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "paguei 200 do empréstimo": {
+  "intencao": "pagar_divida",
+  "valor": 200.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "tenho 300 na conta": {
+  "intencao": "registrar_saldo_inicial",
+  "valor": 300.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "o meu saldo inicial era de 1500 reais": {
+  "intencao": "registrar_saldo_inicial",
+  "valor": 1500.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "meu saldo é 800": {
+  "intencao": "registrar_saldo_inicial",
+  "valor": 800.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "saldo inicial 2000": {
+  "intencao": "registrar_saldo_inicial",
+  "valor": 2000.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "comecei o mês com 1200": {
+  "intencao": "registrar_saldo_inicial",
+  "valor": 1200.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "qual meu saldo?": {
+  "intencao": "consultar_saldo",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "com o que gastei hoje?": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "o que eu comprei ontem?": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "quando recebi?": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "pra quem eu devo?": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "gastei?": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "quanto gastei hoje?": {
+  "intencao": "consultar_total",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "quanto gastei semana passada": {
+  "intencao": "consultar_total",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "o que comprei dia 5?": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "quanto gastei 03/10": {
+  "intencao": "consultar_total",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "paguei 300 mil num carro novo, a vista": {
+  "intencao": "registrar_saida",
+  "valor": 300000.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "transporte",
+  "fonte_categoria": "regra",
+  "titulo": "carro novo",
+  "fonte_titulo": "regra"
+ },
+ "recebi 1,5 mil de bônus": {
+  "intencao": "registrar_entrada",
+  "valor": 1500.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "bonus",
+  "fonte_titulo": "regra"
+ },
+ "gastei 2k no notebook": {
+  "intencao": "registrar_saida",
+  "valor": 2000.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "compras",
+  "fonte_categoria": "regra",
+  "titulo": "notebook",
+  "fonte_titulo": "regra"
+ },
+ "comprei um apartamento de 1 milhão": {
+  "intencao": "registrar_saida",
+  "valor": 1000000.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "apartamento milhao",
+  "fonte_titulo": "regra"
+ },
+ "gastei 15 em 3 milhas aéreas": {
+  "intencao": "registrar_saida",
+  "valor": 15.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "milhas aereas",
+  "fonte_titulo": "regra"
+ },
+ "saldo de março": {
+  "intencao": "consultar_saldo",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "saldo de 2025": {
+  "intencao": "consultar_saldo",
+  "valor": 2025.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "estou com 1500 de saldo": {
+  "intencao": "registrar_saldo_inicial",
+  "valor": 1500.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "resumo": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "resumo do mês passado": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "resumo de fevereiro": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "resumo de janeiro de 2025": {
+  "intencao": "consultar_resumo",
+  "valor": 2025.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "como foi meu ano": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "extrato": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "saldo": {
+  "intencao": "consultar_saldo",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "quanto sobrou": {
+  "intencao": "consultar_saldo",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "quanto tenho disponível": {
+  "intencao": "consultar_saldo",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "quanto gastei esse mês": {
+  "intencao": "consultar_total",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "quanto ganhei": {
+  "intencao": "consultar_total",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "quanto gastei no mês retrasado": {
+  "intencao": "consultar_total",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "total que gastei": {
+  "intencao": "consultar_total",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "listar movimentações": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "listar gastos": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "listar entradas": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "listar dívidas": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "mostra meus gastos de fevereiro": {
+  "intencao": "listar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "ver extrato": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "categorias": {
+  "intencao": "listar_categorias",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "ver categorias de gastos": {
+  "intencao": "listar_categorias",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "quanto gastei em alimentação": {
+  "intencao": "consultar_categoria",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "quanto gastei com transporte": {
+  "intencao": "consultar_categoria",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "categoria lazer": {
+  "intencao": "consultar_categoria",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "me fala sobre transporte": {
+  "intencao": "consultar_categoria",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "quanto gastei em 2025": {
+  "intencao": "consultar_total",
+  "valor": 2025.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "apagar #12": {
+  "intencao": "apagar_movimentacao",
+  "valor": 12.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "apagar o último gasto": {
+  "intencao": "apagar_movimentacao",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "apaga a última entrada": {
+  "intencao": "apagar_movimentacao",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "remover o mercado": {
+  "intencao": "apagar_movimentacao",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "excluir lançamento 7": {
+  "intencao": "apagar_movimentacao",
+  "valor": 7.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "deletar café": {
+  "intencao": "apagar_movimentacao",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "apagar": {
+  "intencao": "apagar_movimentacao",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "editar #12": {
+  "intencao": "editar_movimentacao",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "editar #12 para 45": {
+  "intencao": "editar_movimentacao",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "corrigir o mercado para 60": {
+  "intencao": "editar_movimentacao",
+  "valor": 60.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "alterar valor do uber para 30": {
+  "intencao": "editar_movimentacao",
+  "valor": 30.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "muda o almoço pra 28": {
+  "intencao": "editar_movimentacao",
+  "valor": 28.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "trocar #5 por 100": {
+  "intencao": "editar_movimentacao",
+  "valor": 100.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "limpar gastos": {
+  "intencao": "limpar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "limpar tudo": {
+  "intencao": "limpar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "limpar todas as movimentações": {
+  "intencao": "limpar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "zerar entradas": {
+  "intencao": "limpar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "apagar todos os gastos": {
+  "intencao": "limpar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "limpar gastos de fevereiro": {
+  "intencao": "limpar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "limpar tudo de 2025": {
+  "intencao": "limpar_movimentacoes",
+  "valor": 2025.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "apagar todos os gastos do histórico inteiro": {
+  "intencao": "limpar_movimentacoes",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "posso gastar 200 num tênis?": {
+  "intencao": "posso_gastar",
+  "valor": 200.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "vou comprar um celular de 2000, vale a pena?": {
+  "intencao": "posso_gastar",
+  "valor": 2000.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "dá pra gastar 50 hoje?": {
+  "intencao": "posso_gastar",
+  "valor": 50.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "será que consigo comprar uma tv de 3000 parcelado?": {
+  "intencao": "posso_gastar",
+  "valor": 3000.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "quero comprar um notebook de 4000 em 10 vezes, fica ruim?": {
+  "intencao": "posso_gastar",
+  "valor": 4000.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "posso gastar?": {
+  "intencao": "posso_gastar",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "me dá uma dica": {
+  "intencao": "pedir_dica",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "dicas financeiras": {
+  "intencao": "pedir_dica",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "como reduzir gastos": {
+  "intencao": "pedir_dica",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "como economizar mais": {
+  "intencao": "pedir_dica",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "desfazer": {
+  "intencao": "desfazer_ultimo",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "desfaz o último": {
+  "intencao": "desfazer_ultimo",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "voltar atrás": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "quero registrar um gasto": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "registrar entrada": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "anotar dívida": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "gastei": {
+  "intencao": "registrar_saida",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "lancamento",
+  "fonte_titulo": "regra"
+ },
+ "recebi": {
+  "intencao": "registrar_entrada",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "lancamento",
+  "fonte_titulo": "regra"
+ },
+ "devo": {
+  "intencao": "registrar_divida",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "dividas",
+  "fonte_categoria": "regra",
+  "titulo": "divida",
+  "fonte_titulo": "regra"
+ },
+ "oi": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "bom dia": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "obrigado": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "valeu, tchau": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "ajuda": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "o que você faz?": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "qual a capital da frança": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "kkkkkk": {
+  "intencao": "conversa_geral",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "gasteiii 20 no lanche hj": {
+  "intencao": "registrar_saida",
+  "valor": 20.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "alimentacao",
+  "fonte_categoria": "regra",
+  "titulo": "lanche",
+  "fonte_titulo": "regra"
+ },
+ "qnt gastei": {
+  "intencao": "consultar_total",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "apagaaa o ultimo": {
+  "intencao": "apagar_movimentacao",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "resumoooo": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "recebii 100": {
+  "intencao": "registrar_entrada",
+  "valor": 100.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "lancamento",
+  "fonte_titulo": "regra"
+ },
+ "gastei 16 no almoço e recebi 20 de pix": {
+  "intencao": "registrar_entrada",
+  "valor": 16.0,
+  "multiplos": true,
+  "pergunta_1_ou_2": null,
+  "categoria": "alimentacao",
+  "fonte_categoria": "regra",
+  "titulo": "almoco pix",
+  "fonte_titulo": "regra"
+ },
+ "recebi 100 e gastei 30": {
+  "intencao": "registrar_saida",
+  "valor": 100.0,
+  "multiplos": true,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "lancamento",
+  "fonte_titulo": "regra"
+ },
+ "paguei 50 e recebi 70 de volta": {
+  "intencao": "registrar_entrada",
+  "valor": 50.0,
+  "multiplos": true,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "volta",
+  "fonte_titulo": "regra"
+ },
+ "gastei 30 semana passada": {
+  "intencao": "posso_gastar",
+  "valor": 30.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "gastei 45 no começo do mês": {
+  "intencao": "registrar_saida",
+  "valor": 45.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "lancamento",
+  "fonte_titulo": "regra"
+ },
+ "gastei 60 em 2026-02": {
+  "intencao": "registrar_saida",
+  "valor": 60.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "lancamento",
+  "fonte_titulo": "regra"
+ },
+ "gastei 22 na segunda passada": {
+  "intencao": "posso_gastar",
+  "valor": 22.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "gastei 15 amanhã": {
+  "intencao": "registrar_saida",
+  "valor": 15.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "lancamento",
+  "fonte_titulo": "regra"
+ },
+ "gastei 33 em 03/2026": {
+  "intencao": "registrar_saida",
+  "valor": 33.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "lancamento",
+  "fonte_titulo": "regra"
+ },
+ "resumo de março": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "resumo deste mês": {
+  "intencao": "consultar_resumo",
+  "valor": null,
+  "multiplos": false,
+  "pergunta_1_ou_2": null
+ },
+ "almocei fora 38": {
+  "intencao": "registrar_saida",
+  "valor": 38.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "lancamento",
+  "fonte_titulo": "regra"
+ },
+ "comprei 2 camisas por 80": {
+  "intencao": "registrar_saida",
+  "valor": 80.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "camisas",
+  "fonte_titulo": "regra"
+ },
+ "comprei um fone de 150": {
+  "intencao": "registrar_saida",
+  "valor": 150.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "compras",
+  "fonte_categoria": "regra",
+  "titulo": "fone",
+  "fonte_titulo": "regra"
+ },
+ "gastei 12,50 na padaria": {
+  "intencao": "registrar_saida",
+  "valor": 12.5,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "alimentacao",
+  "fonte_categoria": "regra",
+  "titulo": "padaria",
+  "fonte_titulo": "regra"
+ },
+ "gastei 200 de presente pro meu pai": {
+  "intencao": "registrar_saida",
+  "valor": 200.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "compras",
+  "fonte_categoria": "regra",
+  "titulo": "presente pai",
+  "fonte_titulo": "regra"
+ },
+ "gastei 33 no lanche da tarde": {
+  "intencao": "registrar_saida",
+  "valor": 33.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "alimentacao",
+  "fonte_categoria": "regra",
+  "titulo": "lanche",
+  "fonte_titulo": "regra"
+ },
+ "gastei 35 no jantar com amigos": {
+  "intencao": "registrar_saida",
+  "valor": 35.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "alimentacao",
+  "fonte_categoria": "regra",
+  "titulo": "jantar amigos",
+  "fonte_titulo": "regra"
+ },
+ "gastei 45 no posto de gasolina": {
+  "intencao": "registrar_saida",
+  "valor": 45.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "transporte",
+  "fonte_categoria": "regra",
+  "titulo": "posto gasolina",
+  "fonte_titulo": "regra"
+ },
+ "gastei 70 em coisa": {
+  "intencao": "registrar_saida",
+  "valor": 70.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "lancamento",
+  "fonte_titulo": "regra"
+ },
+ "gastei 90 com remédio": {
+  "intencao": "registrar_saida",
+  "valor": 90.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "saude",
+  "fonte_categoria": "regra",
+  "titulo": "remedio",
+  "fonte_titulo": "regra"
+ },
+ "paguei 1.200,00 de aluguel": {
+  "intencao": "registrar_saida",
+  "valor": 1200.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "moradia",
+  "fonte_categoria": "regra",
+  "titulo": "aluguel",
+  "fonte_titulo": "regra"
+ },
+ "paguei 25 de estacionamento no shopping": {
+  "intencao": "registrar_saida",
+  "valor": 25.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "transporte",
+  "fonte_categoria": "regra",
+  "titulo": "estacionamento shopping",
+  "fonte_titulo": "regra"
+ },
+ "paguei 30 de lancamento": {
+  "intencao": "registrar_saida",
+  "valor": 30.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "lancamento",
+  "fonte_titulo": "regra"
+ },
+ "paguei 60 no barbeiro": {
+  "intencao": "registrar_saida",
+  "valor": 60.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "servicos",
+  "fonte_categoria": "regra",
+  "titulo": "barbeiro",
+  "fonte_titulo": "regra"
+ },
+ "paguei 89 de internet": {
+  "intencao": "registrar_saida",
+  "valor": 89.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "moradia",
+  "fonte_categoria": "regra",
+  "titulo": "internet",
+  "fonte_titulo": "regra"
+ },
+ "pix de 40 pra ana": {
+  "intencao": "registrar_saida",
+  "valor": 40.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "pix ana",
+  "fonte_titulo": "regra"
+ },
+ "recebi 500 de reembolso da empresa": {
+  "intencao": "registrar_entrada",
+  "valor": 500.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "reembolso empresa",
+  "fonte_titulo": "regra"
+ },
+ "sai com minha amiga e gastei 80": {
+  "intencao": "registrar_saida",
+  "valor": 80.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "outros",
+  "fonte_categoria": "padrao",
+  "titulo": "amiga",
+  "fonte_titulo": "regra"
+ },
+ "uber 18 voltando da festa": {
+  "intencao": "registrar_saida",
+  "valor": 18.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "transporte",
+  "fonte_categoria": "regra",
+  "titulo": "uber festa",
+  "fonte_titulo": "regra"
+ },
+ "uber 30 voltando da festa": {
+  "intencao": "registrar_saida",
+  "valor": 30.0,
+  "multiplos": false,
+  "pergunta_1_ou_2": null,
+  "categoria": "transporte",
+  "fonte_categoria": "regra",
+  "titulo": "uber festa",
+  "fonte_titulo": "regra"
+ }
+}

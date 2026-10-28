@@ -5,6 +5,7 @@ import re
 from datetime import date
 
 from app.dados import (
+    a_pagar_ate,
     apagar_divida_por_id,
     atualizar_valor_divida,
     buscar_dividas_por_descricao,
@@ -12,6 +13,7 @@ from app.dados import (
     obter_divida_por_id,
     quitar_dividas,
     registrar_movimentacao,
+    valor_de_parcelas,
 )
 from app.financeiro import formatar_real
 from app.conversa.confirmacao import (
@@ -31,27 +33,73 @@ from app.conversa.textos import (
     ascii_lower,
     normalizar_credor_texto,
     normalizar_descricao_registro,
+    palavras_de_conteudo,
 )
 
 
 _RE_VERBO_PAGAMENTO = re.compile(r"\b(?:paguei|pago|quitei|abati|amortizei|acertei|devolvi)\b")
+# "quitei o blusão" / "paguei o blusão todo": numa parcelada, paga tudo o que falta (e não uma parcela).
+_RE_PAGAR_TUDO = re.compile(r"\b(?:quitei|liquidei|tod[oa]|tudo|inteir[oa])\b")
 
 
-def credor_de_divida_mencionado(usuario_id: int, mensagem: str) -> str | None:
-    """Credor de uma dívida em aberto citado numa frase de pagamento ("paguei a maria", "acertei com o joão").
+def divida_mencionada(usuario_id: int, mensagem: str) -> dict | None:
+    """Dívida em aberto citada numa frase de pagamento: pelo credor ("paguei a maria", "acertei com o joão")
+    ou, na parcelada, pelo item ("paguei o blusão").
 
-    Usa as dívidas reais do usuário em vez de padrões de preposição: qualquer forma de citar o credor serve.
+    Usa as dívidas reais do usuário em vez de padrões de preposição: qualquer forma de citá-la serve.
     """
     texto = ascii_lower(mensagem)
     if not _RE_VERBO_PAGAMENTO.search(texto):
         return None
     palavras = set(re.findall(r"[a-z0-9]+", texto))
+    # Pelo item, só quando a frase não fala de mais nada: "paguei 30 de tv a cabo" é outro gasto, não a parcela da tv.
+    conteudo = set(palavras_de_conteudo(mensagem)) - _NAO_SAO_ITEM
     for divida in listar_dividas_recentes(usuario_id, limite=50, ano_mes=None):
-        credor = normalizar_credor_texto(divida.get("credor") or "")
-        tokens = [t for t in re.findall(r"[a-z0-9]+", ascii_lower(credor)) if len(t) >= 2]
-        if tokens and all(t in palavras for t in tokens):
-            return credor
+        credor = _tokens_de_citacao(divida.get("credor") or "")
+        if credor and credor <= palavras:
+            return divida
+        item = _tokens_de_citacao(divida.get("descricao") or "") if divida.get("parcelas") else set()
+        if item and item <= palavras and conteudo <= item:
+            return divida
     return None
+
+
+_NAO_SAO_ITEM = {"todo", "toda", "tudo", "inteiro", "inteira", "parcela", "parcelas", "divida", "dividas"}
+
+
+def _tokens_de_citacao(texto: str) -> set[str]:
+    return {t for t in re.findall(r"[a-z0-9]+", ascii_lower(normalizar_credor_texto(texto))) if len(t) >= 2}
+
+
+def valor_do_pagamento(divida: dict, parcelas_pagamento: int | None, pagar_tudo: bool) -> float:
+    """Quanto paga um pagamento sem valor dito: parcelada → N parcelas (1 se não disser), o que vence no mês
+    ("as parcelas", N = 0) ou tudo; comum → tudo."""
+    valor = float(divida.get("valor") or 0.0)
+    if not divida.get("parcelas") or pagar_tudo:
+        return valor
+    if parcelas_pagamento == 0:
+        vence = a_pagar_ate(divida, date.today().strftime("%Y-%m"))
+        return vence or valor_de_parcelas(divida, 1)
+    return valor_de_parcelas(divida, parcelas_pagamento or 1)
+
+
+def _marcar_alvo_parcelado(parsed: dict, divida: dict) -> None:
+    """Guarda parcelas e valor da parcela da dívida alvo, para a prévia mostrar "3 de 12"."""
+    if divida.get("parcelas"):
+        parsed["_parcelamento_alvo"] = {"parcelas": int(divida["parcelas"]), "valor_parcela": float(divida["valor_parcela"])}
+
+
+def _candidata(divida: dict) -> dict:
+    """Dívida como fica guardada na lista de escolha do pagamento."""
+    return {
+        "id": int(divida.get("id") or 0),
+        "valor": float(divida.get("valor", 0.0) or 0.0),
+        "descricao": divida.get("descricao") or "dívida",
+        "credor": divida.get("credor") or "",
+        "data_ref": divida.get("data_ref") or date.today().isoformat(),
+        "parcelas": divida.get("parcelas"),
+        "valor_parcela": divida.get("valor_parcela"),
+    }
 
 
 def registrar_saida_pagamento_divida(usuario_id: int, valor: float, descricao: str, data_ref: str | None) -> int:
@@ -126,10 +174,13 @@ def tentar_inferir_pagamento_divida_sem_valor(usuario_id: int, parsed: dict, mes
         candidatas = buscar_dividas_por_descricao(usuario_id, descricao, ano_mes=mes_ref)
 
     if credor:
-        if not candidatas:
-            candidatas = listar_dividas_recentes(usuario_id, limite=20, ano_mes=mes_ref)
-        credor_norm = ascii_lower(credor)
-        candidatas = [d for d in candidatas if credor_norm in ascii_lower(d.get("credor") or "")]
+        por_credor = [
+            d for d in (candidatas or listar_dividas_recentes(usuario_id, limite=20, ano_mes=mes_ref))
+            if ascii_lower(credor) in ascii_lower(d.get("credor") or "")
+        ]
+        # "a parcela do blusão": o parser lê "blusão" como credor; sem dívida desse credor, vale a busca pelo item.
+        if por_credor or not candidatas:
+            candidatas = por_credor
 
     if descricao and candidatas:
         desc_norm = ascii_lower(descricao)
@@ -146,21 +197,17 @@ def tentar_inferir_pagamento_divida_sem_valor(usuario_id: int, parsed: dict, mes
             "Se quiser, diga o valor (ex.: `paguei 20 pro marcola`) ou liste suas dívidas para escolher."
         )
 
+    parcelas_pagamento = parsed.get("parcelas_pagamento")
+    pagar_tudo = bool(_RE_PAGAR_TUDO.search(ascii_lower(parsed.get("_mensagem_original") or "")))
+
     if len(candidatas) > 1:
         pendente_pagamento_divida[usuario_id] = {
-            "candidatas": [
-                {
-                    "id": int(d.get("id") or 0),
-                    "valor": float(d.get("valor", 0.0) or 0.0),
-                    "descricao": d.get("descricao") or "dívida",
-                    "credor": d.get("credor") or "",
-                    "data_ref": d.get("data_ref") or date.today().isoformat(),
-                }
-                for d in candidatas
-            ],
+            "candidatas": [_candidata(d) for d in candidatas],
             "mes_referencia": mes_ref,
             "descricao_contexto": descricao,
             "credor_contexto": credor,
+            "parcelas_pagamento": parcelas_pagamento,
+            "pagar_tudo": pagar_tudo,
         }
         linhas = []
         for d in candidatas[:3]:
@@ -176,10 +223,11 @@ def tentar_inferir_pagamento_divida_sem_valor(usuario_id: int, parsed: dict, mes
         )
 
     alvo = candidatas[0]
-    parsed["valor"] = float(alvo.get("valor", 0.0) or 0.0)
+    parsed["valor"] = valor_do_pagamento(alvo, parcelas_pagamento, pagar_tudo)
     parsed["descricao"] = normalizar_descricao_registro(alvo.get("descricao") or descricao or "divida")
     parsed["credor_divida"] = normalizar_credor_texto(alvo.get("credor") or credor)
     parsed["id_divida_alvo"] = int(alvo.get("id") or 0)
+    _marcar_alvo_parcelado(parsed, alvo)
     return None
 
 
@@ -233,6 +281,9 @@ def tentar_match_pagamento_divida_com_valor(
         desc_db = ascii_lower(d.get("descricao") or "")
         texto_db = f"{desc_db} {credor_db}".strip()
         tokens_db = {tok for tok in re.findall(r"[a-z0-9]+", texto_db) if len(tok) >= 2}
+        # Parcelada só quando a frase não cita nada além do item/credor ("paguei 30 de tv a cabo" é outro gasto).
+        if d.get("parcelas") and not (hint_tokens - _NAO_SAO_ITEM) <= tokens_db:
+            continue
 
         score = 0
         if credor_hint and credor_db:
@@ -278,20 +329,12 @@ def tentar_match_pagamento_divida_com_valor(
     if top_score >= 5 and (len(scored) == 1 or (top_score - second_score) >= 2):
         parsed["id_divida_alvo"] = int(top.get("id") or 0)
         parsed["credor_divida"] = normalizar_credor_texto(top.get("credor") or parsed.get("credor_divida") or "")
+        _marcar_alvo_parcelado(parsed, top)
         return None
 
     top_candidates = [d for _, d in scored[:3]]
     pendente_pagamento_divida[usuario_id] = {
-        "candidatas": [
-            {
-                "id": int(d.get("id") or 0),
-                "valor": float(d.get("valor", 0.0) or 0.0),
-                "descricao": d.get("descricao") or "dívida",
-                "credor": d.get("credor") or "",
-                "data_ref": d.get("data_ref") or date.today().isoformat(),
-            }
-            for d in top_candidates
-        ],
+        "candidatas": [_candidata(d) for d in top_candidates],
         "mes_referencia": mes_ref,
         "descricao_contexto": parsed.get("descricao") or "",
         "credor_contexto": parsed.get("credor_divida") or "",
@@ -314,7 +357,8 @@ def tentar_match_pagamento_divida_com_valor(
 
 def pagar_divida_por_id_especifico(usuario_id: int, divida_id: int, valor_pago: float) -> dict:
     """Aplica pagamento em uma dívida específica (por ID), sem distribuir em outras."""
-    valor = float(valor_pago or 0.0)
+    # Centavos arredondados, como em pagar_divida: sem isso sobra uma dívida de 1e-13 que nunca some.
+    valor = round(float(valor_pago or 0.0), 2)
     if valor <= 0:
         return {
             "valor_aplicado": 0.0,
@@ -334,7 +378,7 @@ def pagar_divida_por_id_especifico(usuario_id: int, divida_id: int, valor_pago: 
             "credor": "",
         }
 
-    valor_divida = float(divida.get("valor", 0.0) or 0.0)
+    valor_divida = round(float(divida.get("valor", 0.0) or 0.0), 2)
     credor = normalizar_credor_texto(divida.get("credor") or "")
     if valor_divida <= 0:
         return {
@@ -349,13 +393,13 @@ def pagar_divida_por_id_especifico(usuario_id: int, divida_id: int, valor_pago: 
         executar_operacao_mutavel("pagar_divida_por_id", apagar_divida_por_id, usuario_id, int(divida_id))
         return {
             "valor_aplicado": valor_divida,
-            "valor_sobrou": float(valor - valor_divida),
+            "valor_sobrou": round(valor - valor_divida, 2),
             "qtd_quitadas": 1,
             "qtd_atualizadas": 0,
             "credor": credor,
         }
 
-    novo_valor = float(valor_divida - valor)
+    novo_valor = round(valor_divida - valor, 2)
     executar_operacao_mutavel("pagar_divida_por_id", atualizar_valor_divida, usuario_id, int(divida_id), novo_valor)
     return {
         "valor_aplicado": valor,
@@ -386,7 +430,9 @@ def processar_pendente_pagamento_divida(usuario_id: int, mensagem: str) -> str:
         if numero in candidatas_por_id:
             alvo = candidatas_por_id[numero]
             valor_fixo = float(pendente.get("valor_fixo") or 0.0)
-            valor_pagamento = valor_fixo if valor_fixo > 0 else float(alvo.get("valor", 0.0) or 0.0)
+            valor_pagamento = valor_fixo if valor_fixo > 0 else valor_do_pagamento(
+                alvo, pendente.get("parcelas_pagamento"), bool(pendente.get("pagar_tudo"))
+            )
             parsed_confirmacao = {
                 "intencao": "pagar_divida",
                 "valor": valor_pagamento,
@@ -398,6 +444,7 @@ def processar_pendente_pagamento_divida(usuario_id: int, mensagem: str) -> str:
                 "id_divida_alvo": int(alvo.get("id") or 0),
                 "_mensagem_original": mensagem,
             }
+            _marcar_alvo_parcelado(parsed_confirmacao, alvo)
             pendente_pagamento_divida.pop(usuario_id, None)
             parsed_confirmacao = enriquecer_preview_operacao(usuario_id, parsed_confirmacao)
             iniciar_confirmacao_operacao(usuario_id, parsed=parsed_confirmacao)

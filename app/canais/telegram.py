@@ -3,6 +3,7 @@ import html
 import logging
 import re
 import time
+from datetime import date
 from uuid import uuid4
 
 import httpx
@@ -10,10 +11,12 @@ import httpx
 from app.config import TELEGRAM_BOT_TOKEN, TG_POLL_TIMEOUT, TG_SEND_TYPING
 from app.conversa import processar_mensagem_com_opcoes
 from app.dados import init_db
+from app.dados.conexao import backup_do_dia
 
 log = logging.getLogger("caco.telegram")
 
-_MAX_MSG_LENGTH = 4096
+# O Telegram aceita 4096 caracteres já em HTML; as tags e os "&amp;" somados depois do corte ocupam espaço.
+_MAX_MSG_LENGTH = 3500
 # Marcação simples usada nas respostas do bot -> tag HTML aceita pelo Telegram.
 _MARCACOES = (
     (re.compile(r"`([^`\n]+)`"), "code"),
@@ -62,15 +65,27 @@ def _split_text(text: str, limit: int = _MAX_MSG_LENGTH) -> list[str]:
 
 
 def _post_with_retry(client: httpx.Client, url: str, payload: dict, retries: int = 2) -> dict | None:
-    """POST com retry para falhas transitórias de rede/5xx."""
+    """POST com retry para falhas transitórias de rede/5xx e para o "espere N segundos" (429) do Telegram."""
     delay = 1.0
+    metodo = url.rsplit("/", 1)[-1]  # a URL tem o token do bot: só o método vai para o log
 
     for attempt in range(retries + 1):
         try:
             response = client.post(url, json=payload)
 
             if response.status_code < 500:
-                return response.json()
+                data = response.json()
+                if not data.get("ok"):
+                    descricao = data.get("description") or ""
+                    espera = (data.get("parameters") or {}).get("retry_after")
+                    if response.status_code == 429 and espera and attempt < retries:
+                        log.warning("Telegram pediu %ss de pausa em %s.", espera, metodo)
+                        time.sleep(min(float(espera), 30.0))
+                        continue
+                    # Recusa (ex.: texto inválido): sem este aviso a pessoa fica sem resposta e ninguém sabe por quê.
+                    if "message is not modified" not in descricao:
+                        log.warning("Telegram recusou %s (%s): %s", metodo, response.status_code, descricao)
+                return data
 
             log.warning("Telegram 5xx (tentativa %d/%d): %s", attempt + 1, retries + 1, response.text)
         except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as exc:
@@ -95,10 +110,28 @@ def _teclado(opcoes: list[tuple[str, str]]) -> dict:
     return {"inline_keyboard": linhas}
 
 
+# Chat -> mensagem com os botões que valem agora. Botões de mensagens anteriores responderiam à pergunta atual
+# ("Desfazer" antigo desfaria o registro mais novo), então são removidos a cada nova resposta.
+# shortcut: fica em memória; após reiniciar o bot, botões antigos voltam a valer até a próxima resposta.
+_mensagem_com_botoes: dict[int, int] = {}
+
+
+def _remover_botoes(client: httpx.Client, base_url: str, chat_id: int, message_id: int) -> None:
+    _post_with_retry(client, f"{base_url}/editMessageReplyMarkup", {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "reply_markup": {"inline_keyboard": []},
+    })
+
+
 def _send_message(
     client: httpx.Client, base_url: str, chat_id: int, text: str, opcoes: list[tuple[str, str]] | None = None
 ) -> None:
     """Envia mensagem para o chat, lidando com textos longos; os botões vão na última parte."""
+    anterior = _mensagem_com_botoes.pop(chat_id, None)
+    if anterior:
+        _remover_botoes(client, base_url, chat_id, anterior)
+
     partes = _split_text(text)
     for i, part in enumerate(partes):
         payload = {
@@ -107,9 +140,13 @@ def _send_message(
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }
-        if opcoes and i == len(partes) - 1:
+        com_botoes = bool(opcoes) and i == len(partes) - 1
+        if com_botoes:
             payload["reply_markup"] = _teclado(opcoes)
-        _post_with_retry(client, f"{base_url}/sendMessage", payload)
+        enviada = _post_with_retry(client, f"{base_url}/sendMessage", payload)
+        message_id = ((enviada or {}).get("result") or {}).get("message_id")
+        if com_botoes and message_id:
+            _mensagem_com_botoes[chat_id] = message_id
 
 
 def tratar_update(client: httpx.Client, base_url: str, update: dict) -> None:
@@ -119,14 +156,18 @@ def tratar_update(client: httpx.Client, base_url: str, update: dict) -> None:
         mensagem_origem = callback.get("message") or {}
         chat_id = (mensagem_origem.get("chat") or {}).get("id")
         text = (callback.get("data") or "").strip()
-        _post_with_retry(client, f"{base_url}/answerCallbackQuery", {"callback_query_id": callback.get("id")})
-        if chat_id and mensagem_origem.get("message_id"):
+        message_id = mensagem_origem.get("message_id")
+        antigo = bool(chat_id and message_id) and _mensagem_com_botoes.get(chat_id, message_id) != message_id
+        resposta_toque = {"callback_query_id": callback.get("id")}
+        if antigo:
+            resposta_toque["text"] = "Esse botão é de uma mensagem antiga. Use os da última mensagem."
+        _post_with_retry(client, f"{base_url}/answerCallbackQuery", resposta_toque)
+        if chat_id and message_id:
             # Remove os botões já usados para evitar toque duplo.
-            _post_with_retry(client, f"{base_url}/editMessageReplyMarkup", {
-                "chat_id": chat_id,
-                "message_id": mensagem_origem["message_id"],
-                "reply_markup": {"inline_keyboard": []},
-            })
+            _remover_botoes(client, base_url, chat_id, message_id)
+        if antigo:
+            return
+        _mensagem_com_botoes.pop(chat_id, None)
     else:
         message = update.get("message") or {}
         text = (message.get("text") or "").strip()
@@ -162,7 +203,14 @@ def executar() -> None:
         # Se houver webhook configurado, remove para usar polling.
         _post_with_retry(client, f"{base_url}/deleteWebhook", {"drop_pending_updates": False})
 
+        dia_do_backup = None
         while True:
+            if dia_do_backup != date.today():
+                dia_do_backup = date.today()  # uma tentativa por dia, mesmo se falhar
+                try:
+                    backup_do_dia()
+                except Exception:
+                    log.exception("Falha no backup diário do banco.")
             try:
                 payload = {"timeout": TG_POLL_TIMEOUT, "allowed_updates": ["message", "callback_query"]}
                 if offset is not None:

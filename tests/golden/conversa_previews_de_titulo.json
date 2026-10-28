@@ -1,0 +1,162 @@
+[
+ [
+  "gastei 50 no mercado",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 50,00\n• Título: mercado\n• Categoria: alimentacao\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "comprei um tênis de 300",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 300,00\n• Título: tenis\n• Categoria: compras\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "ifood 42",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 42,00\n• Título: ifood\n• Categoria: alimentacao\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "mandei pix de 60 pro joão",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 60,00\n• Título: pix joao\n• Categoria: outros\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "recebi 50 de pix do pedro",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar entrada\n• Valor: R$ 50,00\n• Título: pix pedro\n• Categoria: outros\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "me pagaram 300 do freela de design",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar entrada\n• Valor: R$ 300,00\n• Título: freela design\n• Categoria: freelas\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "recebi 25 de cashback",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar entrada\n• Valor: R$ 25,00\n• Título: cashback\n• Categoria: salario\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "entrou 800 do aluguel do quarto",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar entrada\n• Valor: R$ 800,00\n• Título: aluguel quarto\n• Categoria: moradia\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "devo 300 pro joão",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar dívida\n• Valor: R$ 300,00\n• Título: divida joao\n• Credor: joão\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "peguei 500 emprestado com meu irmão",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar dívida\n• Valor: R$ 500,00\n• Título: divida irmao\n• Credor: irmão\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "tenho uma dívida de 1200 no nubank",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar dívida\n• Valor: R$ 1.200,00\n• Título: divida nubank\n• Credor: nubank\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "gastei 35 no jantar com amigos",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 35,00\n• Título: jantar amigos\n• Categoria: alimentacao\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "sai com minha amiga e gastei 80",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 80,00\n• Título: amiga\n• Categoria: outros\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "uber 30 voltando da festa",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 30,00\n• Título: uber festa\n• Categoria: transporte\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "paguei 49,90 netflix",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 49,90\n• Título: netflix\n• Categoria: lazer\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "gastei 12 com estacionamento",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 12,00\n• Título: estacionamento\n• Categoria: transporte\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "paguei 30 de lancamento",
+  "Perfeito, já anotei o valor de R$ 30,00.\nAgora me diga a *descricao* da saida (ex.: `almoco`, `salario`, `nubank`)."
+ ],
+ [
+  "cancelar",
+  "Beleza, cancelei esse registro guiado."
+ ],
+ [
+  "gastei 300 de presente pra mãe",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar gasto\n• Valor: R$ 300,00\n• Título: presente mae\n• Categoria: compras\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "tenho 300 na conta",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar saldo inicial\n• Valor: R$ 300,00\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "cancelar",
+  "Beleza, operação cancelada."
+ ],
+ [
+  "gastei 70 em coisa",
+  "Perfeito, já anotei o valor de R$ 70,00.\nAgora me diga a *descricao* da saida (ex.: `almoco`, `salario`, `nubank`)."
+ ],
+ [
+  "cancelar",
+  "Beleza, cancelei esse registro guiado."
+ ]
+]

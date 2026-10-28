@@ -1,0 +1,70 @@
+[
+ [
+  "comprei um blusão parcelado em 12 vezes de 40 reais",
+  "Perfeito, já anotei: blusão.\nAgora informe o *credor* (cartão ou loja, ex.: `nubank`) ou `pular`."
+ ],
+ [
+  "pular",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar dívida parcelada\n• Item: blusão\n• Parcelas: 12x de R$ 40,00 (total R$ 480,00)\n• 1ª parcela: <MES>\n• Credor: parcelado\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Dívida parcelada registrada! 🧾\n📝 Blusão — 12x de R$ 40,00 (total R$ 480,00)\n👤 Credor: parcelado\n📅 1ª parcela: <MES>\n💳 A pagar este mês: R$ 40,00"
+ ],
+ [
+  "resumo",
+  "📊 *Resumo do mês*\n\n💰 Entrou: R$ 0,00\n💸 Saiu (sem dívidas): R$ 0,00\n✅ Sobra: R$ 0,00\n\n🟠 *Dívidas:*\n🧾 Parcelas do mês: R$ 40,00"
+ ],
+ [
+  "listar dívidas",
+  "🧾 *Suas dívidas em aberto:*\n\n🧾 blusão — R$ 40,00 este mês • 0/12 pagas • faltam R$ 480,00 _(#1 - <HOJE_DM>)_ • credor: parcelado\n\n💡 _Dica: para editar, use \"editar #ID para NOVO_VALOR\"_"
+ ],
+ [
+  "paguei a parcela do blusão",
+  "Antes de executar, confirma esta operação:\n\n• Operação: pagar divida\n• Valor: R$ 40,00\n• Parcelas: 1 de 12 (R$ 40,00)\n• Credor: parcelado\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Pagamento de dívida registrado com *parcelado*!\n💸 Valor aplicado: R$ 40,00\n🧾 Quitadas: 0 | Atualizadas: 1\n💸 Saída registrada: R$ 40,00\n📆 1/12 pagas • faltam R$ 440,00"
+ ],
+ [
+  "paguei 3 parcelas do blusão",
+  "Antes de executar, confirma esta operação:\n\n• Operação: pagar divida\n• Valor: R$ 120,00\n• Parcelas: 3 de 12 (R$ 120,00)\n• Credor: parcelado\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Pagamento de dívida registrado com *parcelado*!\n💸 Valor aplicado: R$ 120,00\n🧾 Quitadas: 0 | Atualizadas: 1\n💸 Saída registrada: R$ 120,00\n📆 4/12 pagas • faltam R$ 320,00"
+ ],
+ [
+  "paguei 50 do blusão",
+  "Antes de executar, confirma esta operação:\n\n• Operação: pagar divida\n• Valor: R$ 50,00\n• Credor: parcelado\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Pagamento de dívida registrado com *parcelado*!\n💸 Valor aplicado: R$ 50,00\n🧾 Quitadas: 0 | Atualizadas: 1\n💸 Saída registrada: R$ 50,00\n📆 5/12 pagas • faltam R$ 270,00"
+ ],
+ [
+  "a primeira parcela do blusão vence mês que vem",
+  "Antes de executar, confirma esta operação:\n\n• Operação: editar lançamento\n• Título: blusão\n• Credor: parcelado\n• ID alvo: #1\n• Tipo de registro: dívida\n• Valor atual: R$ 270,00\n• 1ª parcela: <MES_SEGUINTE>\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Dívida atualizada com sucesso!\n• #1 Blusão (credor: parcelado)\n• 1ª parcela: <MES> → <MES_SEGUINTE>"
+ ],
+ [
+  "listar dívidas",
+  "🧾 *Suas dívidas em aberto:*\n\n🧾 blusão — R$ 0,00 este mês • 5/12 pagas • faltam R$ 270,00 _(#1 - <HOJE_DM>)_ • credor: parcelado\n\n💡 _Dica: para editar, use \"editar #ID para NOVO_VALOR\"_"
+ ],
+ [
+  "quitei o blusão",
+  "Antes de executar, confirma esta operação:\n\n• Operação: pagar divida\n• Valor: R$ 270,00\n• Credor: parcelado\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Pagamento de dívida registrado com *parcelado*!\n💸 Valor aplicado: R$ 270,00\n🧾 Quitadas: 1 | Atualizadas: 0\n💸 Saída registrada: R$ 270,00"
+ ],
+ [
+  "listar dívidas",
+  "Você não tem dívidas registradas em aberto. ✅"
+ ]
+]

@@ -47,6 +47,12 @@ def nome_mes(ano_mes: str | None) -> str:
         return "este mês"
 
 
+def mes_por_extenso(ano_mes: str) -> str:
+    """Sempre absoluto (nunca "este mês"): '2026-10' → 'outubro/2026'."""
+    ano, mes = ano_mes.split("-")[:2]
+    return f"{_NOMES_MES[int(mes)]}/{ano}"
+
+
 def formatar_data_amigavel(data_iso: str) -> str:
     """Formata YYYY-MM-DD em formato amigável. Ex: '2026-02-08' → '08/02 (ontem)'."""
     try:

@@ -1,0 +1,58 @@
+[
+ [
+  "oi",
+  "Salve! 💰 Aqui é o *Caco*. Pode mandar: um gasto pra anotar, pedir resumo ou tirar dúvida."
+ ],
+ [
+  "obrigado",
+  "Valeu você! 🙌 Se precisar, é só mandar mensagem."
+ ],
+ [
+  "ajuda",
+  "Claro! Aqui vai um guia rápido 👇\n\n💸 *Registrar:* \"gastei 50 no mercado\", \"recebi 3000 de salário\", \"devo 300 pro João\"\n✏️ *Editar (qualquer campo):* \"editar #12\"\n   Depois ajuste natural: \"valor 45\", \"categoria mercado\", \"título almoço\", \"foi ontem\"\n🗑️ *Remover:* \"apagar #12\"\n🧹 *Limpar:* \"limpar mês\", \"limpar ano\", \"limpar tudo\"\n📊 *Consultar:* \"resumo do mês\", \"resumo do ano\", \"quanto tenho sobrando?\"\n📋 *Extrato:* \"listar movimentações\"\n🤔 *Planejar compra:* \"posso gastar 200?\""
+ ],
+ [
+  "/start",
+  "Estou pronto! Me manda um lançamento, por exemplo: *gastei 25 no almoço*."
+ ],
+ [
+  "/help",
+  "Claro! Aqui vai um guia rápido 👇\n\n💸 *Registrar:* \"gastei 50 no mercado\", \"recebi 3000 de salário\", \"devo 300 pro João\"\n✏️ *Editar (qualquer campo):* \"editar #12\"\n   Depois ajuste natural: \"valor 45\", \"categoria mercado\", \"título almoço\", \"foi ontem\"\n🗑️ *Remover:* \"apagar #12\"\n🧹 *Limpar:* \"limpar mês\", \"limpar ano\", \"limpar tudo\"\n📊 *Consultar:* \"resumo do mês\", \"resumo do ano\", \"quanto tenho sobrando?\"\n📋 *Extrato:* \"listar movimentações\"\n🤔 *Planejar compra:* \"posso gastar 200?\""
+ ],
+ [
+  "me dá uma dica",
+  "Não consegui gerar uma dica agora. Tenta novamente em instantes."
+ ],
+ [
+  "gastei 16 no almoço e recebi 20 de pix",
+  "Percebi mais de um comando na mesma mensagem. 👀\nPra evitar erro, manda *um comando por vez*.\n\nExemplos:\n• `gastei 16 no almoço`\n• `recebi 20 de pix`"
+ ],
+ [
+  "posso gastar 200 num tênis?",
+  "📌 Planejamento para *tênis* _(categoria: compras)_\n• Saldo atual: R$ 0,00\n• Valor da compra: R$ 200,00\n• Sobra no mês após compra: -R$ 200,00\n• Média por dia até o fim do mês: -R$ 50,00 (4 dias)\n\n⚠️ Esse gasto te coloca no vermelho. Se for adiar, sua margem de segurança melhora bastante."
+ ],
+ [
+  "posso gastar?",
+  "Entendi sua dúvida sobre a compra, mas faltou o valor pra eu avaliar. 🤔\nExemplo: `vou comprar um tênis de 300, vale a pena?`"
+ ],
+ [
+  "tenho 300 na conta",
+  "Antes de executar, confirma esta operação:\n\n• Operação: registrar saldo inicial\n• Valor: R$ 300,00\n• Referência: <HOJE>\n\nSe quiser, pode *editar os detalhes em linguagem natural* antes de confirmar\n(ex.: \"troca o valor para 120\", \"foi ontem\", \"categoria mercado\", \"título almoço com time\").\n\nResponda com *sim* para confirmar ou *cancelar* para não executar."
+ ],
+ [
+  "sim",
+  "✅ Saldo inicial registrado! 💚\n📝 Saldo inicial — R$ 300,00 (saldo_inicial)\n💰 Saldo do mês: R$ 300,00"
+ ],
+ [
+  "qual a capital da frança",
+  "Ops, não entendi. 🤷 Tenta assim:\n• Pra anotar: \"Gastei 80 de uber\"\n• Pra consultar: \"Como tá o mês?\"\n• Pra ajuda: \"O que você faz?\""
+ ],
+ [
+  "quanto gastei em lazer",
+  "🎬 Você não tem movimentações em *lazer* este mês."
+ ],
+ [
+  "kkkkkk",
+  "Hmm, não peguei essa. 😅 Manda de outro jeito?\nEx: \"Paguei 150 de luz\" ou \"Quanto tenho sobrando?\"\n\n💡 Se precisar, digite *ajuda*."
+ ]
+]
