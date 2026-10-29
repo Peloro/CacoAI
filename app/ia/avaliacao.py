@@ -110,14 +110,14 @@ def _pct(par: tuple[int, int]) -> str:
     return f"{acertos / total:.0%} ({acertos}/{total})" if total else "—"
 
 
-def relatorio(sistemas: dict[str, tuple[dict, list[dict]]], schema_estrito: bool) -> str:
+def relatorio(sistemas: dict[str, tuple[dict, list[dict]]], schema_estrito: bool, dataset: str = "casos.jsonl") -> str:
     """Markdown com uma coluna por sistema (regras e cada modelo)."""
     nomes = list(sistemas)
     resumos = [sistemas[n][0] for n in nomes]
     linhas = [
         f"# Avaliação da interpretação — {datetime.now():%Y-%m-%d %H:%M}",
         "",
-        f"{resumos[0]['casos']} frases rotuladas (`tests/eval/casos.jsonl`) · schema estrito: {'sim' if schema_estrito else 'não'}",
+        f"{resumos[0]['casos']} frases rotuladas (`tests/eval/{dataset}`) · schema estrito: {'sim' if schema_estrito else 'não'}",
         "",
         "| métrica | " + " | ".join(nomes) + " |",
         "|---|" + "---|" * len(nomes),
@@ -163,12 +163,14 @@ def _regras(mensagem: str) -> list[dict]:
 def executar(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="run.py avaliar", description=__doc__.splitlines()[0])
     parser.add_argument("--modelos", default=GROQ_MODEL, help="modelos separados por vírgula")
+    parser.add_argument("--casos", type=Path, default=PASTA / "casos.jsonl",
+                        help="dataset; validacao.jsonl tem frases nunca usadas para ajustar o prompt")
     parser.add_argument("--limite", type=int, help="usa só os N primeiros casos (demo rápida)")
     parser.add_argument("--schema-estrito", action="store_true", help="interpretação com saída em schema estrito")
     parser.add_argument("--pausa", type=float, default=8.0, help="segundos entre chamadas (cota por minuto)")
     args = parser.parse_args(argv)
 
-    casos = carregar_casos()[: args.limite]
+    casos = carregar_casos(args.casos)[: args.limite]
     sistemas = {"regras": (None, avaliar(casos, _regras))}
     if not provedores.disponivel:
         print("IA desligada (.env sem GROQ_API_KEY): avaliando só as regras.")
@@ -180,7 +182,7 @@ def executar(argv: list[str] | None = None) -> None:
             ))
     sistemas = {nome: (resumir(res), res) for nome, (_, res) in sistemas.items()}
 
-    texto = relatorio(sistemas, args.schema_estrito)
+    texto = relatorio(sistemas, args.schema_estrito, args.casos.name)
     destino = PASTA / "relatorios" / f"{datetime.now():%Y-%m-%d_%H%M}.md"
     destino.parent.mkdir(exist_ok=True)
     destino.write_text(texto, encoding="utf-8")

@@ -153,12 +153,13 @@ Regras: valor float sem moeda; sem valor explicito => 0; em nao_financeiro/incer
 
 INTERPRETATION_PROMPT = """Bot de finanças pessoais (pt-BR informal). Mensagem: "{mensagem}"
 intencao, uma de:
-registrar_saida (gasto/compra já feito), registrar_entrada (recebeu), registrar_divida (passou a dever),
+registrar_saida (o usuário já gastou/comprou), registrar_entrada (o usuário recebeu), registrar_divida (passou a dever),
 pagar_divida (pagou dívida), quitar_dividas (todas), registrar_saldo_inicial ("tenho 300 na conta"),
-consultar_saldo, consultar_resumo (resumo/extrato), consultar_total (quanto gastou/recebeu),
-listar_movimentacoes ("o que comprei ontem?"), listar_categorias, consultar_categoria (gasto numa categoria),
-apagar_movimentacao, editar_movimentacao, limpar_movimentacoes (apagar vários), desfazer_ultimo,
-posso_gastar (pergunta se pode/vale comprar), pedir_dica, conversa_geral (resto).
+consultar_saldo, consultar_resumo (resumo/extrato), consultar_total (quanto gastou/recebeu no total, sem categoria),
+listar_movimentacoes ("o que comprei ontem?"), listar_categorias, consultar_categoria (quanto gastou numa categoria: "com mercado"),
+apagar_movimentacao, editar_movimentacao (corrigir valor/dado de um lançamento), limpar_movimentacoes (apagar vários), desfazer_ultimo,
+posso_gastar (pergunta se pode/vale comprar), pedir_dica,
+conversa_geral (resto, inclusive preço/notícia, plano futuro e dinheiro de outra pessoa: não registram nada).
 Campos: valor em reais ("20 mil"=20000, "25,90"=25.9; parcelado = preço total; sem valor=0);
 descricao = item em 1-3 palavras, sem verbo/valor; categoria: {categorias} ou "";
 tipo: entrada|saida|"" (filtro de consulta/apagar/limpar); credor_divida: com quem é a dívida;

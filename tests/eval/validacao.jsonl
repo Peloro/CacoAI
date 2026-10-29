@@ -1,0 +1,20 @@
+{"msg": "o preço do pão subiu pra 12 reais", "intencao": "conversa_geral"}
+{"msg": "minha mãe gastou 300 no shopping", "intencao": "conversa_geral"}
+{"msg": "semana que vem vou pagar o dentista", "intencao": "conversa_geral"}
+{"msg": "meu amigo recebeu 2000 de bônus", "intencao": "conversa_geral"}
+{"msg": "o dólar tá 5,40", "intencao": "conversa_geral"}
+{"msg": "tô pensando em viajar no fim do ano", "intencao": "conversa_geral"}
+{"msg": "quanto gastei com saúde esse ano?", "intencao": "consultar_categoria", "categoria": "saude"}
+{"msg": "quanto foi de mercado em setembro?", "intencao": "consultar_categoria", "categoria": "alimentacao"}
+{"msg": "quanto eu gasto com os pets?", "intencao": "consultar_categoria", "categoria": "pets"}
+{"msg": "quanto gastei no total esse mês?", "intencao": "consultar_total"}
+{"msg": "quanto entrou em setembro?", "intencao": "consultar_total"}
+{"msg": "troca o valor do uber para 28", "intencao": "editar_movimentacao"}
+{"msg": "o #15 era 70, não 60", "intencao": "editar_movimentacao"}
+{"msg": "paguei 35 no estacionamento", "intencao": "registrar_saida", "valor": 35, "categoria": "transporte"}
+{"msg": "recebi 900 do aluguel do apartamento", "intencao": "registrar_entrada", "valor": 900}
+{"msg": "comprei pão por 8", "intencao": "registrar_saida", "valor": 8, "categoria": "alimentacao"}
+{"msg": "devo 250 pra minha tia", "intencao": "registrar_divida", "valor": 250, "credor": "tia"}
+{"msg": "ganhei 50 numa rifa", "intencao": "registrar_entrada", "valor": 50}
+{"msg": "lista minhas entradas", "intencao": "listar_movimentacoes"}
+{"msg": "qual o meu saldo agora", "intencao": "consultar_saldo"}

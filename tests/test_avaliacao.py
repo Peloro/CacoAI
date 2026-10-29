@@ -1,11 +1,14 @@
 """Métricas da avaliação (`run.py avaliar`) e consistência do dataset rotulado, sem chamar a IA."""
+import pytest
+
 from app.ia import avaliacao, provedores
 from app.ia.prompts import CATEGORIAS_VALIDAS, INTENCOES_INTERPRETACAO
 
 
-def test_dataset_usa_so_intencoes_e_categorias_validas():
-    casos = avaliacao.carregar_casos()
-    assert len(casos) >= 90
+@pytest.mark.parametrize("arquivo", ["casos.jsonl", "validacao.jsonl"])
+def test_dataset_usa_so_intencoes_e_categorias_validas(arquivo):
+    casos = avaliacao.carregar_casos(avaliacao.PASTA / arquivo)
+    assert len(casos) >= 20
     assert len({c["msg"] for c in casos}) == len(casos)
     for caso in casos:
         assert caso["intencao"] in INTENCOES_INTERPRETACAO, caso
