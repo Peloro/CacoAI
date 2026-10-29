@@ -50,6 +50,14 @@ def _montar_especificacoes_operacao(parsed: dict) -> str:
     if intencao == "registrar_divida" and parsed.get("parcelas"):
         return _especificacoes_divida_parcelada(parsed, descricao, data_ref)
 
+    if intencao == "pagar_parcelas_mes":
+        itens = parsed.get("_parcelas_mes") or []
+        return "\n".join(
+            ["• Operação: pagar parcelas do mês"]
+            + [f"• {item['descricao']} — {formatar_real(item['valor'])}" for item in itens]
+            + [f"• Total: {formatar_real(sum(item['valor'] for item in itens))}"]
+        )
+
     linhas: list[str] = [f"• Operação: {rotulo_intencao(intencao)}"]
 
     if intencao in {"registrar_entrada", "registrar_saida", "registrar_divida", "registrar_saldo_inicial", "posso_gastar", "pagar_divida"} and valor:
@@ -155,7 +163,7 @@ def _montar_especificacoes_operacao(parsed: dict) -> str:
 def montar_pergunta_confirmacao_operacao(parsed: dict, veio_desambiguacao: bool = False) -> str:
     cabecalho = "Perfeito. Antes de executar, confirma os detalhes:" if veio_desambiguacao else "Antes de executar, confirma esta operação:"
     intencao = (parsed.get("intencao") or "").strip()
-    pode_editar_detalhes = intencao not in {"quitar_dividas", "desfazer_ultimo"}
+    pode_editar_detalhes = intencao not in {"quitar_dividas", "desfazer_ultimo", "pagar_parcelas_mes"}
 
     if pode_editar_detalhes:
         return (

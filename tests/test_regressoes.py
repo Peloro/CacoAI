@@ -1,4 +1,6 @@
 """Regressões de bugs que gravavam ou apagavam a coisa errada."""
+import pytest
+
 from app.dados import get_or_create_user, pagar_divida, registrar_divida, totais_dividas
 from test_conversas_golden import TELEFONE, _conversar
 
@@ -98,3 +100,39 @@ def test_backup_do_dia_copia_o_banco_uma_vez_e_guarda_7(fresh_db):
     with sqlite3.connect(destino) as copia:
         assert copia.execute("SELECT COUNT(*) FROM dividas").fetchone()[0] == 1
     assert len(list(pasta.glob("test-*.db"))) == 7
+
+
+def test_reais_com_erro_de_digitacao_nao_vira_titulo():
+    from app.interpretacao import detectar_intencao
+
+    for frase in ("300 reias", "300 rs"):
+        assert detectar_intencao(frase)["descricao"] == "", frase
+
+
+def test_guiado_de_divida_pergunta_o_titulo_depois_de_300_reias(fresh_db):
+    conversa = _conversar(["gostaria de registrar uma divida por favor", "300 reias", "pastel", "Lua", "hoje"])
+    assert "descricao" in conversa[1][1]          # pergunta o título, não aceita "reias"
+    assert "• Título: pastel" in conversa[-1][1]
+
+
+@pytest.mark.parametrize("correcao", [
+    "o titulo está errado, era pra ser pastel",
+    "o título é pastel",
+    "titulo errado, deveria ser pastel",
+])
+def test_correcao_de_titulo_em_linguagem_natural(fresh_db, correcao):
+    resposta = _conversar(["gastei 70 no xpto", correcao])[-1][1]
+    assert "Deixei de lado" not in resposta
+    assert "título para pastel" in resposta and "• Título: pastel" in resposta
+
+
+@pytest.mark.parametrize("resposta", ["hoje", "ontem", "03/04", "segunda", "dia 5", "sim"])
+def test_pergunta_do_credor_recusa_data_e_confirmacao(fresh_db, resposta):
+    conversa = _conversar(["quero registrar uma divida", "300", "pastel", resposta, "Lua", "hoje"])
+    assert "não é um credor" in conversa[3][1]  # pergunta de novo, sem gravar a resposta como credor
+    assert "• Credor: Lua" in conversa[-1][1]
+
+
+def test_parcelada_ainda_pula_o_credor_com_sim(fresh_db):
+    previa = _conversar(["comprei um blusão parcelado em 12 vezes de 40 reais", "sim"])[-1][1]
+    assert "• Credor: parcelado" in previa

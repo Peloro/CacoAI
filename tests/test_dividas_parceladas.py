@@ -424,6 +424,7 @@ def test_resumo_dividas_mes_com_atraso(fresh_db):
     registrar_divida(uid, 300.0, "joão", "divida joao", "2026-10-01")
     assert resumo_dividas_mes(uid, "2026-11") == {
         "parcelas_mes": 80.0, "atrasado": 40.0, "qtd_parceladas": 1, "outras_total": 300.0, "qtd_outras": 1,
+        "itens": [{"id": 1, "descricao": "blusão", "valor": 80.0, "parcela": 2, "parcelas": 12}],
     }
 
 
@@ -588,3 +589,112 @@ def test_paguei_em_12x_com_item_aberto_e_compra_nova(fresh_db):
 def test_texto_das_dividas_em_aberto(fresh_db):
     lista = _conversar(["listar dívidas"])[-1][1]
     assert "em *em aberto*" not in lista and "em aberto" in lista
+
+
+# --- Parcelamento dito depois, no meio do registro ------------------------------
+
+def test_parcelamento_dito_na_resposta_do_valor_vira_parcelada(fresh_db):
+    pergunta, previa = (r for _, r in _conversar(["comprei um PC gamer", "foi 4000 reais, mas vou pagar em 12 vezes", "pular"])[1:])
+    assert "credor" in pergunta and "pular" in pergunta
+    for linha in ("• Operação: registrar dívida parcelada", "• Item: PC gamer",
+                  "• Parcelas: 12x de R$ 333,33 (total R$ 4.000,00)", "• Credor: parcelado"):
+        assert linha in previa
+
+
+def test_comprei_mas_vou_pagar_em_12_vezes_e_compra_feita():
+    from app.interpretacao import detectar_intencao
+
+    d = detectar_intencao("comprei um PC gamer de 4000, mas vou pagar em 12 vezes")
+    assert (d["intencao"], d["parcelas"], d["valor"]) == ("registrar_divida", 12, 4000.0)
+    assert detectar_intencao("vou comprar um notebook de 4000 em 10 vezes, fica ruim?")["intencao"] == "posso_gastar"
+
+
+@pytest.mark.parametrize("frase, valor", [
+    ("gastei 2.400 no sofá", 2400.0),
+    ("recebi 1.500 de salário", 1500.0),
+    ("gastei R$ 1.234,56 no aluguel", 1234.56),   # já funcionava
+    ("gastei 15.50 no café", 15.5),               # ponto decimal com 2 casas continua decimal
+    ("paguei 12.000 no carro", 12000.0),
+])
+def test_valor_com_ponto_de_milhar(frase, valor):
+    from app.interpretacao.entidades import extract_value
+
+    assert extract_value(frase) == valor
+
+
+def test_total_com_ponto_de_milhar_na_compra_parcelada():
+    from app.interpretacao import detectar_intencao
+
+    d = detectar_intencao("comprei um sofá de 2.400 em 12x")
+    assert (d["valor"], d["valor_parcela"], d["descricao"]) == (2400.0, 200.0, "sofá")
+
+
+@pytest.mark.parametrize("texto, valor", [("2.400", 2400.0), ("R$ 1.500", 1500.0), ("1.234,56", 1234.56), ("15,50", 15.5)])
+def test_valor_digitado_no_registro_guiado_com_milhar(texto, valor):
+    from app.conversa.formatacao import extrair_valor_selecao
+
+    assert extrair_valor_selecao(texto) == valor
+
+
+@pytest.mark.parametrize("texto, alvo, valor", [("editar #1 para 2.400", 1, 2400.0), ("editar sofá para 1.500,90", None, 1500.9)])
+def test_novo_valor_da_edicao_com_milhar(texto, alvo, valor):
+    from app.interpretacao.entidades import extract_new_edit_value
+
+    assert extract_new_edit_value(texto, alvo) == valor
+
+
+# --- Resumo que nomeia as parcelas e pagar as parcelas do mês ------------------
+
+COMPRA_PC = "comprei um PC gamer de 4000 em 12x no nubank"
+
+
+def test_antes_da_primeira_parcela_nada_vence_nem_os_centavos():
+    pc = {"valor": 4000.0, "parcelas": 12, "valor_parcela": 333.33, "primeiro_vencimento": "2026-10"}
+    assert a_pagar_ate(pc, "2026-09") == 0.0
+    assert a_pagar_ate(pc, "2026-10") == 333.37  # a 1ª leva os R$ 0,04
+
+
+def test_resumo_nomeia_as_parcelas_e_diz_como_pagar(fresh_db):
+    resumo = _conversar([COMPRA_NUBANK, "sim", COMPRA_PC, "sim", "resumo"])[-1][1]
+    assert "Parcelas do mês: R$ 373,37" in resumo
+    assert "atrasados" not in resumo
+    assert "• blusão — R$ 40,00 (parcela 1/12)" in resumo
+    assert "• PC gamer — R$ 333,37 (parcela 1/12)" in resumo
+    assert "paguei as parcelas do mês" in resumo
+
+
+def test_ia_nao_troca_listar_dividas_por_resumo(fresh_db, monkeypatch):
+    import json
+
+    from app.ia import provedores
+
+    _conversar([COMPRA_NUBANK, "sim"])
+    resposta_ia = {"operacoes": [{"intencao": "consultar_resumo", "valor": 0, "descricao": "", "categoria": "", "tipo": "",
+                                  "credor_divida": "", "id_movimentacao": None, "novo_valor": None, "periodo_limpar": ""}]}
+    monkeypatch.setattr(provedores, "conversar", lambda *a, **k: json.dumps(resposta_ia))
+    monkeypatch.setattr(provedores, "disponivel", True)
+    assert "Suas dívidas" in _conversar(["liste minhas dividas"])[-1][1]
+
+
+@pytest.mark.parametrize("frase", ["paguei minha parcela do mês", "paguei as parcelas do mês", "quero pagar minhas dívidas do mês"])
+def test_pagar_as_parcelas_do_mes(fresh_db, frase):
+    from app.dados import listar_movimentacoes_recentes
+
+    previa = _conversar([COMPRA_NUBANK, "sim", COMPRA_PC, "sim", frase])[-1][1]
+    for linha in ("• Operação: pagar parcelas do mês", "• blusão — R$ 40,00", "• PC gamer — R$ 333,37", "• Total: R$ 373,37"):
+        assert linha in previa
+    resposta = _conversar(["sim"])[-1][1]
+    assert "Parcelas do mês pagas" in resposta
+    assert _falta("blusão") == 440.0 and _falta("PC gamer") == 3666.63
+    gastos = listar_movimentacoes_recentes(get_or_create_user(TELEFONE)["id"], 10, "saida")
+    assert sorted(g["valor"] for g in gastos) == [40.0, 333.37]
+
+
+def test_nenhuma_parcela_no_mes(fresh_db):
+    resposta = _conversar([COMPRA_NUBANK, "a primeira é mês que vem", "sim", "paguei as parcelas do mês"])[-1][1]
+    assert "Nenhuma parcela vence este mês" in resposta and "blusão" in resposta
+
+
+def test_parcelas_de_um_item_continuam_so_desse_item(fresh_db):
+    _conversar([COMPRA_NUBANK, "sim", COMPRA_PC, "sim", "paguei as parcelas do blusão", "sim"])
+    assert _falta("blusão") == 440.0 and _falta("PC gamer") == 4000.0

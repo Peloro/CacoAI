@@ -11,6 +11,7 @@ from app.dados.dividas import (  # noqa: F401 - API pública de acesso a dados
     obter_divida_por_id,
     pagar_divida,
     parcelada_no_periodo,
+    parcelas_do_mes,
     parcelas_pagas,
     valor_de_parcelas,
     quitar_dividas,

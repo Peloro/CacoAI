@@ -10,6 +10,7 @@ import httpx
 
 from app.config import TELEGRAM_BOT_TOKEN, TG_POLL_TIMEOUT, TG_SEND_TYPING
 from app.conversa import processar_mensagem_com_opcoes
+from app.conversa.contexto import mensagem_sensivel_ctx
 from app.dados import init_db
 from app.dados.conexao import backup_do_dia
 
@@ -168,10 +169,12 @@ def tratar_update(client: httpx.Client, base_url: str, update: dict) -> None:
         if antigo:
             return
         _mensagem_com_botoes.pop(chat_id, None)
+        mensagem_do_usuario = None  # botão: o texto é nosso, não há mensagem digitada para apagar
     else:
         message = update.get("message") or {}
         text = (message.get("text") or "").strip()
         chat_id = (message.get("chat") or {}).get("id")
+        mensagem_do_usuario = message.get("message_id")
 
     if not chat_id:
         return
@@ -184,7 +187,22 @@ def tratar_update(client: httpx.Client, base_url: str, update: dict) -> None:
 
     # processar_mensagem valida tamanho/conteúdo e responde com orientação se inválido.
     resposta, opcoes = processar_mensagem_com_opcoes(f"telegram:{chat_id}", text, trace_id=uuid4().hex[:12])
+    if mensagem_sensivel_ctx.get() and mensagem_do_usuario:
+        resposta = _apagar_senha(client, base_url, chat_id, mensagem_do_usuario) + resposta
     _send_message(client, base_url, chat_id, resposta, opcoes)
+
+
+def _apagar_senha(client: httpx.Client, base_url: str, chat_id: int, message_id: int) -> str:
+    """Apaga da conversa a mensagem em que a pessoa digitou a senha; devolve o aviso que abre a resposta.
+
+    Num chat privado o bot pode apagar mensagens recebidas (até 48h). Se o Telegram recusar, a pessoa é avisada
+    para apagar ela mesma: a senha não pode ficar visível sem ninguém saber.
+    """
+    apagada = _post_with_retry(client, f"{base_url}/deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+    if apagada and apagada.get("ok"):
+        return "🔒 Apaguei a mensagem com a sua senha desta conversa.\n\n"
+    log.warning("Não foi possível apagar a mensagem com senha (chat %s): %s", chat_id, (apagada or {}).get("description"))
+    return "⚠️ Não consegui apagar sua senha desta conversa. Por segurança, apague a mensagem com a sua senha.\n\n"
 
 
 def executar() -> None:

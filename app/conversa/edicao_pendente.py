@@ -12,6 +12,12 @@ from app.conversa.intencoes import descricao_insuficiente_para_registro, intenca
 from app.conversa.textos import normalizar_credor_texto, normalizar_descricao_registro
 
 
+# "(está/tá/ficou) errado, (era|é|deveria ser|o certo é) X" ou só "é X" -> X.
+_RE_VALOR_CORRIGIDO = re.compile(
+    r"^(?:(?:est[aá]\s+|t[aá]\s+|ficou\s+)?errad[oa]\b[\s,.;:-]*)?"
+    r"(?:era\s+pr?a\s+ser|era\s+para\s+ser|deveria\s+ser|devia\s+ser|o\s+certo\s+[eé]|na\s+verdade\s+[eé]|era|é)\s+(.+)$",
+    flags=re.IGNORECASE,
+)
 _RE_SANITIZE_PREFIX = re.compile(
     r"^(?:deveria\s+ser|deve\s+ser|poderia\s+ser|quero\s+que\s+seja|quero\s+que\s+fique|"
     r"que\s+seja|que\s+fique|pra\s+ser|para\s+ser|ser|ficar|fique|fica)\s+",
@@ -83,6 +89,10 @@ def _sanitize_explicit_field_value(value: str) -> str:
         return ""
 
     txt = txt.strip("\"' ")
+    # "está errado, era pra ser pastel" / "é pastel": o valor certo é o que vem depois da indicação.
+    correcao = _RE_VALOR_CORRIGIDO.match(txt)
+    if correcao:
+        txt = correcao.group(1)
     txt = _RE_SANITIZE_PREFIX.sub("", txt)
     return txt.strip("\"' ")
 

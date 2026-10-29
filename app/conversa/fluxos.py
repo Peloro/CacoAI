@@ -13,6 +13,9 @@ from app.dados import (
 )
 from app.financeiro import formatar_real
 from app.interpretacao import detectar_intencao
+from app.interpretacao.entidades import extract_credor_parcelamento, extract_primeiro_vencimento
+from app.interpretacao.intencao import parcelamento_da_frase
+from app.interpretacao.referencias import DIAS_DA_SEMANA
 from app.conversa.confirmacao import (
     enriquecer_preview_operacao,
     iniciar_confirmacao_operacao,
@@ -409,6 +412,34 @@ def _finalizar_fluxo_registro_guiado(usuario_id: int, estado: dict) -> str:
     return montar_pergunta_confirmacao_operacao(parsed_confirmacao)
 
 
+# Respostas que são data ("hoje", "03/04", "segunda", "dia 5"): na pergunta do credor não podem virar o credor.
+_RE_DATA_COMO_RESPOSTA = re.compile(
+    r"^(?:hoje|ontem|anteontem|amanh[ãa]|agora|semana\s+passada|m[eê]s\s+passado|dia\s+\d{1,2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?|"
+    + "|".join(sorted(DIAS_DA_SEMANA, key=len, reverse=True))
+    + r")(?:\s+passad[ao])?$",
+    re.IGNORECASE,
+)
+
+
+def _parece_data(texto: str) -> bool:
+    return bool(_RE_DATA_COMO_RESPOSTA.match((texto or "").strip(" .!")))
+
+
+def _virar_parcelada(estado: dict, parcelamento: dict, texto: str) -> None:
+    """Troca o registro guiado de gasto por dívida parcelada, com o que a frase disser do parcelamento."""
+    valor = parcelamento["total"] or estado.get("valor")
+    estado["intencao"] = "registrar_divida"
+    estado["valor"] = float(valor) if valor else None
+    estado["credor_divida"] = extract_credor_parcelamento(texto) or ""
+    estado["data_ref"] = estado.get("data_ref") or date.today().isoformat()  # parcelada não pergunta a data
+    estado["parcelamento"] = {
+        "parcelas": parcelamento["parcelas"],
+        "valor_parcela": parcelamento["valor_parcela"] or (round(float(valor) / parcelamento["parcelas"], 2) if valor else None),
+        "primeiro_vencimento": extract_primeiro_vencimento(texto),
+        "_ja_paguei_primeira": False,
+    }
+
+
 def processar_fluxo_registro_guiado(usuario_id: int, mensagem: str) -> str | None:
     """Avança o registro guiado; devolve None quando um comando novo fez o registro ser descartado."""
     estado = pendente_registro_guiado.get(usuario_id)
@@ -424,6 +455,12 @@ def processar_fluxo_registro_guiado(usuario_id: int, mensagem: str) -> str | Non
     if texto_lower in CANCEL_TOKENS:
         pendente_registro_guiado.pop(usuario_id, None)
         return "Beleza, cancelei esse registro guiado."
+
+    # "foi 4000 reais, mas vou pagar em 12 vezes": o gasto em andamento vira compra parcelada (dívida).
+    parcelamento = parcelamento_da_frase(texto) if estado.get("intencao") == "registrar_saida" else None
+    if parcelamento:
+        _virar_parcelada(estado, parcelamento, texto)
+        return _perguntar(usuario_id, estado)
 
     lacuna = _lacuna(estado)
     parsed = detectar_intencao(texto)
@@ -460,6 +497,8 @@ def processar_fluxo_registro_guiado(usuario_id: int, mensagem: str) -> str | Non
     elif lacuna == "credor_divida":
         # Parcelada sem credor: "pular" (ou "sim" à pergunta) grava "parcelado".
         pular = estado.get("parcelamento") and (texto_lower == "pular" or texto_lower in CONFIRM_TOKENS)
+        if not pular and (_parece_data(texto_lower) or texto_lower in CONFIRM_TOKENS):
+            return f"🙂 `{texto}` não é um credor. Me diga *com quem* é a dívida (ex.: `nubank`, `joao`)."
         credor = "parcelado" if pular else normalizar_credor_texto(texto)
         if not credor:
             return "Credor é obrigatorio para registrar divida. Manda algo como `nubank` ou `joao`."

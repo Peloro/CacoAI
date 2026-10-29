@@ -34,6 +34,7 @@ _INTENCOES_MUTAVEIS = INTENCOES_REGISTRO | {
     "pagar_divida",
     "quitar_dividas",
     "desfazer_ultimo",
+    "pagar_parcelas_mes",
 }
 
 
@@ -44,6 +45,7 @@ INTENCOES_COM_CONFIRMACAO = _INTENCOES_MUTAVEIS - {
     "apagar_movimentacao",
     "limpar_movimentacoes",
     "desfazer_ultimo",  # já é a correção pedida pelo usuário (e só vale para o registro recém-feito)
+    "pagar_parcelas_mes",  # a prévia lista cada parcela: o executor a monta
 }
 
 
@@ -179,6 +181,7 @@ def rotulo_intencao(intencao: str) -> str:
         "editar_movimentacao": "editar lançamento",
         "limpar_movimentacoes": "limpar lançamentos",
         "posso_gastar": "avaliar compra",
+        "pagar_parcelas_mes": "pagar parcelas do mês",
     }
     return rotulos.get(intencao, intencao.replace("_", " "))
 
@@ -214,7 +217,18 @@ _RE_NUMERO = re.compile(r"\d+(?:[.,]\d+)*")
 _NUNCA_SAO_AJUSTE = frozenset({
     "consultar_resumo", "consultar_saldo", "consultar_total", "listar_movimentacoes", "listar_categorias",
     "apagar_movimentacao", "limpar_movimentacoes", "desfazer_ultimo", "quitar_dividas", "pagar_divida", "pedir_dica",
+    "pagar_parcelas_mes",
 })
+
+
+_RE_CAMPO_DA_OPERACAO = re.compile(
+    r"\b(?:t[ií]tulo|nome|descri[cç][aã]o|valor|categoria|data|credor)\b", re.IGNORECASE
+)
+
+
+def cita_campo_da_operacao(mensagem: str) -> bool:
+    """A frase fala de um campo da prévia (título, valor, data…): é correção da operação pendente, não pedido novo."""
+    return bool(_RE_CAMPO_DA_OPERACAO.search(mensagem or ""))
 
 
 def e_comando_independente(mensagem: str) -> bool:

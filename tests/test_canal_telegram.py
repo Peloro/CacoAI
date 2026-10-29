@@ -132,3 +132,64 @@ def test_pedido_de_pausa_do_telegram_espera_e_reenvia(monkeypatch):
 
     assert telegram._post_with_retry(cliente, f"{BASE}/sendMessage", {"text": "oi"}) == {"ok": True}
     assert pausas == [2.0]
+
+
+def _texto_com_id(cliente, texto, message_id):
+    telegram.tratar_update(cliente, BASE, {"message": {"message_id": message_id, "text": texto, "chat": {"id": CHAT}}})
+    return cliente.enviadas()[-1]
+
+
+def _apagadas(cliente):
+    return [p["message_id"] for metodo, p in cliente.chamadas if metodo == "deleteMessage"]
+
+
+def test_senha_do_cadastro_e_apagada_da_conversa(fresh_db):
+    cliente = _ClienteFalso()
+    _texto_com_id(cliente, "oi", 1)
+    _texto_com_id(cliente, "Ana", 2)                     # nome: fica
+    escolha = _texto_com_id(cliente, "Senha@123", 3)     # senha: apagada
+    repeticao = _texto_com_id(cliente, "Senha@123", 4)   # confirmação: apagada
+    assert _apagadas(cliente) == [3, 4]
+    assert "Apaguei a mensagem com a sua senha" in escolha["text"]
+    assert "Conta criada" in repeticao["text"]
+
+
+def test_senha_fraca_tambem_e_apagada(fresh_db):
+    cliente = _ClienteFalso()
+    for i, texto in enumerate(["oi", "Ana", "fraca123"], 1):
+        _texto_com_id(cliente, texto, i)
+    assert _apagadas(cliente) == [3]
+
+
+def test_senha_do_login_e_apagada_mesmo_errada(fresh_db):
+    _usuario_logado()
+    cliente = _ClienteFalso()
+    _texto_com_id(cliente, "sair", 1)
+    _texto_com_id(cliente, "oi", 2)            # pede a senha: fica
+    _texto_com_id(cliente, "Errada@1", 3)      # tentativa errada: apagada
+    _texto_com_id(cliente, "Senha@123", 4)     # senha certa: apagada
+    assert _apagadas(cliente) == [3, 4]
+
+
+def test_mensagem_comum_nao_e_apagada(fresh_db):
+    _usuario_logado()
+    cliente = _ClienteFalso()
+    _texto_com_id(cliente, "gastei 50 no mercado", 1)
+    assert _apagadas(cliente) == []
+
+
+def test_aviso_quando_telegram_nao_deixa_apagar(fresh_db):
+    class _Recusa(_Resposta):
+        def json(self):
+            return {"ok": False, "description": "Bad Request: message can't be deleted"}
+
+    class _ClienteQueNaoApaga(_ClienteFalso):
+        def post(self, url, json=None):
+            super().post(url, json)
+            return _Recusa() if url.endswith("/deleteMessage") else _Resposta()
+
+    cliente = _ClienteQueNaoApaga()
+    for i, texto in enumerate(["oi", "Ana"], 1):
+        _texto_com_id(cliente, texto, i)
+    resposta = _texto_com_id(cliente, "Senha@123", 3)
+    assert "apague a mensagem com a sua senha" in resposta["text"]

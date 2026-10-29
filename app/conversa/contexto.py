@@ -88,6 +88,10 @@ fallback_acionado_ctx: ContextVar[bool] = ContextVar("fallback_acionado", defaul
 trace_id_ctx: ContextVar[str] = ContextVar("trace_id", default="")
 
 
+# A mensagem atual foi lida como senha (cadastro ou login): o canal a apaga da conversa.
+mensagem_sensivel_ctx: ContextVar[bool] = ContextVar("mensagem_sensivel", default=False)
+
+
 operation_id_ctx: ContextVar[str] = ContextVar("operation_id", default="")
 
 

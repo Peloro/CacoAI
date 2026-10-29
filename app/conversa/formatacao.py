@@ -5,6 +5,7 @@ import re
 from datetime import date, datetime
 
 from app.financeiro import formatar_real
+from app.interpretacao.entidades import sem_ponto_de_milhar
 
 
 # Nomes de meses para respostas amigáveis
@@ -121,7 +122,7 @@ def _extrair_dia_mes_selecao(texto: str) -> str | None:
 
 def extrair_valor_selecao(texto: str) -> float | None:
     """Extrai valor monetário de uma resposta de desambiguação."""
-    t = (texto or "").strip().lower()
+    t = sem_ponto_de_milhar((texto or "").strip().lower())
     m = re.search(r'(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)', t)
     if not m:
         return None

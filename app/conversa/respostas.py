@@ -178,6 +178,11 @@ def montar_resumo(resumo: dict, usuario_id: int, label_mes: str = "este mês") -
         if dividas_mes["qtd_parceladas"]:
             atraso = f" (inclui {formatar_real(dividas_mes['atrasado'])} atrasados)" if dividas_mes["atrasado"] > 0 else ""
             texto += f"🧾 Parcelas do mês: {formatar_real(dividas_mes['parcelas_mes'])}{atraso}\n"
+            for item in dividas_mes["itens"]:
+                texto += f"  • {item['descricao']} — {formatar_real(item['valor'])} (parcela {item['parcela']}/{item['parcelas']})\n"
+            if dividas_mes["itens"]:
+                exemplo = dividas_mes["itens"][0]["descricao"]
+                texto += f"💡 Para pagar: *paguei as parcelas do mês* ou *paguei a parcela do {exemplo}*\n"
         if dividas_mes["qtd_outras"]:
             texto += f"🧾 Outras dívidas em aberto: {formatar_real(dividas_mes['outras_total'])} ({dividas_mes['qtd_outras']})\n"
     else:

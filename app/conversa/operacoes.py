@@ -17,6 +17,7 @@ from app.dados import (
     consultar_categoria,
     listar_categorias_por_tipo,
     listar_dividas_recentes,
+    parcelas_do_mes,
     listar_movimentacoes_recentes,
     obter_divida_por_id,
     parcelas_pagas,
@@ -765,6 +766,37 @@ def _op_financeiro(op: Operacao) -> str | None:
     return None
 
 
+def _op_pagar_parcelas_mes(op: Operacao) -> str | None:
+    """Paga de uma vez o que vence no mês em cada dívida parcelada (prévia com cada item antes do "sim")."""
+    p = op.parsed
+    if not op.confirmou_operacao_manual:
+        mes = date.today().strftime("%Y-%m")
+        parceladas = [d for d in listar_dividas_recentes(op.usuario_id, 50) if d.get("parcelas")]
+        itens = parcelas_do_mes(parceladas, mes)
+        if not itens:
+            if not parceladas:
+                return "✅ Nenhuma parcela vence este mês: você não tem dívidas parceladas."
+            return "✅ Nenhuma parcela vence este mês.\n\n" + gerar_resposta_listar_dividas(parceladas, "em aberto")
+        parsed = dict(p) | {"_parcelas_mes": itens, "valor": round(sum(i["valor"] for i in itens), 2)}
+        iniciar_confirmacao_operacao(op.usuario_id, parsed=parsed)
+        return montar_pergunta_confirmacao_operacao(parsed)
+
+    pagas, total = [], 0.0
+    for item in p.get("_parcelas_mes") or []:
+        # O valor mostrado na prévia, limitado ao que ainda falta (pagar_divida_por_id_especifico não paga a mais).
+        resultado = pagar_divida_por_id_especifico(op.usuario_id, int(item["id"]), float(item["valor"]))
+        aplicado = float(resultado.get("valor_aplicado") or 0.0)
+        if aplicado <= 0:
+            continue
+        credor = (resultado.get("credor") or "").strip()
+        registrar_saida_pagamento_divida(op.usuario_id, aplicado, f"Pagamento de divida ({credor or item['descricao']})", op.data_ref)
+        pagas.append(f"• {item['descricao']} — {formatar_real(aplicado)}")
+        total += aplicado
+    if not pagas:
+        return "🤷 Essas parcelas já não estavam mais em aberto. Use *listar dívidas* para conferir."
+    return "✅ Parcelas do mês pagas! 🧾\n" + "\n".join(pagas) + f"\n💸 Saída registrada: {formatar_real(round(total, 2))}"
+
+
 def _op_desfazer(op: Operacao) -> str | None:
     """Desfaz o último registro dentro da janela configurada."""
     p = op.parsed
@@ -816,4 +848,5 @@ EXECUTORES = {
     "editar_movimentacao": _op_editar,
     **dict.fromkeys(("quitar_dividas", "pagar_divida", "posso_gastar"), _op_financeiro),
     "desfazer_ultimo": _op_desfazer,
+    "pagar_parcelas_mes": _op_pagar_parcelas_mes,
 }

@@ -63,7 +63,10 @@ def a_pagar_ate(divida: dict, ano_mes: str) -> float:
     parcelas = divida.get("parcelas")
     if not parcelas:
         return valor
-    futuras = min(max(parcelas - _meses_entre(divida["primeiro_vencimento"], ano_mes) - 1, 0), parcelas)
+    decorridos = _meses_entre(divida["primeiro_vencimento"], ano_mes)
+    if decorridos < 0:
+        return 0.0  # antes da 1ª parcela nada vence (nem o centavo que a 1ª absorve: 4000 em 12x sobrariam 0,04)
+    futuras = min(max(parcelas - decorridos - 1, 0), parcelas)
     return max(0.0, round(valor - futuras * float(divida["valor_parcela"]), 2))
 
 
@@ -101,7 +104,24 @@ def resumo_dividas_mes(usuario_id: int, ano_mes: str) -> dict:
         "qtd_parceladas": len(parceladas),
         "outras_total": round(sum(float(d["valor"] or 0.0) for d in outras), 2),
         "qtd_outras": len(outras),
+        "itens": parcelas_do_mes(parceladas, ano_mes),
     }
+
+
+def parcela_atual(divida: dict, ano_mes: str) -> int:
+    """Número da parcela que vence no mês (1 no mês da 1ª, nunca além da última)."""
+    return min(max(_meses_entre(divida["primeiro_vencimento"], ano_mes) + 1, 1), int(divida["parcelas"]))
+
+
+def parcelas_do_mes(dividas: list[dict], ano_mes: str) -> list[dict]:
+    """Parceladas com algo a pagar até o mês: {id, descricao, valor (o que vence), parcela, parcelas}."""
+    itens = []
+    for d in dividas:
+        valor = a_pagar_ate(d, ano_mes) if d.get("parcelas") else 0.0
+        if valor > 0:
+            itens.append({"id": d["id"], "descricao": d.get("descricao") or "dívida", "valor": valor,
+                          "parcela": parcela_atual(d, ano_mes), "parcelas": int(d["parcelas"])})
+    return itens
 
 
 def parcelada_no_periodo(divida: dict, periodo: str) -> bool:

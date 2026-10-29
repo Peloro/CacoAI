@@ -48,6 +48,7 @@ from app.conversa.contexto import (
     operation_id_ctx,
     registrar_requisicao_teste,
     trace_id_atual,
+    mensagem_sensivel_ctx,
     trace_id_ctx,
     ultima_intencao_ctx,
     usou_ia_ctx,
@@ -95,6 +96,7 @@ from app.conversa.intencoes import (
     detectar_tipo_fluxo_registro_guiado,
     deve_forcar_extracao_ia,
     e_comando_novo,
+    cita_campo_da_operacao,
     e_comando_independente,
     encerra_escolha_pendente,
     intencoes_em_conflito,
@@ -144,6 +146,7 @@ def processar_mensagem(telefone: str, mensagem: str, trace_id: str | None = None
     NUNCA retorna erro ao usuário — sempre tem fallback local.
     """
     usou_ia_ctx.set(False)
+    mensagem_sensivel_ctx.set(False)
     ultima_intencao_ctx.set("")
     fallback_acionado_ctx.set(False)
     trace_id_ctx.set((trace_id or "").strip() or new_trace_id())
@@ -268,6 +271,7 @@ def _fluxo_cadastro(usuario_id: int, mensagem: str) -> str:
     if etapa == "aguardando_senha":
         if cmd_msg:
             return "Agora preciso da sua *senha* para proteger a conta. 🔒"
+        mensagem_sensivel_ctx.set(True)  # mesmo recusada, a tentativa é uma senha
         policy = validate_password_policy(texto)
         if not policy.ok:
             return (
@@ -283,6 +287,7 @@ def _fluxo_cadastro(usuario_id: int, mensagem: str) -> str:
     if etapa == "aguardando_confirmacao":
         if cmd_msg:
             return "Só falta confirmar sua senha. 🔒\nRepita a senha para continuar."
+        mensagem_sensivel_ctx.set(True)
         hash_original = senha_temporaria.get(usuario_id)
         if not hash_original:
             # Perdeu a senha temporária (reinicia)
@@ -330,6 +335,7 @@ def _fluxo_login(usuario_id: int, mensagem: str) -> str:
     if cmd_msg:
         return "Sua sessão expirou. Para continuar, digite sua *senha*. 🔒"
 
+    mensagem_sensivel_ctx.set(True)  # certa, errada ou bloqueada: é uma tentativa de senha
     erros = int(tentativas_login.get(usuario_id) or 0)
     if erros >= _MAX_TENTATIVAS_LOGIN:
         return "🔒 Muitas tentativas de senha. Por segurança, espere 15 minutos e tente de novo."
@@ -401,7 +407,8 @@ def _processar_mensagem_interna(usuario_id: int, mensagem: str) -> str:
 
     if tem_confirmacao_operacao_pendente(usuario_id):
         # Um lançamento novo e completo não é ajuste da operação pendente: ela é deixada de lado.
-        if e_comando_independente(mensagem):
+        # Mas quem cita um campo dela ("o título está errado, era pra ser pastel") está corrigindo: tenta a edição antes.
+        if e_comando_independente(mensagem) and not cita_campo_da_operacao(mensagem):
             pendente_confirmacao_operacao.pop(usuario_id, None)
             return _AVISO_PENDENCIA_DESCARTADA + _processar_mensagem_interna(usuario_id, mensagem)
         parsed_confirmado, resposta_confirmacao, nao_entendeu = resolver_confirmacao_operacao(usuario_id, mensagem)

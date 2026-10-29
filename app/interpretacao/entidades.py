@@ -8,10 +8,8 @@ from app.interpretacao.referencias import MESES
 
 # "12x", "12 vezes", "12 parcelas" (+ "de 40" logo depois, quando a frase dá o valor da parcela).
 _RE_PARCELAS = re.compile(r"\b(\d{1,2})\s*(?:x|vezes|parcelas?)\b", re.IGNORECASE)
-# "de 40", "de 39,90", "de 1.200" / "de 1.200,50" (ponto de milhar antes de 3 dígitos).
-_RE_VALOR_DA_PARCELA = re.compile(
-    r"\s*(?:de|por)\s+(?:R\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?![\d.])", re.IGNORECASE
-)
+# "de 40", "de 39,90" (o ponto de milhar já saiu antes, em sem_ponto_de_milhar).
+_RE_VALOR_DA_PARCELA = re.compile(r"\s*(?:de|por)\s+(?:R\$\s*)?(\d+(?:[.,]\d{1,2})?)\b", re.IGNORECASE)
 _RE_MES_QUE_VEM = re.compile(r"\b(?:m[eê]s\s+que\s+vem|pr[oó]ximo\s+m[eê]s|m[eê]s\s+seguinte)\b", re.IGNORECASE)
 _RE_PRIMEIRA_EM_MES = re.compile(
     r"\bprimeira\b.*?\b(" + "|".join(sorted((m for m in MESES if len(m) > 3), key=len, reverse=True)) + r")\b",
@@ -36,16 +34,14 @@ def extract_parcelamento(text: str) -> dict | None:
 
     Valores ausentes ficam None ("comprei em 10x"). "1x" não é parcelamento.
     """
-    m = _RE_PARCELAS.search(text or "")
+    text = sem_ponto_de_milhar(text)
+    m = _RE_PARCELAS.search(text)
     if not m or int(m.group(1)) < 2:
         return None
     parcelas = int(m.group(1))
     da_parcela = _RE_VALOR_DA_PARCELA.match(text, m.end())
     if da_parcela:
-        numero = da_parcela.group(1)
-        if re.fullmatch(r"\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?", numero):
-            numero = numero.replace(".", "")
-        valor_parcela = float(numero.replace(",", "."))
+        valor_parcela = float(da_parcela.group(1).replace(",", "."))
         return {"parcelas": parcelas, "valor_parcela": valor_parcela, "total": round(parcelas * valor_parcela, 2)}
     total = extract_value(text[: m.start()] + " " + text[m.end():])
     return {"parcelas": parcelas, "valor_parcela": round(total / parcelas, 2) if total else None, "total": total}
@@ -111,6 +107,8 @@ _RE_NUM_CONTEXT = re.compile(
     re.IGNORECASE,
 )
 _RE_ANY_NUM = re.compile(r"\b(\d+(?:[.,]\d{1,2})?)\b")
+# 1 a 3 dígitos + grupos ".ddd" (não seguidos de mais dígitos ou de outro ponto): "2.400", "12.000", "1.234".
+_RE_PONTO_DE_MILHAR = re.compile(r"\b\d{1,3}(?:\.\d{3})+(?![\d.])")
 
 
 MULTIPLICADOR = re.compile(r"(\d+(?:[.,]\d+)*)\s*(mil|k|milh[aã]o|milh[oõ]es|mi)\b", re.IGNORECASE)
@@ -134,9 +132,15 @@ def expandir_multiplicadores(text: str) -> str:
 _RE_DATA_NO_TEXTO = re.compile(r"\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b|\bdia\s+\d{1,2}\b", re.IGNORECASE)
 
 
+def sem_ponto_de_milhar(text: str) -> str:
+    """"2.400" -> "2400", "1.234,56" -> "1234,56"; "15.50" segue decimal. Sem isso "2.400" era lido como 2,4."""
+    return _RE_PONTO_DE_MILHAR.sub(lambda m: m.group(0).replace(".", ""), text or "")
+
+
 def extract_value(text: str) -> float | None:
     # Números de data ("dia 5", "10/03") não são valor; "300 mil" é 300000.
     text = _RE_DATA_NO_TEXTO.sub(" ", expandir_multiplicadores(text))
+    text = sem_ponto_de_milhar(text)
     by_match = _RE_VALUE_BY.search(text)
     if by_match:
         return float(by_match.group(1).replace(",", "."))
@@ -195,6 +199,7 @@ def extract_movement_id(text: str) -> int | None:
 
 
 def extract_new_edit_value(text: str, movement_id: int | None = None) -> float | None:
+    text = sem_ponto_de_milhar(text)
     match = re.search(
         r"(?:para|pra|por|valor|novo valor|corrigir para|mudar para)\s+(?:R\$\s*)?(\d+(?:[.,]\d{1,2})?)",
         text,
@@ -335,7 +340,8 @@ def extract_description(text: str) -> str:
     cleaned = re.sub(r"R\$\s*\d+(?:[.,]\d{1,2})?", "", cleaned)
     cleaned = re.sub(r"\b\d+(?:\.\d{3})*(?:,\d{1,2})?\b", "", cleaned)
     cleaned = re.sub(r"\b\d+(?:[.,]\d{1,2})?\b", "", cleaned)
-    cleaned = re.sub(r"\b(reais|real|conto|contos|pila|pilas)\b", "", cleaned, flags=re.IGNORECASE)
+    # Inclui erros de digitação comuns ("300 reias", "300 rs"): senão viram o título do lançamento.
+    cleaned = re.sub(r"\b(reais|real|reias|reiais|reaus|rs|conto|contos|pila|pilas)\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"^(de|com|no|na|num|numa|nuns?|numas|em|pro|pra|uns?|da|do|o|a|os|as)\s+", "", cleaned.strip(), flags=re.IGNORECASE)
     cleaned = re.sub(r"\b(que foi|que é|que era|que custa|que custou)\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\b(hoje|ontem|anteontem|semana passada)\b", "", cleaned, flags=re.IGNORECASE)

@@ -29,9 +29,18 @@ _RE_SINAL_PARCELAMENTO = re.compile(
 _RE_VERBO_LANCAMENTO = re.compile(
     r"\b(?:comprei|parcelei|passei|fiz|peguei|paguei|gastei|recebi|ganhei|custou|devo|torrei)\b", re.IGNORECASE
 )
-_RE_COMPRA_FUTURA = re.compile(r"\?|\b(?:vou|quero|pretendo|posso|vale\s+a\s+pena|devo\s+comprar)\b", re.IGNORECASE)
+# "vou comprar" é compra futura; "comprei …, mas vou pagar em 12 vezes" é compra feita com pagamento parcelado.
+_RE_COMPRA_FUTURA = re.compile(
+    r"\?|\b(?:vou|quero|pretendo|devo)\s+(?:comprar|gastar|pegar|levar|parcelar)\b|\b(?:posso|vale\s+a\s+pena)\b",
+    re.IGNORECASE,
+)
 # "a primeira (parcela) do blusão vence em dezembro" -> item "blusão".
 _RE_ITEM_DA_PRIMEIRA = re.compile(r"\bprimeira(?:\s+parcela)?\s+d[oa]s?\s+(.+?)\s+(?:vence|[eé]|fica|vai|em|para|pra)\b", re.IGNORECASE)
+# Sem item: "paguei (a|as|minha|minhas) parcela(s) (do mês)" ou "... dívidas do mês" (dívidas só com "do mês").
+_RE_PAGAR_PARCELAS_DO_MES = re.compile(
+    r"\b(?:paguei|pagar|pago)\s+(?:a|as|minhas?)\s+(?:parcelas?(?:\s+d[oe]\s+m[eê]s)?|d[ií]vidas?\s+d[oe]\s+m[eê]s)$",
+    re.IGNORECASE,
+)
 _NUMEROS_POR_EXTENSO = {"uma": 1, "duas": 2, "tres": 3, "três": 3, "quatro": 4, "cinco": 5, "seis": 6}
 _RE_PAGAR_PARCELAS = re.compile(
     r"\bpaguei\s+(?:(a\s+primeira|a|as|\d{1,2}|" + "|".join(_NUMEROS_POR_EXTENSO) + r")\s+)?parcelas?\b(?:\s+d[oa]s?\b)?",
@@ -71,11 +80,16 @@ def _item_da_compra_parcelada(text: str, credor: str | None) -> str:
     return item.strip(" ,.;")
 
 
+def parcelamento_da_frase(text: str) -> dict | None:
+    """O parcelamento dito na frase ("em 12 vezes", "10x de 150"), só com sinal claro de parcelamento."""
+    return extract_parcelamento(text) if _RE_SINAL_PARCELAMENTO.search(text or "") else None
+
+
 def _compra_parcelada(text: str, base: dict) -> dict | None:
     """Leitura de uma compra parcelada já feita como dívida; None se a frase não for uma."""
-    if not _RE_COMPRA_FEITA.search(text) or _RE_COMPRA_FUTURA.search(text) or not _RE_SINAL_PARCELAMENTO.search(text):
+    if not _RE_COMPRA_FEITA.search(text) or _RE_COMPRA_FUTURA.search(text):
         return None
-    parcelamento = extract_parcelamento(text)
+    parcelamento = parcelamento_da_frase(text)
     if not parcelamento:
         return None
     credor = extract_credor_parcelamento(text)
@@ -418,6 +432,11 @@ def detect_intention(text: str, categorias_keywords: dict[str, list[str]], palav
         return {"intencao": "editar_movimentacao", "valor": None, "descricao": item.group(1).strip() if item else "",
                 "data": None, "categoria_regra": None, "mes_referencia": None,
                 "id_movimentacao": movement_id, "novo_primeiro_vencimento": novo_primeiro_vencimento}
+
+    # "paguei minha parcela do mês", "quero pagar minhas dívidas do mês": todas as parcelas que vencem no mês.
+    if _RE_PAGAR_PARCELAS_DO_MES.search(text_lower.rstrip(" .!")):
+        return {"intencao": "pagar_parcelas_mes", "valor": None, "descricao": "", "data": date_ref,
+                "categoria_regra": None, "mes_referencia": None}
 
     # "paguei a parcela do blusão" / "paguei 3 parcelas do blusão": o 3 é quantidade de parcelas, não valor.
     pagar_parcelas = _RE_PAGAR_PARCELAS.search(text) if not _RE_JA_PAGUEI_PRIMEIRA.search(text) else None

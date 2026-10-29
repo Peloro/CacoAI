@@ -46,8 +46,15 @@ def interpretar_com_ia(mensagem: str, local: dict) -> list[dict] | None:
     # rever se aparecerem erros em mensagens curtas.
     if len(mensagem.split()) <= 2:
         return None
-    if local.get("parcelas") or local.get("novo_primeiro_vencimento"):
-        return None  # parcelamento e 1ª parcela são das regras, como as datas
+    # Valem as regras, como nas datas: parcelamento e 1ª parcela (números), e leituras que o prompt da IA não tem
+    # como expressar ("listar dívidas", "pagar as parcelas do mês") — senão ela troca por resumo ou outro pagamento.
+    if (
+        local.get("parcelas")
+        or local.get("novo_primeiro_vencimento")
+        or local.get("intencao") == "pagar_parcelas_mes"
+        or (local.get("intencao") == "listar_movimentacoes" and local.get("tipo_listar") == "divida")
+    ):
+        return None
     try:
         from app.ia import interpretar_mensagem
 
