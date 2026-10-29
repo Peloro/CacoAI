@@ -43,6 +43,9 @@ GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
 # (`or` faz uma variável vazia no .env, ex. "GROQ_MODEL=", cair no padrão.)
 GROQ_MODEL_FAST = os.getenv("GROQ_MODEL_FAST") or "openai/gpt-oss-20b"
 GROQ_MODEL = os.getenv("GROQ_MODEL") or "openai/gpt-oss-120b"
+# US$ por milhão de tokens (entrada, saída) no plano pago da Groq; o raciocínio é cobrado como saída.
+# shortcut: tabela fixa de referência; conferir em groq.com/pricing ao trocar de modelo.
+PRECOS_LLM = {"openai/gpt-oss-120b": (0.15, 0.60), "openai/gpt-oss-20b": (0.075, 0.30)}
 # gpt-oss sempre raciocina: "low" é o mínimo aceito (menos tokens e latência).
 GROQ_REASONING_EFFORT = os.getenv("GROQ_REASONING_EFFORT") or "low"
 

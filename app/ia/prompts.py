@@ -54,6 +54,21 @@ INTENCOES_INTERPRETACAO = [
     "conversa_geral",
 ]
 
+# Opcional na interpretação (custa ~350 tokens por chamada); `run.py avaliar --schema-estrito` mede se compensa.
+SCHEMA_INTERPRETACAO = _schema("interpretacao", {
+    "operacoes": {"type": "array", "items": _schema("operacao", {
+        "intencao": {"type": "string", "enum": INTENCOES_INTERPRETACAO},
+        "valor": {"type": "number"},
+        "descricao": {"type": "string"},
+        "categoria": {"type": "string", "enum": sorted(CATEGORIAS_VALIDAS) + [""]},
+        "tipo": {"type": "string", "enum": ["entrada", "saida", ""]},
+        "credor_divida": {"type": "string"},
+        "id_movimentacao": {"type": ["integer", "null"]},
+        "novo_valor": {"type": ["number", "null"]},
+        "periodo_limpar": {"type": "string", "enum": ["mes", "ano", "tudo", ""]},
+    })["schema"]},
+})
+
 SYSTEM_PROMPT_CHAT = """Você é o Caco, assistente financeiro em pt-BR.
 Responda com clareza, tom amigável e objetividade (1-2 frases).
 Regras: não inventar números, não fazer cálculos, não prometer funções fora do bot.

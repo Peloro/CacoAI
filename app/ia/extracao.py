@@ -12,10 +12,12 @@ from app.ia.prompts import (
     CATEGORIAS_VALIDAS,
     INTENCOES_INTERPRETACAO,
     INTERPRETATION_PROMPT,
+    SCHEMA_INTERPRETACAO,
     SCHEMA_EXTRACAO,
     TRANSACTION_EXTRACTION_PROMPT,
 )
 from app.ia.texto import compactar_texto, parse_json
+from app.ia.verificacao import nome_ancorado, rejeitar, valor_ancorado
 
 log = logging.getLogger("caco.llm")
 
@@ -78,6 +80,7 @@ def extrair_movimentacao_estruturada(mensagem: str) -> dict:
     try:
         bruto = provedores.conversar(
             prompt,
+            tarefa="extracao",
             task="quality",
             temperature=0.0,
             max_tokens=LLM_MAX_TOKENS_EXTRACAO,
@@ -108,6 +111,13 @@ def extrair_movimentacao_estruturada(mensagem: str) -> dict:
         "data_ref": data_ref if re.fullmatch(r"\d{4}-\d{2}-\d{2}", data_ref) else None,
         "confianca": confianca,
     }
+    # Número ou nome que não está na mensagem foi inventado: descarta e fica o da leitura local.
+    if resultado["valor"] and not valor_ancorado(resultado["valor"], mensagem):
+        rejeitar("extracao", "valor", resultado["valor"], mensagem)
+        resultado["valor"] = 0.0
+    if resultado["origem_destino"] and not nome_ancorado(resultado["origem_destino"], mensagem):
+        rejeitar("extracao", "origem_destino", resultado["origem_destino"], mensagem)
+        resultado["origem_destino"] = ""
 
     # Campos que a IA deixou vazios vêm da interpretação local.
     if resultado["tipo"] == "incerto" and local["tipo"] != "incerto":
@@ -129,12 +139,13 @@ def _numero(valor, minimo: float = 0.0) -> float:
     return n if minimo <= n < 1e12 else 0.0  # descarta negativo, NaN e infinito
 
 
-def interpretar_mensagem(mensagem: str) -> list[dict] | None:
+def interpretar_mensagem(mensagem: str, *, modelo: str | None = None, schema_estrito: bool = False) -> list[dict] | None:
     """
     Interpreta a mensagem inteira (qualquer intenção) numa chamada de IA com schema estrito.
 
     Devolve as operações no mesmo formato do parser local (sem data, que fica com as regras),
     ou None se a IA não estiver disponível ou responder algo inválido.
+    `modelo` e `schema_estrito` são para a avaliação (`python run.py avaliar`).
     """
     if not provedores.disponivel or not (mensagem or "").strip():
         return None
@@ -145,10 +156,13 @@ def interpretar_mensagem(mensagem: str) -> list[dict] | None:
     try:
         bruto = provedores.conversar(
             prompt,
+            tarefa="interpretacao",
             task="quality",
             temperature=0.0,
             max_tokens=LLM_MAX_TOKENS_EXTRACAO * 2,  # cabe mais de uma operação
             json_mode=True,  # sem schema estrito: ele custa ~350 tokens por chamada (cota de 8K/min)
+            schema=SCHEMA_INTERPRETACAO if schema_estrito else None,
+            modelo=modelo,
         )
     except Exception as e:
         log.warning("Erro LLM (%s) em interpretacao: %s", provedores.ativo, e)
@@ -161,14 +175,25 @@ def interpretar_mensagem(mensagem: str) -> list[dict] | None:
             continue
         tipo = op.get("tipo") if op.get("tipo") in ("entrada", "saida") else None
         id_mov = op.get("id_movimentacao")
+        # Número ou nome que não está na mensagem foi inventado: sem ele, o bot pergunta ou usa as regras.
+        valores = {}
+        for campo in ("valor", "novo_valor"):
+            valores[campo] = _numero(op.get(campo)) or None
+            if valores[campo] and not valor_ancorado(valores[campo], mensagem):
+                rejeitar("interpretacao", campo, valores[campo], mensagem)
+                valores[campo] = None
+        credor = str(op.get("credor_divida") or "").strip().lower()
+        if credor and not nome_ancorado(credor, mensagem):
+            rejeitar("interpretacao", "credor_divida", credor, mensagem)
+            credor = ""
         operacoes.append({
             "intencao": op["intencao"],
-            "valor": _numero(op.get("valor")) or None,
+            "valor": valores["valor"],
             "descricao": str(op.get("descricao") or "").strip(),
             "categoria_regra": _categoria_valida(str(op.get("categoria") or "")) or None,
-            "credor_divida": str(op.get("credor_divida") or "").strip().lower(),
+            "credor_divida": credor,
             "id_movimentacao": id_mov if isinstance(id_mov, int) and id_mov > 0 else None,
-            "novo_valor": _numero(op.get("novo_valor")) or None,
+            "novo_valor": valores["novo_valor"],
             "periodo_limpar": op.get("periodo_limpar") if op.get("periodo_limpar") in ("mes", "ano", "tudo") else "mes",
             "tipo_total": tipo or "saida",
             "tipo_listar": tipo,

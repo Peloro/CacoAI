@@ -132,3 +132,25 @@ def test_resposta_cortada_pelo_raciocinio_tenta_de_novo_com_mais_espaco(groq):
 @pytest.mark.parametrize("valor, segundos", [("2m59.56s", 179.56), ("7.66s", 7.66), ("120ms", 0.12), ("1h2m", 3720), ("", 0)])
 def test_duracoes_da_groq(valor, segundos):
     assert provedores._segundos(valor) == pytest.approx(segundos)
+
+
+def test_modelo_forcado_nao_troca_de_modelo(groq):
+    # A avaliação mede um modelo por vez: com a cota dele esgotada, não pode responder pelo outro.
+    cliente = groq(_Resposta(status=429, headers={"retry-after": "30"}))
+    with pytest.raises(RuntimeError, match="cota gratuita"):
+        provedores.conversar("oi", task="fast", modelo=QUALIDADE)
+    assert [p["model"] for p in cliente.payloads] == [QUALIDADE]
+
+
+def test_interpretacao_com_schema_estrito(groq):
+    from app.ia.extracao import interpretar_mensagem
+    from app.ia.prompts import SCHEMA_INTERPRETACAO
+
+    op = {"intencao": "registrar_saida", "valor": 45, "descricao": "uber", "categoria": "transporte", "tipo": "",
+          "credor_divida": "", "id_movimentacao": None, "novo_valor": None, "periodo_limpar": ""}
+    cliente = groq(_Resposta(conteudo=json.dumps({"operacoes": [op]})), _Resposta(conteudo='{"operacoes": []}'))
+    assert interpretar_mensagem("paguei 45 no uber", schema_estrito=True)[0]["valor"] == 45
+    assert cliente.payloads[0]["response_format"]["json_schema"]["schema"] == SCHEMA_INTERPRETACAO["schema"]
+
+    interpretar_mensagem("paguei 45 no uber")  # padrão de produção: só json_object
+    assert cliente.payloads[1]["response_format"] == {"type": "json_object"}

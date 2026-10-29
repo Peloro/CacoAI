@@ -6,6 +6,15 @@ from collections import defaultdict
 from datetime import datetime
 
 
+def percentil(values: list[float], q: float) -> float:
+    """Percentil q (0-100) pelo vizinho mais próximo; 0.0 sem amostras."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    pos = int(round((q / 100.0) * (len(ordered) - 1)))
+    return float(ordered[max(0, min(pos, len(ordered) - 1))])
+
+
 class _MetricsStore:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -35,14 +44,6 @@ class _MetricsStore:
             if len(self._latency_samples) > self._max_latency_samples:
                 self._latency_samples = self._latency_samples[-self._max_latency_samples :]
 
-    @staticmethod
-    def _percentile(values: list[float], q: float) -> float:
-        if not values:
-            return 0.0
-        ordered = sorted(values)
-        pos = int(round((q / 100.0) * (len(ordered) - 1)))
-        return float(ordered[max(0, min(pos, len(ordered) - 1))])
-
     def snapshot(self) -> dict:
         with self._lock:
             counters = dict(self._counters)
@@ -50,7 +51,7 @@ class _MetricsStore:
             lat_samples = list(self._latency_samples)
 
         avg = (lat["sum_ms"] / lat["count"]) if lat["count"] else 0.0
-        p95 = self._percentile(lat_samples, 95.0)
+        p95 = percentil(lat_samples, 95.0)
         total_msgs = int(counters.get("messages.total", 0) or 0)
         fallback_used = int(counters.get("fallback.used", 0) or 0)
         fallback_rate = (fallback_used / total_msgs * 100.0) if total_msgs else 0.0

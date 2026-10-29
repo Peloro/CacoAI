@@ -1,0 +1,98 @@
+{"msg": "gastei 30 semana passada", "intencao": "registrar_saida", "valor": 30}
+{"msg": "gastei 22 na segunda passada", "intencao": "registrar_saida", "valor": 22}
+{"msg": "comprei arroz e feijão por 30", "intencao": "registrar_saida", "valor": 30, "categoria": "alimentacao"}
+{"msg": "uns 80 conto na feirinha", "intencao": "registrar_saida", "valor": 80, "categoria": "alimentacao"}
+{"msg": "transferi 150 pra minha irmã porque ela tava precisando de grana", "intencao": "registrar_saida", "valor": 150}
+{"msg": "abasteci o carro, deu 250 reais no débito", "intencao": "registrar_saida", "valor": 250, "categoria": "transporte"}
+{"msg": "paguei 45 no uber", "intencao": "registrar_saida", "valor": 45, "categoria": "transporte"}
+{"msg": "almoço 32,50 hoje", "intencao": "registrar_saida", "valor": 32.5, "categoria": "alimentacao"}
+{"msg": "ifood 58 ontem à noite", "intencao": "registrar_saida", "valor": 58, "categoria": "alimentacao"}
+{"msg": "farmácia deu 87,90", "intencao": "registrar_saida", "valor": 87.9, "categoria": "saude"}
+{"msg": "paguei a conta de luz, 180", "intencao": "registrar_saida", "valor": 180, "categoria": "moradia"}
+{"msg": "comprei ração pro cachorro, 120 reais", "intencao": "registrar_saida", "valor": 120, "categoria": "pets"}
+{"msg": "paguei 89 na ração do gato", "intencao": "registrar_saida", "valor": 89, "categoria": "pets"}
+{"msg": "cortei o cabelo por 40", "intencao": "registrar_saida", "valor": 40}
+{"msg": "dei 50 de dízimo na igreja", "intencao": "registrar_saida", "valor": 50, "categoria": "doacoes"}
+{"msg": "paguei 2.400 de aluguel", "intencao": "registrar_saida", "valor": 2400, "categoria": "moradia"}
+{"msg": "fui no cinema e gastei 60", "intencao": "registrar_saida", "valor": 60, "categoria": "lazer"}
+{"msg": "mensalidade da faculdade 890", "intencao": "registrar_saida", "valor": 890, "categoria": "educacao"}
+{"msg": "comprei um tênis de 300", "intencao": "registrar_saida", "valor": 300, "categoria": "compras"}
+{"msg": "300 reias no mercado", "intencao": "registrar_saida", "valor": 300, "categoria": "alimentacao"}
+{"msg": "torrei 200 no bar sexta", "intencao": "registrar_saida", "valor": 200, "categoria": "lazer"}
+{"msg": "gasolina 150 no posto", "intencao": "registrar_saida", "valor": 150, "categoria": "transporte"}
+{"msg": "paguei o ipva, 1.200", "intencao": "registrar_saida", "valor": 1200, "categoria": "impostos"}
+{"msg": "material escolar do meu filho deu 350", "intencao": "registrar_saida", "valor": 350}
+{"msg": "consulta no dentista 250", "intencao": "registrar_saida", "valor": 250, "categoria": "saude"}
+{"msg": "lanche na padaria 12", "intencao": "registrar_saida", "valor": 12, "categoria": "alimentacao"}
+{"msg": "netflix 55,90", "intencao": "registrar_saida", "valor": 55.9}
+{"msg": "comprei um presente de 75 pra minha mãe", "intencao": "registrar_saida", "valor": 75}
+{"msg": "caiu o salário, 3500", "intencao": "registrar_entrada", "valor": 3500, "categoria": "salario"}
+{"msg": "meu chefe me pagou 200 pelo freela", "intencao": "registrar_entrada", "valor": 200, "categoria": "freelas"}
+{"msg": "recebi 1.500 de um cliente", "intencao": "registrar_entrada", "valor": 1500}
+{"msg": "ganhei 100 da minha avó", "intencao": "registrar_entrada", "valor": 100}
+{"msg": "vendi minha bike por 600", "intencao": "registrar_entrada", "valor": 600}
+{"msg": "recebi 20 de pix do joão", "intencao": "registrar_entrada", "valor": 20}
+{"msg": "entrou 4200 do salário hoje", "intencao": "registrar_entrada", "valor": 4200, "categoria": "salario"}
+{"msg": "rendeu 35 na poupança", "intencao": "registrar_entrada", "valor": 35, "categoria": "investimentos"}
+{"msg": "me devolveram 80 que eu tinha emprestado", "intencao": "registrar_entrada", "valor": 80}
+{"msg": "recebi o décimo terceiro, 2800", "intencao": "registrar_entrada", "valor": 2800, "categoria": "salario"}
+{"msg": "peguei 500 emprestado com meu irmão", "intencao": "registrar_divida", "valor": 500, "credor": "irmao"}
+{"msg": "tô devendo 200 pro joão", "intencao": "registrar_divida", "valor": 200, "credor": "joao"}
+{"msg": "a maria me emprestou 300", "intencao": "registrar_divida", "valor": 300, "credor": "maria"}
+{"msg": "fiquei devendo 150 na oficina", "intencao": "registrar_divida", "valor": 150, "credor": "oficina"}
+{"msg": "pedi 1000 emprestado pro banco", "intencao": "registrar_divida", "valor": 1000, "credor": "banco"}
+{"msg": "devo 80 pro pedro do churrasco", "intencao": "registrar_divida", "valor": 80, "credor": "pedro"}
+{"msg": "paguei 100 da dívida do joão", "intencao": "pagar_divida", "valor": 100, "credor": "joao"}
+{"msg": "paguei 200 pro meu irmão do empréstimo", "intencao": "pagar_divida", "valor": 200, "credor": "irmao"}
+{"msg": "devolvi os 300 que a maria me emprestou", "intencao": "pagar_divida", "valor": 300, "credor": "maria"}
+{"msg": "acertei 150 da dívida com a oficina", "intencao": "pagar_divida", "valor": 150, "credor": "oficina"}
+{"msg": "paguei 40 do que devo pro pedro", "intencao": "pagar_divida", "valor": 40, "credor": "pedro"}
+{"msg": "quitei todas as minhas dívidas", "intencao": "quitar_dividas"}
+{"msg": "paguei todas as dívidas", "intencao": "quitar_dividas"}
+{"msg": "tenho 1500 na conta agora", "intencao": "registrar_saldo_inicial", "valor": 1500}
+{"msg": "meu saldo hoje é 820", "intencao": "registrar_saldo_inicial", "valor": 820}
+{"msg": "tô começando com 3000 no banco", "intencao": "registrar_saldo_inicial", "valor": 3000}
+{"msg": "qual meu saldo?", "intencao": "consultar_saldo"}
+{"msg": "quanto dinheiro eu tenho?", "intencao": "consultar_saldo"}
+{"msg": "me manda o resumo do mês", "intencao": "consultar_resumo"}
+{"msg": "quero ver o extrato de março", "intencao": "consultar_resumo"}
+{"msg": "quanto gastei em 2025", "intencao": "consultar_total"}
+{"msg": "quanto eu recebi esse mês?", "intencao": "consultar_total"}
+{"msg": "qual o total de gastos da semana?", "intencao": "consultar_total"}
+{"msg": "o que eu comprei ontem?", "intencao": "listar_movimentacoes"}
+{"msg": "lista meus gastos", "intencao": "listar_movimentacoes"}
+{"msg": "mostra os últimos lançamentos", "intencao": "listar_movimentacoes"}
+{"msg": "quais categorias eu tenho?", "intencao": "listar_categorias"}
+{"msg": "lista as categorias de gasto", "intencao": "listar_categorias"}
+{"msg": "quanto gastei esse mês com comida?", "intencao": "consultar_categoria", "categoria": "alimentacao"}
+{"msg": "quanto foi de transporte em março?", "intencao": "consultar_categoria", "categoria": "transporte"}
+{"msg": "quanto eu gastei com lazer?", "intencao": "consultar_categoria", "categoria": "lazer"}
+{"msg": "apaga o último gasto", "intencao": "apagar_movimentacao"}
+{"msg": "remove o lançamento #12", "intencao": "apagar_movimentacao"}
+{"msg": "exclui aquele uber de ontem", "intencao": "apagar_movimentacao"}
+{"msg": "corrigir o mercado para 60", "intencao": "editar_movimentacao"}
+{"msg": "muda o #7 pra 45", "intencao": "editar_movimentacao"}
+{"msg": "o valor do almoço tá errado, era 35", "intencao": "editar_movimentacao"}
+{"msg": "limpar tudo de 2025", "intencao": "limpar_movimentacoes"}
+{"msg": "apaga todos os gastos desse mês", "intencao": "limpar_movimentacoes"}
+{"msg": "zera todos os meus lançamentos", "intencao": "limpar_movimentacoes"}
+{"msg": "desfaz", "intencao": "desfazer_ultimo"}
+{"msg": "desfazer o último registro", "intencao": "desfazer_ultimo"}
+{"msg": "volta o que você acabou de registrar", "intencao": "desfazer_ultimo"}
+{"msg": "quero comprar um notebook de 4000 em 10 vezes, fica ruim?", "intencao": "posso_gastar", "valor": 4000}
+{"msg": "será que dá pra eu pedir um ifood de 60 hoje?", "intencao": "posso_gastar", "valor": 60}
+{"msg": "posso gastar 300 num show?", "intencao": "posso_gastar", "valor": 300}
+{"msg": "vale a pena comprar um fone de 250?", "intencao": "posso_gastar", "valor": 250}
+{"msg": "como faço pra economizar mais?", "intencao": "pedir_dica"}
+{"msg": "me dá dicas pra gastar menos com comida", "intencao": "pedir_dica"}
+{"msg": "alguma dica pra sair do vermelho?", "intencao": "pedir_dica"}
+{"msg": "bom dia, tudo bem?", "intencao": "conversa_geral"}
+{"msg": "qual a capital da frança", "intencao": "conversa_geral"}
+{"msg": "o valor do aluguel subiu", "intencao": "conversa_geral"}
+{"msg": "obrigado pela ajuda!", "intencao": "conversa_geral"}
+{"msg": "você é um robô?", "intencao": "conversa_geral"}
+{"msg": "amanhã vou no mercado", "intencao": "conversa_geral"}
+{"msg": "a gasolina tá 6 reais o litro", "intencao": "conversa_geral"}
+{"msg": "meu irmão ganhou 5000 num sorteio", "intencao": "conversa_geral"}
+{"msg": "gastei 16 no almoço e recebi 20 de pix", "intencao": "registrar_saida", "valor": 16, "n_ops": 2}
+{"msg": "paguei 30 de uber e 50 de mercado", "intencao": "registrar_saida", "valor": 30, "n_ops": 2}

@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 
 from app.dados import buscar_categoria_aprendida, registrar_categoria_aprendida
+from app.ia import provedores
 from app.interpretacao import CATEGORIAS_KEYWORDS
 from app.interpretacao.categorias import categorize_by_rules
 from app.conversa.contexto import usou_ia_ctx
@@ -69,6 +70,8 @@ def interpretar_com_ia(mensagem: str, local: dict) -> list[dict] | None:
     datas = {"data": local.get("data"), "mes_referencia": local.get("mes_referencia")}
     resultado = []
     for op in operacoes:
+        if len(operacoes) == 1 and not op["valor"] and op["intencao"] == local.get("intencao"):
+            op = op | {"valor": local.get("valor")}  # valor que a IA não deu (ou inventou e foi descartado) vem das regras
         concorda = (
             len(operacoes) == 1
             and op["intencao"] == local.get("intencao")
@@ -80,6 +83,9 @@ def interpretar_com_ia(mensagem: str, local: dict) -> list[dict] | None:
         else:
             op = op | datas | {"_extraido_por_ia": True}
         resultado.append(op | {"_mensagem_original": mensagem})
+        uso = provedores.uso_da_mensagem.get()
+        if uso is not None:
+            uso["caminho"] = "ia_concordou" if concorda else "ia_decidiu"
     return resultado
 
 

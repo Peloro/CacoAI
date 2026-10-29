@@ -69,6 +69,8 @@ python run.py             # API FastAPI (padrao)
 python run.py telegram    # bot do Telegram (long polling)
 python run.py terminal    # simulador de conversa no terminal
 python run.py ia          # diagnostico da IA (tokens por tarefa)
+python run.py avaliar     # acuracia/latencia/custo da interpretacao (--modelos a,b --limite N --schema-estrito)
+python run.py custos      # custo, latencia e % sem IA medidos nas mensagens reais (--dias N)
 ```
 
 ## Canais de Execucao

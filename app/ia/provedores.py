@@ -5,6 +5,7 @@ import httpx
 import logging
 import re
 import time
+from contextvars import ContextVar
 from typing import Optional
 
 from app.config import (
@@ -124,6 +125,14 @@ class _RespostaCortada(Exception):
 _bloqueado_ate: dict[str, float] = {}
 # Uso das últimas chamadas (para o diagnóstico `python run.py ia`).
 historico_uso: list[dict] = []
+# Chamadas e campos rejeitados da mensagem em andamento; o pipeline cria e grava (tabela uso_ia).
+uso_da_mensagem: ContextVar[dict | None] = ContextVar("uso_da_mensagem", default=None)
+
+
+def _anotar(chamada: dict) -> None:
+    uso = uso_da_mensagem.get()
+    if uso is not None:
+        uso["chamadas"].append(chamada)
 
 
 def _segundos(valor: str | None) -> float:
@@ -172,6 +181,7 @@ def _chat_groq(
     max_tokens: int = 300,
     json_mode: bool = False,
     schema: dict | None = None,
+    tarefa: str = "",
 ) -> str:
     messages = []
     if system_prompt:
@@ -202,6 +212,7 @@ def _chat_groq(
     response = _cliente_http().post(endpoint, headers=_headers_groq(), json=payload)
     _registrar_limites(model, response)
     if response.status_code == 429:
+        _anotar({"tarefa": tarefa, "modelo": model, "ms": round((time.perf_counter() - inicio) * 1000), "status": "cota"})
         raise _CotaEsgotada(model)
     response.raise_for_status()
     data = response.json()
@@ -215,15 +226,19 @@ def _chat_groq(
     uso = data.get("usage") or {}
     inc_counter(f"ia.{model}.chamadas")
     inc_counter(f"ia.{model}.tokens", int(uso.get("total_tokens") or 0))
-    historico_uso.append({
+    chamada = {
+        "tarefa": tarefa,
         "modelo": model,
         "ms": round((time.perf_counter() - inicio) * 1000),
         "prompt_tokens": uso.get("prompt_tokens"),
         "completion_tokens": uso.get("completion_tokens"),
         "reasoning_tokens": (uso.get("completion_tokens_details") or {}).get("reasoning_tokens"),
         "finish_reason": escolha.get("finish_reason"),
-    })
+        "status": "ok",
+    }
+    historico_uso.append(chamada)
     del historico_uso[:-50]
+    _anotar(chamada)
 
     if not conteudo and escolha.get("finish_reason") == "length":
         raise _RespostaCortada(model)
@@ -245,9 +260,11 @@ def _headers_openrouter() -> dict:
 def _chat_openrouter(
     user_prompt: str,
     *,
+    model: str = OPENROUTER_MODEL,
     system_prompt: Optional[str] = None,
     temperature: float = 0.7,
     max_tokens: int = 300,
+    tarefa: str = "",
 ) -> str:
     messages = []
     if system_prompt:
@@ -256,10 +273,11 @@ def _chat_openrouter(
 
     base = OPENROUTER_BASE_URL.rstrip("/")
     endpoint = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
+    inicio = time.perf_counter()
     response = _cliente_http().post(
         endpoint,
         headers=_headers_openrouter(),
-        json={"model": OPENROUTER_MODEL, "messages": messages, "temperature": temperature, "max_tokens": max_tokens},
+        json={"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens},
     )
     if response.status_code == 404 and "guardrail restrictions" in response.text:
         raise RuntimeError(
@@ -270,6 +288,12 @@ def _chat_openrouter(
         preview = response.text[:300].replace("\n", " ").strip()
         raise RuntimeError(f"OpenRouter retornou HTTP {response.status_code}: {preview!r}")
     data = response.json()
+    uso = data.get("usage") or {}
+    _anotar({
+        "tarefa": tarefa, "modelo": model, "ms": round((time.perf_counter() - inicio) * 1000),
+        "prompt_tokens": uso.get("prompt_tokens"), "completion_tokens": uso.get("completion_tokens"),
+        "finish_reason": ((data.get("choices") or [{}])[0]).get("finish_reason"), "status": "ok",
+    })
 
     conteudo = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
     if isinstance(conteudo, list):
@@ -286,22 +310,31 @@ def conversar(
     max_tokens: int = 300,
     json_mode: bool = False,
     schema: dict | None = None,
+    modelo: str | None = None,
+    tarefa: str = "",
 ) -> str:
-    """Chama a IA. Na Groq: usa o modelo da tarefa e, se a cota dele acabar, o outro (cotas separadas)."""
+    """Chama a IA. Na Groq: usa o modelo da tarefa e, se a cota dele acabar, o outro (cotas separadas).
+
+    `modelo` força um modelo só, sem trocar por outro (a avaliação mede um modelo por vez).
+    """
     if ativo != "groq":
         return _chat_openrouter(
             user_prompt,
+            model=modelo or OPENROUTER_MODEL,
+            tarefa=tarefa,
             system_prompt=system_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
         )
 
     preferido, alternativo = (GROQ_MODEL_FAST, GROQ_MODEL) if task == "fast" else (GROQ_MODEL, GROQ_MODEL_FAST)
+    if modelo:
+        preferido = alternativo = modelo
     modelos = [m for m in dict.fromkeys((preferido, alternativo)) if _modelo_liberado(m)]
     if not modelos:
         raise RuntimeError("cota gratuita da IA esgotada no momento; usando respostas locais")
 
-    kwargs = {"system_prompt": system_prompt, "temperature": temperature, "json_mode": json_mode, "schema": schema}
+    kwargs = {"system_prompt": system_prompt, "temperature": temperature, "json_mode": json_mode, "schema": schema, "tarefa": tarefa}
     ultimo_erro = None
     for model in modelos:
         try:

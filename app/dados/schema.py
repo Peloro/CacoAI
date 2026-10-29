@@ -95,6 +95,34 @@ def init_db():
                 FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
                 PRIMARY KEY (usuario_id, descricao_norm)
             );
+
+            -- Telemetria (`python run.py custos`): só metadados, nunca o texto da mensagem nem o usuário.
+            CREATE TABLE IF NOT EXISTS uso_mensagens (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                trace_id        TEXT    NOT NULL,
+                intencao        TEXT    NOT NULL,
+                caminho         TEXT    NOT NULL,
+                ms              REAL    NOT NULL,
+                rejeicoes       INTEGER NOT NULL DEFAULT 0,
+                criado_em       TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+            );
+
+            CREATE TABLE IF NOT EXISTS uso_ia (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                trace_id          TEXT    NOT NULL,
+                tarefa            TEXT    NOT NULL,
+                modelo            TEXT    NOT NULL,
+                status            TEXT    NOT NULL,
+                ms                REAL    NOT NULL,
+                tokens_entrada    INTEGER NOT NULL DEFAULT 0,
+                tokens_saida      INTEGER NOT NULL DEFAULT 0,
+                tokens_raciocinio INTEGER NOT NULL DEFAULT 0,
+                finish_reason     TEXT,
+                criado_em         TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_uso_mensagens_data ON uso_mensagens(criado_em);
+            CREATE INDEX IF NOT EXISTS idx_uso_ia_data ON uso_ia(criado_em);
             """
         )
         _migrar_schema(conn)

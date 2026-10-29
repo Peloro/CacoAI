@@ -41,6 +41,7 @@ from app.ia.texto import (
     resposta_fallback,
     sanitizar_resposta_conversa,
 )
+from app.ia.verificacao import sem_numeros_inventados
 
 
 log = logging.getLogger("caco.llm")
@@ -65,6 +66,7 @@ def categorizar_transacao(descricao: str) -> str:
     try:
         categoria = provedores.conversar(
             prompt,
+            tarefa="categoria",
             task="fast",
             temperature=0.0,
             max_tokens=LLM_MAX_TOKENS_CATEGORIZACAO,
@@ -110,6 +112,7 @@ def gerar_resposta_chat(
     try:
         resposta = provedores.conversar(
             prompt,
+            tarefa="chat",
             task="fast",
             system_prompt=SYSTEM_PROMPT_CHAT,
             temperature=0.6,
@@ -123,7 +126,7 @@ def gerar_resposta_chat(
             max_frases=max(1, LLM_CHAT_MAX_SENTENCES),
             max_chars=max(80, LLM_CHAT_MAX_CHARS),
         )
-        return sanitizar_resposta_conversa(resposta)
+        return sanitizar_resposta_conversa(sem_numeros_inventados(resposta, prompt, "chat"))
 
     except Exception as e:
         log.warning("Erro LLM (%s) em chat: %s", provedores.ativo, e)
@@ -150,6 +153,9 @@ def _contexto_dica_sem_valores(contexto: dict | None) -> str:
     return "- Contexto parcial disponível, sem categorias confiáveis."
 
 
+_SEM_DICAS = "Não consegui gerar dicas agora. Tenta de novo em instantes."
+
+
 def gerar_dica_financeira(mensagem: str, contexto: dict | None = None) -> str:
     """
     Gera dicas financeiras dinamicamente via LLM para pedidos de "dica".
@@ -169,6 +175,7 @@ def gerar_dica_financeira(mensagem: str, contexto: dict | None = None) -> str:
     try:
         resposta = provedores.conversar(
             prompt,
+            tarefa="dica",
             task="quality",
             system_prompt=SYSTEM_PROMPT_CHAT,
             temperature=0.6,
@@ -176,10 +183,10 @@ def gerar_dica_financeira(mensagem: str, contexto: dict | None = None) -> str:
         )
         if resposta.startswith('"') and resposta.endswith('"'):
             resposta = resposta[1:-1]
-        return compactar_lista_dicas(resposta)
+        return compactar_lista_dicas(sem_numeros_inventados(resposta, prompt, "dica")) or _SEM_DICAS
     except Exception as e:
         log.warning("Erro LLM (%s) em dica: %s", provedores.ativo, e)
-        return "Não consegui gerar dicas agora. Tenta de novo em instantes."
+        return _SEM_DICAS
 
 
 def gerar_observacao_resumo(contexto: str) -> str:
@@ -197,6 +204,7 @@ def gerar_observacao_resumo(contexto: str) -> str:
     try:
         resposta = provedores.conversar(
             prompt,
+            tarefa="observacao",
             task="quality",
             system_prompt=SYSTEM_PROMPT_CHAT,
             temperature=0.5,
@@ -204,6 +212,7 @@ def gerar_observacao_resumo(contexto: str) -> str:
         )
         if resposta.startswith('"') and resposta.endswith('"'):
             resposta = resposta[1:-1]
+        resposta = sem_numeros_inventados(resposta, prompt, "observacao")
         return normalizar_observacao_resumo(resposta, max_chars=max(180, LLM_OBSERVACAO_MAX_CHARS))
     except Exception as e:
         log.warning("Erro LLM (%s) em observacao_resumo: %s", provedores.ativo, e)
@@ -252,6 +261,7 @@ def gerar_orientacao_planejamento_compra(
     try:
         resposta = provedores.conversar(
             prompt,
+            tarefa="planejamento",
             task="quality",
             system_prompt=SYSTEM_PROMPT_CHAT,
             temperature=0.45,
@@ -259,7 +269,7 @@ def gerar_orientacao_planejamento_compra(
         )
         if resposta.startswith('"') and resposta.endswith('"'):
             resposta = resposta[1:-1]
-        return compactar_lista_dicas(resposta)
+        return compactar_lista_dicas(sem_numeros_inventados(resposta, prompt, "planejamento"))
     except Exception as e:
         log.warning("Erro LLM (%s) em planejamento_compra: %s", provedores.ativo, e)
         return ""
@@ -293,6 +303,7 @@ def gerar_titulo_canonico(mensagem: str, descricao: str = "", categoria: str = "
     try:
         bruto = provedores.conversar(
             prompt,
+            tarefa="titulo",
             task="fast",
             temperature=0.0,
             max_tokens=LLM_MAX_TOKENS_TITULO,

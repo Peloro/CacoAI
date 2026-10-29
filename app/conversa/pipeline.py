@@ -26,6 +26,8 @@ from app.dados import (
 )
 from app.input_guard import InputValidationError, validate_message_or_raise, validate_phone_or_raise
 from app.interpretacao import detectar_intencao
+from app.dados.uso import registrar_uso
+from app.ia import provedores
 from app.metrics import inc_counter, observe_latency_ms
 from app.security import validate_password_policy
 from app.conversa.confirmacao import (
@@ -152,6 +154,8 @@ def processar_mensagem(telefone: str, mensagem: str, trace_id: str | None = None
     trace_id_ctx.set((trace_id or "").strip() or new_trace_id())
     operation_id_ctx.set("")
     estados_ctx.set(None)
+    uso = {"chamadas": [], "rejeicoes": 0, "caminho": None}
+    provedores.uso_da_mensagem.set(uso)
     resposta = ""
     erro_msg: str | None = None
     inicio = time.perf_counter()
@@ -216,7 +220,13 @@ def processar_mensagem(telefone: str, mensagem: str, trace_id: str | None = None
     inc_counter(f"intent.{intencao_final}")
     if erro_msg is not None:
         inc_counter(f"intent_error.{intencao_final}")
-    observe_latency_ms((time.perf_counter() - inicio) * 1000.0)
+    ms = (time.perf_counter() - inicio) * 1000.0
+    observe_latency_ms(ms)
+    try:
+        caminho = uso["caminho"] or ("ia_complemento" if uso["chamadas"] else "regras")
+        registrar_uso(trace_id_atual(), intencao_final, caminho, ms, uso["rejeicoes"], uso["chamadas"])
+    except Exception as e:
+        log.warning("Falha ao gravar uso da mensagem: %s", e)  # telemetria nunca derruba a resposta
 
     if DELAY_LOCAL_SECONDS > 0:
         time.sleep(DELAY_LOCAL_SECONDS)
